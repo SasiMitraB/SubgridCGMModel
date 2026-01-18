@@ -8,3 +8,4 @@ conv_nn/data_saves/
 core
 core.*
 *.core
+AthenaK_legacy/datafiles/
