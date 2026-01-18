@@ -37,8 +37,8 @@ def nn_data(resolution: tuple, downsample: int) -> tuple:
     sim_data.down_sample = downsample
     sim_data.resolution = resolution
 
-    folder_path = f"/tmp/dipayandatta/datafiles/cc{resolution}_{downsample}"
-    file_path = f"/tmp/dipayandatta/athenak/kh_build/src/cc{resolution[0]}_{resolution[1]}/bin"
+    folder_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/datafiles/c{resolution}_{downsample}"
+    file_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacykh_build/src/c{resolution[0]}_{resolution[1]}/bin"
     if os.path.exists(f"{folder_path}"):
 
         sim_data.rho = np.load(f"{folder_path}/rho.npy")
@@ -120,22 +120,22 @@ def snapshot_pred(rho: np.ndarray, temp: np.ndarray, pressure: np.ndarray, ux: n
     input_tensors = [torch.from_numpy(cg[f'cg_{f}']).unsqueeze(0).float() for f in fields]
     input_tensor = torch.cat(input_tensors, dim=0)
     input_tensor = input_tensor.unsqueeze(0)
-    input_mean = np.load(f"/data3/home/dipayandatta/Subgrid_CGM_Models/conv_nn/all_flux_model_saves/cnn_{sim_data.resolution}_{downsample}_input_mean.npy")
-    input_std = np.load(f"/data3/home/dipayandatta/Subgrid_CGM_Models/conv_nn/all_flux_model_saves/cnn_{sim_data.resolution}_{downsample}_input_std.npy")
+    input_mean = np.load(f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/conv_nn/all_flux_model_saves/cnn_{sim_data.resolution}_{downsample}_input_mean.npy")
+    input_std = np.load(f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/conv_nn/all_flux_model_saves/cnn_{sim_data.resolution}_{downsample}_input_std.npy")
     input_tensor = (input_tensor - input_mean) / input_std
     input_tensor = input_tensor.to(device)
 
     global in_channels, layer_size1, layer_size2, layer_size3, out_channels, kernel_size
 
 
-    model_path = f'/data3/home/dipayandatta/Subgrid_CGM_Models/conv_nn/all_flux_model_saves/cnn_{sim_data.resolution}_{downsample}.pth'
+    model_path = f'/ptmp/mpa/dipda/subgrid/SubgridCGMModel/conv_nn/all_flux_model_saves/cnn_{sim_data.resolution}_{downsample}.pth'
     cnn_model = ConvNN(in_channels, layer_size1, layer_size2, layer_size3, out_channels, kernel_size).to(device)
     cnn_model.load_state_dict(torch.load(model_path, map_location=device))
     cnn_model.eval()
 
     with torch.no_grad():
-        output_mean = torch.from_numpy(np.load(f"/data3/home/dipayandatta/Subgrid_CGM_Models/conv_nn/all_flux_model_saves/cnn_{sim_data.resolution}_{downsample}_output_mean.npy"))
-        output_std = torch.from_numpy(np.load(f"/data3/home/dipayandatta/Subgrid_CGM_Models/conv_nn/all_flux_model_saves/cnn_{sim_data.resolution}_{downsample}_output_std.npy"))
+        output_mean = torch.from_numpy(np.load(f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/conv_nn/all_flux_model_saves/cnn_{sim_data.resolution}_{downsample}_output_mean.npy"))
+        output_std = torch.from_numpy(np.load(f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/conv_nn/all_flux_model_saves/cnn_{sim_data.resolution}_{downsample}_output_std.npy"))
         output_mean = output_mean.to(device)
         output_std = output_std.to(device)
         pred = cnn_model(input_tensor)  
@@ -198,7 +198,7 @@ def per_sample_normalized_mse(pred, target, eps=1e-6, reduction='mean'):
 
 if __name__ == "__main__":
 
-    file_path = f"/tmp/dipayandatta/athenak/kh_build/src/{resolution[0]}_{resolution[1]}/bin" 
+    file_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacykh_build/src/c{resolution[0]}_{resolution[1]}/bin"
 
     print(f"Training all fluxes model")
     torch.cuda.empty_cache()

@@ -1,18 +1,14 @@
 #!/bin/bash
-#SBATCH --job-name=cnn_evol_pipeline
-#SBATCH --partition=low_unl_1gpu
-#SBATCH --gres=gpu:1
-#SBATCH --time=24:00:00
+#SBATCH --job-name=cnn_train
+#SBATCH --partition=p.test
+#SBATCH --nodes=1
+#SBATCH --ntasks=1
+#SBATCH --cpus-per-task=10
+#SBATCH --time=00:30:00
 #SBATCH --output=job.log
 #SBATCH --error=job.err
 
 echo "Starting CNN training..."
-python3 -u flux_cnn.py
-
-echo "Switching to data directory..."
-cd ../data/
-
-echo "Starting evolution animation..."
-python3 -u mocks/all_evol.py
+python3 -u all_flux_cnn.py
 
 echo "Job complete."
