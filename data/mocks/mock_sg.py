@@ -48,7 +48,7 @@ lr_frac[temp < sim_data.T_cutoff] = 1.0
 frac = sim_data.frho
 
 lr_resolution = resolution
-lr_file_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/src/c{lr_resolution[0]}_{lr_resolution[1]}/bin"
+lr_file_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/kh_build/src/c{lr_resolution[0]}_{lr_resolution[1]}/bin"
 lr_sim_data = simulation_data()
 lr_sim_data.resolution = lr_resolution
 lr_sim_data.input_data(lr_file_path, start=501)
@@ -102,7 +102,7 @@ lr_fmcl = (lr_temp < 1e5).astype(float)
 
 hr_resolution = (512, 256)
 hr_downsample = 32
-hr_file_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/src/c{hr_resolution[0]}_{hr_resolution[1]}/bin"
+hr_file_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/kh_build/src/c{hr_resolution[0]}_{hr_resolution[1]}/bin"
 hr_sim_data = simulation_data()
 hr_sim_data.resolution = hr_resolution
 hr_sim_data.down_sample = hr_downsample
