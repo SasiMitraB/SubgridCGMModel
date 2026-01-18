@@ -1,1 +1,1 @@
-slurmstepd: error: *** JOB 1000398 ON freyag02 CANCELLED AT 2026-01-18T16:03:37 ***
+/var/spool/slurmd//job1000434/slurm_script: line 18: 29753 Segmentation fault      (core dumped) ./athena -i sg.athinput -d c16_8/ -r rc16_8/rst/KH.00005.rst

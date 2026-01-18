@@ -59,12 +59,12 @@ sigma = 0.25            # width of gaussian profile
 user_srcs = true        # Activate user source terms
 
 #vx_hot = 30.784         # hot phase velocity (~ +30.1 km/s)
-#vx_hot = 28.2653        #new velocity consistent with Dimotakis
+vx_hot = 28.2653        #new velocity consistent with Dimotakis
 #vx_hot = 0.0
-vx_hot = 56.5306
+#vx_hot = 56.5306
 #vx_cold = -0.3078 	    # cold phase velocity (~ -0.301 km/s)
-#vx_cold = -2.8265
-vx_cold = -5.6530
+vx_cold = -2.8265
+#vx_cold = -5.6530
 
 a_char = 0.0625		    # width of tanh profile
 #a_char = 0.125

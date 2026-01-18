@@ -1,6 +1,3 @@
-Loading gcc/10
-  ERROR: Module cannot be loaded due to a conflict.
-    HINT: Might try "module unload gcc/11" first.
 
 Root grid = 2 x 1 x 1 MeshBlocks
 Total number of MeshBlocks = 2
@@ -10,7 +7,16 @@ Number of parallel ranks = 1
 
 Setup complete, executing task list(s)...
 
-elapsed=2.867516e+00 cycle=1770 time=5.042489e+00 dt=4.532113e-02
-elapsed=6.423320e+00 cycle=1775 time=5.517112e+00 dt=1.161690e-01
-elapsed=9.984482e+00 cycle=1780 time=6.123073e+00 dt=1.260602e-01
-elapsed=1.356345e+01 cycle=1785 time=6.732861e+00 dt=1.169175e-01
+elapsed=3.195687e+00 cycle=1485 time=5.010120e+00 dt=1.349316e-02
+elapsed=1.096312e+01 cycle=1490 time=5.327974e+00 dt=1.153074e-01
+elapsed=1.873586e+01 cycle=1495 time=5.930345e+00 dt=1.212210e-01
+elapsed=2.649832e+01 cycle=1500 time=6.973880e+00 dt=9.193530e-01
+
+Terminating on time limit
+time=1.000000e+01 cycle=1503
+tlim=1.000000e+01 nlim=-1
+
+MeshBlock-cycles = 40
+cpu time used  = 3.116258e+01
+zone-cycles/cpu_second = 8.214982e+01
+particle-updates/cpu_second = 0.000000e+00
