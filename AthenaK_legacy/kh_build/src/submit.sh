@@ -15,7 +15,7 @@ export OMP_PLACES=threads
 export PYTHONPATH=$PWD/python:$PYTHONPATH
 
 # ---- main run ----
-#./athena -i kh_cooling_pcunits.athinput -d rc512_256/
+#./athena -i kh_cooling_pcunits.athinput -d rc16_8/
 
 # ---- restart run ----
-./athena -i kh_cooling_pcunits.athinput -d c512_256/ -r rc512_256/rst/KH.00005.rst
+./athena -i kh_cooling_pcunits.athinput -d c16_8/ -r rc16_8/rst/KH.00005.rst
