@@ -2,17 +2,4 @@ Starting CNN training...
 Training all fluxes model
 Input data loaded
 Normalizing the input and output tensors
-Number of samples in the dataset: 500
-Epoch [50/1000] Train Loss: 0.2870, Train R2: 0.6790 | Val Loss: 0.3718, Val R2: 0.5911
-Epoch [100/1000] Train Loss: 0.1703, Train R2: 0.8095 | Val Loss: 0.2682, Val R2: 0.7051
-Epoch [150/1000] Train Loss: 0.1456, Train R2: 0.8371 | Val Loss: 0.2482, Val R2: 0.7270
-Epoch [200/1000] Train Loss: 0.1206, Train R2: 0.8651 | Val Loss: 0.2275, Val R2: 0.7498
-Epoch [250/1000] Train Loss: 0.1089, Train R2: 0.8781 | Val Loss: 0.2170, Val R2: 0.7613
-Epoch [300/1000] Train Loss: 0.0961, Train R2: 0.8925 | Val Loss: 0.2050, Val R2: 0.7745
-Epoch [350/1000] Train Loss: 0.0928, Train R2: 0.8962 | Val Loss: 0.2044, Val R2: 0.7752
-Epoch [400/1000] Train Loss: 0.0875, Train R2: 0.9021 | Val Loss: 0.2007, Val R2: 0.7792
-Epoch [450/1000] Train Loss: 0.0862, Train R2: 0.9035 | Val Loss: 0.1974, Val R2: 0.7829
-Epoch [500/1000] Train Loss: 0.0814, Train R2: 0.9089 | Val Loss: 0.2036, Val R2: 0.7761
-Early stopping at epoch 500 due to no improvement in moving average validation loss.
-Test Loss: 0.1886, Test R2: 0.7725
-Job complete.
+Number of samples in the dataset: 501
