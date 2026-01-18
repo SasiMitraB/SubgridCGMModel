@@ -377,7 +377,7 @@ namespace {
       int idx = m * (Nj * Ni) + (i - is) * Nj + (j - js);
 
       // rho update
-      u0(m, IDN, ks, j, i) = fmax(1.0, u0(m, IDN, ks, j, i) + bdt * S_buf(0, idx));
+      u0(m, IDN, ks, j, i) = fmax(0.0, u0(m, IDN, ks, j, i) + bdt * S_buf(0, idx));
       // u0(m, IDN, ks, j, i) += bdt * S_buf(0, idx);
 
       // momentum update
@@ -385,8 +385,8 @@ namespace {
       u0(m, IM2, ks, j, i) += bdt * S_buf(2, idx);
 
       // energy update
-      u0(m, IEN, ks, j, i) = fmax(1.0, u0(m, IEN, ks, j, i) + bdt * S_buf(3, idx));
-      // u0(m, IEN, ks, j, i) += bdt * S_buf(3, idx);
+      // u0(m, IEN, ks, j, i) = fmax(1.0, u0(m, IEN, ks, j, i) + bdt * S_buf(3, idx));
+      u0(m, IEN, ks, j, i) += bdt * S_buf(3, idx);
 
       // fmcl update
       u0(m, frho_index, ks, j, i) = fmax(0.0, u0(m, frho_index, ks, j, i) + bdt * S_buf(4, idx));
