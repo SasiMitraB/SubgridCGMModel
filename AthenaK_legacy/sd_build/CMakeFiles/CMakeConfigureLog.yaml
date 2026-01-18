@@ -1115,3 +1115,38 @@ events:
         
       exitCode: 0
 ...
+
+---
+events:
+  -
+    kind: "try_compile-v1"
+    backtrace:
+      - "kokkos/cmake/kokkos_test_cxx_std.cmake:87 (TRY_COMPILE)"
+      - "kokkos/cmake/kokkos_tribits.cmake:209 (INCLUDE)"
+      - "kokkos/CMakeLists.txt:226 (KOKKOS_SETUP_BUILD_ENVIRONMENT)"
+    directories:
+      source: "/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/sd_build/kokkos/corner_cases/CMakeFiles/CMakeTmp"
+      binary: "/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/sd_build/kokkos/corner_cases/CMakeFiles/CMakeTmp"
+    cmakeVariables:
+      CMAKE_CXX_FLAGS: ""
+      CMAKE_CXX_FLAGS_DEBUG: ""
+      CMAKE_EXE_LINKER_FLAGS: ""
+      CMAKE_MODULE_PATH: "cmake/Modules"
+    buildResult:
+      variable: "CAN_COMPILE_CPP17"
+      cached: true
+      stdout: |
+        Change Dir: '/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/sd_build/kokkos/corner_cases/CMakeFiles/CMakeTmp'
+        
+        Run Build Command(s): /usr/bin/cmake -E env VERBOSE=1 /usr/bin/gmake -f Makefile cmTC_11364/fast
+        /usr/bin/gmake  -f CMakeFiles/cmTC_11364.dir/build.make CMakeFiles/cmTC_11364.dir/build
+        gmake[1]: Entering directory '/freya/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/sd_build/kokkos/corner_cases/CMakeFiles/CMakeTmp'
+        Building CXX object CMakeFiles/cmTC_11364.dir/cplusplus17.cpp.o
+        /mpcdf/soft/SLE_15/packages/x86_64/gcc/11.2.0/bin/g++   -std=c++17 -o CMakeFiles/cmTC_11364.dir/cplusplus17.cpp.o -c /ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/kokkos/cmake/compile_tests/cplusplus17.cpp
+        Linking CXX executable cmTC_11364
+        /usr/bin/cmake -E cmake_link_script CMakeFiles/cmTC_11364.dir/link.txt --verbose=1
+        /mpcdf/soft/SLE_15/packages/x86_64/gcc/11.2.0/bin/g++ CMakeFiles/cmTC_11364.dir/cplusplus17.cpp.o -o cmTC_11364 
+        gmake[1]: Leaving directory '/freya/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/sd_build/kokkos/corner_cases/CMakeFiles/CMakeTmp'
+        
+      exitCode: 0
+...

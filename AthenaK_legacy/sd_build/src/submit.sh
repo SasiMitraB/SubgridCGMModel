@@ -4,8 +4,8 @@
 #SBATCH --error=athena.err
 #SBATCH --partition=p.test
 #SBATCH --nodes=1
-#SBATCH --ntasks=1
-#SBATCH --cpus-per-task=40
+#SBATCH --ntasks=40
+#SBATCH --cpus-per-task=1
 #SBATCH --time=00:30:00
 
 export OMP_NUM_THREADS=${SLURM_CPUS_PER_TASK}
