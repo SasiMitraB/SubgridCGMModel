@@ -55,8 +55,8 @@ def nn_data(resolution: tuple, downsample: int) -> tuple:
         sim_data.cons_ener = np.load(f"{folder_path}/cons_ener.npy")
         sim_data.cons_ps = np.load(f"{folder_path}/cons_ps.npy")
     else:
-        sim_data.input_data(file_path, start = 501)
-        sim_data.input_cons_data(file_path, start = 501)
+        sim_data.input_data(file_path, start = 0)
+        sim_data.input_cons_data(file_path, start = 0)
         os.makedirs(folder_path, exist_ok=True)
 
         np.save(f"{folder_path}/rho.npy", sim_data.rho)
