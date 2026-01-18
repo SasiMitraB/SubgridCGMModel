@@ -1,0 +1,16 @@
+Loading gcc/10
+  ERROR: Module cannot be loaded due to a conflict.
+    HINT: Might try "module unload gcc/11" first.
+
+Root grid = 2 x 1 x 1 MeshBlocks
+Total number of MeshBlocks = 2
+Number of logical  levels of refinement = 1 (2 levels total)
+Number of physical levels of refinement = 0 (1 levels total)
+Number of parallel ranks = 1
+
+Setup complete, executing task list(s)...
+
+elapsed=2.867516e+00 cycle=1770 time=5.042489e+00 dt=4.532113e-02
+elapsed=6.423320e+00 cycle=1775 time=5.517112e+00 dt=1.161690e-01
+elapsed=9.984482e+00 cycle=1780 time=6.123073e+00 dt=1.260602e-01
+elapsed=1.356345e+01 cycle=1785 time=6.732861e+00 dt=1.169175e-01
