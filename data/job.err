@@ -5,3 +5,24 @@
 Calculating CG HR:   0%|          | 0/500 [00:00<?, ?it/s]Calculating CG HR:   4%|▍         | 19/500 [00:00<00:02, 188.27it/s]Calculating CG HR:   8%|▊         | 39/500 [00:00<00:03, 138.02it/s]Calculating CG HR:  12%|█▏        | 58/500 [00:00<00:02, 156.85it/s]Calculating CG HR:  16%|█▌        | 78/500 [00:00<00:02, 168.90it/s]Calculating CG HR:  20%|█▉        | 98/500 [00:00<00:02, 177.33it/s]Calculating CG HR:  24%|██▎       | 118/500 [00:00<00:02, 182.60it/s]Calculating CG HR:  28%|██▊       | 138/500 [00:00<00:01, 186.26it/s]Calculating CG HR:  32%|███▏      | 158/500 [00:00<00:01, 188.87it/s]Calculating CG HR:  36%|███▌      | 178/500 [00:00<00:01, 190.52it/s]Calculating CG HR:  40%|███▉      | 198/500 [00:01<00:01, 191.50it/s]Calculating CG HR:  44%|████▎     | 218/500 [00:01<00:01, 192.32it/s]Calculating CG HR:  48%|████▊     | 238/500 [00:01<00:01, 191.60it/s]Calculating CG HR:  52%|█████▏    | 258/500 [00:01<00:01, 192.43it/s]Calculating CG HR:  56%|█████▌    | 278/500 [00:01<00:01, 192.99it/s]Calculating CG HR:  60%|█████▉    | 298/500 [00:01<00:01, 193.47it/s]Calculating CG HR:  64%|██████▎   | 318/500 [00:01<00:00, 194.02it/s]Calculating CG HR:  68%|██████▊   | 338/500 [00:01<00:00, 194.50it/s]Calculating CG HR:  72%|███████▏  | 358/500 [00:01<00:00, 194.82it/s]Calculating CG HR:  76%|███████▌  | 378/500 [00:02<00:00, 195.07it/s]Calculating CG HR:  80%|███████▉  | 398/500 [00:02<00:00, 195.18it/s]Calculating CG HR:  84%|████████▎ | 418/500 [00:02<00:00, 195.23it/s]Calculating CG HR:  88%|████████▊ | 438/500 [00:02<00:00, 195.36it/s]Calculating CG HR:  92%|█████████▏| 458/500 [00:02<00:00, 195.40it/s]Calculating CG HR:  96%|█████████▌| 478/500 [00:02<00:00, 195.35it/s]Calculating CG HR: 100%|█████████▉| 498/500 [00:02<00:00, 195.41it/s]Calculating CG HR: 100%|██████████| 500/500 [00:02<00:00, 188.95it/s]
 CG HR Fluxes:   0%|          | 0/500 [00:00<?, ?it/s]CG HR Fluxes:   4%|▍         | 19/500 [00:00<00:02, 186.55it/s]CG HR Fluxes:   8%|▊         | 39/500 [00:00<00:02, 193.09it/s]CG HR Fluxes:  12%|█▏        | 60/500 [00:00<00:02, 196.47it/s]CG HR Fluxes:  16%|█▌        | 80/500 [00:00<00:02, 197.42it/s]CG HR Fluxes:  20%|██        | 100/500 [00:00<00:02, 198.01it/s]CG HR Fluxes:  24%|██▍       | 120/500 [00:00<00:01, 198.51it/s]CG HR Fluxes:  28%|██▊       | 140/500 [00:00<00:01, 198.70it/s]CG HR Fluxes:  32%|███▏      | 160/500 [00:00<00:01, 198.94it/s]CG HR Fluxes:  36%|███▌      | 180/500 [00:00<00:01, 198.25it/s]CG HR Fluxes:  40%|████      | 200/500 [00:01<00:01, 198.02it/s]CG HR Fluxes:  44%|████▍     | 220/500 [00:01<00:01, 198.18it/s]CG HR Fluxes:  48%|████▊     | 240/500 [00:01<00:01, 198.37it/s]CG HR Fluxes:  52%|█████▏    | 260/500 [00:01<00:01, 197.89it/s]CG HR Fluxes:  56%|█████▌    | 280/500 [00:01<00:01, 197.76it/s]CG HR Fluxes:  60%|██████    | 300/500 [00:01<00:01, 197.50it/s]CG HR Fluxes:  64%|██████▍   | 320/500 [00:01<00:00, 197.28it/s]CG HR Fluxes:  68%|██████▊   | 340/500 [00:01<00:00, 197.71it/s]CG HR Fluxes:  72%|███████▏  | 360/500 [00:01<00:00, 197.98it/s]CG HR Fluxes:  76%|███████▌  | 380/500 [00:01<00:00, 198.01it/s]CG HR Fluxes:  80%|████████  | 400/500 [00:02<00:00, 197.55it/s]CG HR Fluxes:  84%|████████▍ | 421/500 [00:02<00:00, 198.53it/s]CG HR Fluxes:  88%|████████▊ | 441/500 [00:02<00:00, 198.91it/s]CG HR Fluxes:  92%|█████████▏| 461/500 [00:02<00:00, 198.81it/s]CG HR Fluxes:  96%|█████████▌| 481/500 [00:02<00:00, 199.03it/s]CG HR Fluxes: 100%|██████████| 500/500 [00:02<00:00, 198.03it/s]
 MovieWriter ffmpeg unavailable; using Pillow instead.
+Traceback (most recent call last):
+  File "/u/dipda/.local/lib/python3.6/site-packages/PIL/Image.py", line 2220, in save
+    format = EXTENSION[ext]
+KeyError: '.mp4'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "mocks/mock_sg.py", line 700, in <module>
+    ani_all.save(save_path + "all_fields_evolution.mp4", writer="ffmpeg")
+  File "/u/dipda/.local/lib/python3.6/site-packages/matplotlib/animation.py", line 1161, in save
+    writer.grab_frame(**savefig_kwargs)
+  File "/usr/lib64/python3.6/contextlib.py", line 88, in __exit__
+    next(self.gen)
+  File "/u/dipda/.local/lib/python3.6/site-packages/matplotlib/animation.py", line 253, in saving
+    self.finish()
+  File "/u/dipda/.local/lib/python3.6/site-packages/matplotlib/animation.py", line 556, in finish
+    duration=int(1000 / self.fps), loop=0)
+  File "/u/dipda/.local/lib/python3.6/site-packages/PIL/Image.py", line 2222, in save
+    raise ValueError(f"unknown file extension: {ext}") from e
+ValueError: unknown file extension: .mp4
