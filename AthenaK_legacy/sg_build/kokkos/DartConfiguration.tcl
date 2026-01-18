@@ -4,14 +4,14 @@
 
 
 # Configuration directories and files
-SourceDirectory: /data3/home/dipayandatta/Subgrid_CGM_Models/athenak/kokkos
-BuildDirectory: /data3/home/dipayandatta/Subgrid_CGM_Models/athenak/sg_build/kokkos
+SourceDirectory: /ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/kokkos
+BuildDirectory: /ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/sg_build/kokkos
 
 # Where to place the cost data store
 CostDataFile: 
 
 # Site is something like machine.domain, i.e. pragmatic.crd
-Site: Amazon-GPU
+Site: freya01
 
 # Build name is osname-revision-compiler, i.e. Linux-2.4.2-2smp-c++
 BuildName: Linux-c++
@@ -21,12 +21,13 @@ LabelsForSubprojects:
 
 # Submission information
 SubmitURL: http://
+SubmitInactivityTimeout: 
 
 # Dashboard start time
 NightlyStartTime: 00:00:00 EDT
 
 # Commands for the build/test/submit cycle
-ConfigureCommand: "/usr/bin/cmake" "/data3/home/dipayandatta/Subgrid_CGM_Models/athenak/kokkos"
+ConfigureCommand: "/usr/bin/cmake" "/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/kokkos"
 MakeCommand: /usr/bin/cmake --build . --config "${CTEST_CONFIGURATION_TYPE}"
 DefaultCTestConfigurationType: Release
 
@@ -44,7 +45,7 @@ SVNOptions:
 SVNUpdateOptions: 
 
 # Git options
-GITCommand: /usr/bin/git
+GITCommand: 
 GITInitSubmodules: 
 GITUpdateOptions: 
 GITUpdateCustom: 
@@ -57,13 +58,13 @@ P4UpdateOptions:
 P4UpdateCustom: 
 
 # Generic update command
-UpdateCommand: /usr/bin/git
+UpdateCommand: 
 UpdateOptions: 
-UpdateType: git
+UpdateType: 
 
 # Compiler info
 Compiler: /usr/bin/c++
-CompilerVersion: 11.4.0
+CompilerVersion: 7.5.0
 
 # Dynamic analysis (MemCheck)
 PurifyCommand: 
@@ -75,12 +76,12 @@ CudaSanitizerCommand:
 CudaSanitizerCommandOptions: 
 MemoryCheckType: 
 MemoryCheckSanitizerOptions: 
-MemoryCheckCommand: /usr/bin/cuda-memcheck
+MemoryCheckCommand: MEMORYCHECK_COMMAND-NOTFOUND
 MemoryCheckCommandOptions: 
 MemoryCheckSuppressionFile: 
 
 # Coverage
-CoverageCommand: /usr/bin/gcov
+CoverageCommand: /mpcdf/soft/SLE_15/packages/x86_64/gcc/11.2.0/bin/gcov
 CoverageExtraFlags: -l
 
 # Testing options

@@ -21,4 +21,4 @@ export PYTHONPATH=$PWD/python:$PYTHONPATH
 # ./athena -i kh_cooling_pcunits.athinput -d rc512_256/
 
 # ---- restart run ----
-./athena -i kh_cooling_pcunits.athinput -d c512_256/ -r rc512_256/rst/KH.00005.rst
+./athena -i kh_cooling_pcunits.athinput -d c2512_256/ -r rc512_256/rst/KH.00005.rst

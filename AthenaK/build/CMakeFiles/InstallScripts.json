@@ -1,0 +1,19 @@
+{
+	"InstallScripts" : 
+	[
+		"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK/build/cmake_install.cmake",
+		"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK/build/src/cmake_install.cmake",
+		"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK/build/kokkos/cmake_install.cmake",
+		"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK/build/kokkos/core/cmake_install.cmake",
+		"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK/build/kokkos/core/src/cmake_install.cmake",
+		"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK/build/kokkos/containers/cmake_install.cmake",
+		"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK/build/kokkos/containers/src/cmake_install.cmake",
+		"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK/build/kokkos/algorithms/cmake_install.cmake",
+		"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK/build/kokkos/algorithms/src/cmake_install.cmake",
+		"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK/build/kokkos/simd/cmake_install.cmake",
+		"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK/build/kokkos/simd/src/cmake_install.cmake",
+		"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK/build/kokkos/example/cmake_install.cmake",
+		"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK/build/kokkos/benchmarks/cmake_install.cmake"
+	],
+	"Parallel" : false
+}
