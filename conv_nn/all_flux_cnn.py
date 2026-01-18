@@ -38,7 +38,7 @@ def nn_data(resolution: tuple, downsample: int) -> tuple:
     sim_data.resolution = resolution
 
     folder_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/datafiles/c{resolution}_{downsample}"
-    file_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacykh_build/src/c{resolution[0]}_{resolution[1]}/bin"
+    file_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/kh_build/src/c{resolution[0]}_{resolution[1]}/bin"
     if os.path.exists(f"{folder_path}"):
 
         sim_data.rho = np.load(f"{folder_path}/rho.npy")
@@ -198,7 +198,7 @@ def per_sample_normalized_mse(pred, target, eps=1e-6, reduction='mean'):
 
 if __name__ == "__main__":
 
-    file_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacykh_build/src/c{resolution[0]}_{resolution[1]}/bin"
+    file_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/kh_build/src/c{resolution[0]}_{resolution[1]}/bin"
 
     print(f"Training all fluxes model")
     torch.cuda.empty_cache()
