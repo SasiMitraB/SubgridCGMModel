@@ -697,7 +697,7 @@ ani_all = animation.FuncAnimation(
 )
 
 plt.tight_layout()
-ani_all.save(save_path + "all_fields_evolution.mp4", writer="ffmpeg")
+ani_all.save(save_path + "all_fields_evolution.gif", writer="ffmpeg")
 plt.close(fig)
 print("Saved updated animation with correct dynamic colorbars")
 
@@ -807,7 +807,7 @@ ani_cons = animation.FuncAnimation(
 )
 
 plt.tight_layout()
-ani_cons.save(save_path + "cons_fields_evolution.mp4", writer="ffmpeg")
+ani_cons.save(save_path + "cons_fields_evolution.gif", writer="ffmpeg")
 plt.close(fig)
 
 print("Saved conserved-field animation with dynamic colorbars")
@@ -835,7 +835,7 @@ def update_rho(frame):
     return [im_rho, im_hr_rho, im_lr_rho]
 
 ani_rho = animation.FuncAnimation(fig, update_rho, frames=rho.shape[0], interval=100, blit=True)
-ani_rho.save(save_path + "density_evolution.mp4", writer='ffmpeg')
+ani_rho.save(save_path + "density_evolution.gif", writer='ffmpeg')
 plt.close(fig)
 print("Density evolution animation saved")
 
