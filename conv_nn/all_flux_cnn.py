@@ -37,8 +37,8 @@ def nn_data(resolution: tuple, downsample: int) -> tuple:
     sim_data.down_sample = downsample
     sim_data.resolution = resolution
 
-    folder_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/datafiles/rc{resolution}_{downsample}"
-    file_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/kh_build/src/rc{resolution[0]}_{resolution[1]}/bin"
+    folder_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/datafiles/c{resolution}_{downsample}"
+    file_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/kh_build/src/c{resolution[0]}_{resolution[1]}/bin"
     if os.path.exists(f"{folder_path}"):
 
         sim_data.rho = np.load(f"{folder_path}/rho.npy")
@@ -55,8 +55,8 @@ def nn_data(resolution: tuple, downsample: int) -> tuple:
         sim_data.cons_ener = np.load(f"{folder_path}/cons_ener.npy")
         sim_data.cons_ps = np.load(f"{folder_path}/cons_ps.npy")
     else:
-        sim_data.input_data(file_path, start = 0)
-        sim_data.input_cons_data(file_path, start = 0)
+        sim_data.input_data(file_path, start = 501)
+        sim_data.input_cons_data(file_path, start = 501)
         os.makedirs(folder_path, exist_ok=True)
 
         np.save(f"{folder_path}/rho.npy", sim_data.rho)
