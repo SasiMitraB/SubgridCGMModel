@@ -1,0 +1,1 @@
+/var/spool/slurmd//job1000613/slurm_script: line 18: 14925 Segmentation fault      (core dumped) ./athena -i sg.athinput -d c3c16_8/ -r rc16_8/rst/KH.00005.rst
