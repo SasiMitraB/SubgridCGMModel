@@ -3,17 +3,17 @@ Training all fluxes model
 Input data loaded
 Normalizing the input and output tensors
 Number of samples in the dataset: 500
-Epoch [50/1000] Train Loss: 0.2624, Train R2: 0.3308 | Val Loss: 0.2623, Val R2: 0.3095
-Epoch [100/1000] Train Loss: 0.2008, Train R2: 0.6273 | Val Loss: 0.2136, Val R2: 0.5679
-Epoch [150/1000] Train Loss: 0.1744, Train R2: 0.7211 | Val Loss: 0.1948, Val R2: 0.6423
-Epoch [200/1000] Train Loss: 0.1602, Train R2: 0.7688 | Val Loss: 0.1838, Val R2: 0.6855
-Epoch [250/1000] Train Loss: 0.1525, Train R2: 0.7999 | Val Loss: 0.1785, Val R2: 0.7091
-Epoch [300/1000] Train Loss: 0.1494, Train R2: 0.8112 | Val Loss: 0.1773, Val R2: 0.7139
-Epoch [350/1000] Train Loss: 0.1473, Train R2: 0.8121 | Val Loss: 0.1747, Val R2: 0.7201
-Epoch [400/1000] Train Loss: 0.1443, Train R2: 0.8250 | Val Loss: 0.1733, Val R2: 0.7244
-Epoch [450/1000] Train Loss: 0.1407, Train R2: 0.8376 | Val Loss: 0.1704, Val R2: 0.7366
-Epoch [500/1000] Train Loss: 0.1391, Train R2: 0.8364 | Val Loss: 0.1682, Val R2: 0.7415
-Epoch [550/1000] Train Loss: 0.1412, Train R2: 0.8414 | Val Loss: 0.1709, Val R2: 0.7374
-Early stopping at epoch 574 due to no improvement in moving average validation loss.
-Test Loss: 0.1768, Test R2: 0.7078
+Epoch [50/1000] Train Loss: 0.2629, Train R2: 0.3238 | Val Loss: 0.2624, Val R2: 0.3119
+Epoch [100/1000] Train Loss: 0.2118, Train R2: 0.5781 | Val Loss: 0.2231, Val R2: 0.5200
+Epoch [150/1000] Train Loss: 0.1730, Train R2: 0.7179 | Val Loss: 0.1937, Val R2: 0.6390
+Epoch [200/1000] Train Loss: 0.1619, Train R2: 0.7644 | Val Loss: 0.1863, Val R2: 0.6778
+Epoch [250/1000] Train Loss: 0.1540, Train R2: 0.7870 | Val Loss: 0.1804, Val R2: 0.6951
+Epoch [300/1000] Train Loss: 0.1483, Train R2: 0.8085 | Val Loss: 0.1755, Val R2: 0.7131
+Epoch [350/1000] Train Loss: 0.1461, Train R2: 0.8181 | Val Loss: 0.1746, Val R2: 0.7204
+Epoch [400/1000] Train Loss: 0.1409, Train R2: 0.8360 | Val Loss: 0.1700, Val R2: 0.7374
+Epoch [450/1000] Train Loss: 0.1425, Train R2: 0.8325 | Val Loss: 0.1722, Val R2: 0.7329
+Epoch [500/1000] Train Loss: 0.1403, Train R2: 0.8334 | Val Loss: 0.1698, Val R2: 0.7396
+Epoch [550/1000] Train Loss: 0.1369, Train R2: 0.8434 | Val Loss: 0.1675, Val R2: 0.7456
+Early stopping at epoch 596 due to no improvement in moving average validation loss.
+Test Loss: 0.1758, Test R2: 0.7091
 Job complete.
