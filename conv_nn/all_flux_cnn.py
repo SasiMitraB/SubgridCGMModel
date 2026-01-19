@@ -19,16 +19,16 @@ resolution = (512, 256)
 downsample = 32
 in_channels = 6
 out_channels = 12
-layer_size1 = 64
-layer_size2 = 128
-layer_size3 = 256
+layer_size1 = 128
+layer_size2 = 256
+layer_size3 = 512
 kernel_size = 5
 num_epochs = 1000
 print_every = 50
 batch_size = 32
 learning_rate = 1e-3
 weight_decay = 1e-4
-dropout_rate = 0.2
+dropout_rate = 0.4
 
 def nn_data(resolution: tuple, downsample: int) -> tuple:
     """ A function to load the data and return the inputs and outputs for the Conv neural network."""
