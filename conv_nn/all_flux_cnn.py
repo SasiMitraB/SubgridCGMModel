@@ -196,6 +196,14 @@ def per_sample_normalized_mse(pred, target, eps=1e-6, reduction='mean'):
     loss = (diff ** 2).mean(dim=dims)
     return loss.mean() if reduction == 'mean' else loss
 
+class CharbonnierLoss(nn.Module):
+    def __init__(self, eps=1e-3):
+        super().__init__()
+        self.eps = eps
+
+    def forward(self, pred, target):
+        return torch.mean(torch.sqrt((pred - target)**2 + self.eps**2))
+
 if __name__ == "__main__":
 
     file_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/kh_build/src/c{resolution[0]}_{resolution[1]}/bin"
@@ -206,7 +214,9 @@ if __name__ == "__main__":
     # Initialize the model, loss function, and optimizer
     cnn_model = ConvNN(in_channels, layer_size1, layer_size2, layer_size3, out_channels, kernel_size).to(device)
     # criterion = nn.MSELoss()
-    criterion = nn.SmoothL1Loss(beta=1.5)
+    # criterion = nn.SmoothL1Loss(beta=1.5)
+    criterion = CharbonnierLoss(eps=1e-1)
+
     optimizer = torch.optim.Adam(cnn_model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
     cnn_data = nn_data(resolution, downsample)
