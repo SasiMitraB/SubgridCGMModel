@@ -391,7 +391,7 @@ class simulation_data():
         cg_momy = np.zeros_like(fmcl)
         cg_ener = np.zeros_like(fmcl)
 
-        subgrid_flux = np.zeros((self.rho.shape[0], 13, self.rho.shape[1] // self.down_sample, self.rho.shape[2] // self.down_sample))
+        subgrid_flux = np.zeros((self.rho.shape[0], 10, self.rho.shape[1] // self.down_sample, self.rho.shape[2] // self.down_sample))
 
         dy = self.total_length / cg_rho.shape[1]
         dx = self.total_width / cg_rho.shape[2]
@@ -419,20 +419,20 @@ class simulation_data():
             subgrid_flux[i][1] = self.coarse_grain(self.rho[i]*self.uy[i]) - cg_rho[i]*cg_uy[i]
 
             # momentum fluxes
-            # subgrid_flux[i][2] = self.coarse_grain(self.rho[i]*self.ux[i]**2 + self.pressure[i]) - (cg_rho[i]*cg_ux[i]**2 + cg_pressure[i])
-            subgrid_flux[i][2] = self.coarse_grain(self.rho[i]*self.ux[i]**2) - (cg_rho[i]*cg_ux[i]**2)
+            subgrid_flux[i][2] = self.coarse_grain(self.rho[i]*self.ux[i]**2 + self.pressure[i]) - (cg_rho[i]*cg_ux[i]**2 + cg_pressure[i])
             subgrid_flux[i][3] = self.coarse_grain(self.rho[i]*self.ux[i]*self.uy[i]) - (cg_rho[i]*cg_ux[i]*cg_uy[i])
-            # subgrid_flux[i][4] = self.coarse_grain(self.rho[i]*self.uy[i]**2 + self.pressure[i]) - (cg_rho[i]*cg_uy[i]**2 + cg_pressure[i])
-            subgrid_flux[i][4] = self.coarse_grain(self.rho[i]*self.uy[i]**2) - (cg_rho[i]*cg_uy[i]**2)
-            subgrid_flux[i][5] = self.coarse_grain(self.pressure[i]) - (cg_pressure[i])
+            subgrid_flux[i][4] = self.coarse_grain(self.rho[i]*self.uy[i]**2 + self.pressure[i]) - (cg_rho[i]*cg_uy[i]**2 + cg_pressure[i])
 
             # energy fluxes
             # subgrid_flux[i][5] = self.coarse_grain(self.ux[i]*(self.gamma*self.pressure[i]/(self.gamma-1) + self.rho[i]*(self.ux[i]**2 + self.uy[i]**2)/2)) - cg_ux[i]*(self.gamma*cg_pressure[i]/(self.gamma-1) + cg_rho[i]*(cg_ux[i]**2 + cg_uy[i]**2)/2)
-            subgrid_flux[i][6] = self.coarse_grain(self.ux[i]*(self.gamma*self.pressure[i]/(self.gamma-1))) - cg_ux[i]*(self.gamma*cg_pressure[i]/(self.gamma-1))
-            subgrid_flux[i][7] = self.coarse_grain(self.ux[i]*(self.rho[i]*(self.ux[i]**2 + self.uy[i]**2)/2)) - cg_ux[i]*(cg_rho[i]*(cg_ux[i]**2 + cg_uy[i]**2)/2)
+            subgrid_flux[i][5] = self.coarse_grain(self.ux[i]*(self.cons_ener[i] + self.pressure[i])) - cg_ux[i]*(cg_ener[i] + cg_pressure[i])
+            # subgrid_flux[i][5] = self.coarse_grain(self.ux[i]*(self.gamma*self.pressure[i]/(self.gamma-1))) - cg_ux[i]*(self.gamma*cg_pressure[i]/(self.gamma-1))
+            # subgrid_flux[i][6] = self.coarse_grain(self.ux[i]*(self.rho[i]*(self.ux[i]**2 + self.uy[i]**2)/2)) - cg_ux[i]*(cg_rho[i]*(cg_ux[i]**2 + cg_uy[i]**2)/2)
+
             # subgrid_flux[i][6] = self.coarse_grain(self.uy[i]*(self.gamma*self.pressure[i]/(self.gamma-1) + self.rho[i]*(self.ux[i]**2 + self.uy[i]**2)/2)) - cg_uy[i]*(self.gamma*cg_pressure[i]/(self.gamma-1) + cg_rho[i]*(cg_ux[i]**2 + cg_uy[i]**2)/2)
-            subgrid_flux[i][8] = self.coarse_grain(self.uy[i]*(self.gamma*self.pressure[i]/(self.gamma-1))) - cg_uy[i]*(self.gamma*cg_pressure[i]/(self.gamma-1))
-            subgrid_flux[i][9] = self.coarse_grain(self.uy[i]*(self.rho[i]*(self.ux[i]**2 + self.uy[i]**2)/2)) - cg_uy[i]*(cg_rho[i]*(cg_ux[i]**2 + cg_uy[i]**2)/2)
+            subgrid_flux[i][6] = self.coarse_grain(self.uy[i]*(self.cons_ener[i] + self.pressure[i])) - cg_uy[i]*(cg_ener[i] + cg_pressure[i])
+            # subgrid_flux[i][7] = self.coarse_grain(self.uy[i]*(self.gamma*self.pressure[i]/(self.gamma-1))) - cg_uy[i]*(self.gamma*cg_pressure[i]/(self.gamma-1))
+            # subgrid_flux[i][8] = self.coarse_grain(self.uy[i]*(self.rho[i]*(self.ux[i]**2 + self.uy[i]**2)/2)) - cg_uy[i]*(cg_rho[i]*(cg_ux[i]**2 + cg_uy[i]**2)/2)
 
             # cooling fluxes
 
@@ -449,12 +449,12 @@ class simulation_data():
                 deriv_term = (self.cons_ener[i+1] - self.cons_ener[i-1]) / (2 * self.delta_time)
             div_term = divergence(np.array([self.ux[i]*(self.gamma*self.pressure[i]/(self.gamma-1) + self.rho[i]*(self.ux[i]**2 + self.uy[i]**2)/2), \
                                             self.uy[i]*(self.gamma*self.pressure[i]/(self.gamma-1) + self.rho[i]*(self.ux[i]**2 + self.uy[i]**2)/2)]), dX, dY)
-            subgrid_flux[i][10] = self.coarse_grain(deriv_term + div_term)
+            subgrid_flux[i][7] = self.coarse_grain(deriv_term + div_term)
             
             # fmcl fluxes
             mask = np.where(self.temp[i] < self.T_cutoff, 1, 0)
-            subgrid_flux[i][11] = self.coarse_grain(mask*self.rho[i]*self.ux[i]) - fmcl[i]*cg_rho[i]*cg_ux[i]
-            subgrid_flux[i][12] = self.coarse_grain(mask*self.rho[i]*self.uy[i]) - fmcl[i]*cg_rho[i]*cg_uy[i] 
+            subgrid_flux[i][8] = self.coarse_grain(mask*self.rho[i]*self.ux[i]) - fmcl[i]*cg_rho[i]*cg_ux[i]
+            subgrid_flux[i][9] = self.coarse_grain(mask*self.rho[i]*self.uy[i]) - fmcl[i]*cg_rho[i]*cg_uy[i] 
 
         return subgrid_flux
     
