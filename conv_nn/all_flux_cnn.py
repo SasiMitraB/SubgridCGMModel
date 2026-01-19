@@ -205,7 +205,8 @@ if __name__ == "__main__":
 
     # Initialize the model, loss function, and optimizer
     cnn_model = ConvNN(in_channels, layer_size1, layer_size2, layer_size3, out_channels, kernel_size).to(device)
-    criterion = nn.MSELoss()
+    # criterion = nn.MSELoss()
+    criterion = nn.SmoothL1Loss(beta=1.0)
     optimizer = torch.optim.Adam(cnn_model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
     cnn_data = nn_data(resolution, downsample)
