@@ -1,6 +1,6 @@
 #!/bin/bash
 #SBATCH --job-name=cnn_train
-#SBATCH --partition=p.gpu	
+#SBATCH --partition=p.gpu
 #SBATCH --gres=gpu:2
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
