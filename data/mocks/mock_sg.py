@@ -20,8 +20,8 @@ def divergence(f, dx, dy):
     return dFx_dx + dFy_dy
 
 resolution = (16, 8)
-file_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/sd_build/src/c3c{resolution[0]}_{resolution[1]}/bin"
-save_path = f"mocks/sg/c3c{resolution}/"
+file_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/sd_build/src/c1c{resolution[0]}_{resolution[1]}/bin"
+save_path = f"mocks/sg/c1c{resolution}/"
 os.makedirs(save_path, exist_ok=True)
 
 sim_data = simulation_data()
