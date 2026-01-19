@@ -1,8 +1,10 @@
 #!/bin/bash
-#SBATCH --job-name=sg_plot
+# #SBATCH --job-name=sg_plot
 # #SBATCH --partition=p.test	
-#SBATCH --partition=p.gpu
-#SBATCH --gres=gpu:2
+# #SBATCH --partition=p.gpu
+# #SBATCH --gres=gpu:2
+#SBATCH --partition=p.gpu.ampere
+#SBATCH --gres=gpu:a100:4
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=40
