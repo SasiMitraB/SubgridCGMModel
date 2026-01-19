@@ -657,7 +657,7 @@ def source_func(rho, pres, ux, uy, ps, fmcl):
     #     source_term[channel] = (1 - w) * A + w * B
 
     y = np.arange(source_term[3].shape[0])[:, None]
-    mask = np.clip(0.5 * (1 + np.cos(np.pi * np.clip((np.abs(y - 64/3) - 15) / 15, 0, 1))), 0, 1)
+    mask = np.clip(0.5 * (1 + np.cos(np.pi * np.clip((np.abs(y - 64/3) - 5) / 5, 0, 1))), 0, 1)
     source_term[3] *= mask
 
     final_term = np.transpose(source_term, axes=(0, 2, 1))
