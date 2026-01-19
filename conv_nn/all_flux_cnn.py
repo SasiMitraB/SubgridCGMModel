@@ -19,16 +19,16 @@ resolution = (512, 256)
 downsample = 32
 in_channels = 6
 out_channels = 12
-layer_size1 = 128
-layer_size2 = 256
-layer_size3 = 512
+layer_size1 = 64
+layer_size2 = 128
+layer_size3 = 256
 kernel_size = 5
 num_epochs = 1000
 print_every = 50
 batch_size = 32
 learning_rate = 1e-3
 weight_decay = 1e-4
-dropout_rate = 0.2
+dropout_rate = 0.5
 
 def nn_data(resolution: tuple, downsample: int) -> tuple:
     """ A function to load the data and return the inputs and outputs for the Conv neural network."""
@@ -206,7 +206,7 @@ if __name__ == "__main__":
     # Initialize the model, loss function, and optimizer
     cnn_model = ConvNN(in_channels, layer_size1, layer_size2, layer_size3, out_channels, kernel_size).to(device)
     # criterion = nn.MSELoss()
-    criterion = nn.SmoothL1Loss(beta=1.0)
+    criterion = nn.SmoothL1Loss(beta=1.5)
     optimizer = torch.optim.Adam(cnn_model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 
     cnn_data = nn_data(resolution, downsample)
@@ -234,8 +234,8 @@ if __name__ == "__main__":
     print("Number of samples in the dataset:", num_samples)
     # indices = np.concatenate(((np.arange(num_samples // 5), np.random.permutation(np.arange(num_samples // 5, num_samples)))))
     indices = np.random.permutation(num_samples)
-    train_end = int(0.33 * num_samples)
-    val_end = int(0.67 * num_samples)
+    train_end = int(0.50 * num_samples)
+    val_end = int(0.75 * num_samples)
     test_end = int(1.00 * num_samples)
 
     train_indices = indices[:train_end]
