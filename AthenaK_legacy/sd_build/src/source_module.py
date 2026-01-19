@@ -10,7 +10,7 @@ device = torch.device('cpu')
 resolution = (512, 256)
 downsample = 32  
 in_channels = 6
-out_channels = 10
+out_channels = 12
 layer_size1 = 64
 layer_size2 = 128
 layer_size3 = 256
@@ -20,7 +20,7 @@ kernel_size = 5
 batch_size = 64
 learning_rate = 1e-3
 weight_decay = 1e-4
-dropout_rate = 0.5
+dropout_rate = 0.2
 total_length: float = 20 
 total_width: float = 10 
 gamma: float = 5.0 / 3.0
@@ -643,11 +643,11 @@ def source_func(rho, pres, ux, uy, ps, fmcl):
     source_term[2] = - np.gradient(subgrid_flux[3], dy, dx)[0] - np.gradient(subgrid_flux[4], dy, dx)[0]
     
     # energy source term
-    energy_terms = np.array([subgrid_flux[5], subgrid_flux[6]])
-    source_term[3] = - divergence(energy_terms, dx, dy) + subgrid_flux[7]
+    energy_terms = np.array([subgrid_flux[5] + subgrid_flux[6], subgrid_flux[7] + subgrid_flux[8]])
+    source_term[3] = - divergence(energy_terms, dx, dy) + subgrid_flux[9]
 
     # fmcl source term
-    fmcl_terms = np.array([subgrid_flux[8], subgrid_flux[9]])
+    fmcl_terms = np.array([subgrid_flux[10], subgrid_flux[11]])
     source_term[4] = - divergence(fmcl_terms, dx, dy)
     
     final_term = np.transpose(source_term, axes=(0, 2, 1))

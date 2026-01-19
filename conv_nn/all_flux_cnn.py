@@ -18,7 +18,7 @@ device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 resolution = (512, 256)  
 downsample = 32
 in_channels = 6
-out_channels = 10
+out_channels = 12
 layer_size1 = 64
 layer_size2 = 128
 layer_size3 = 256
@@ -28,7 +28,7 @@ print_every = 50
 batch_size = 32
 learning_rate = 1e-3
 weight_decay = 1e-4
-dropout_rate = 0.5
+dropout_rate = 0.2
 
 def nn_data(resolution: tuple, downsample: int) -> tuple:
     """ A function to load the data and return the inputs and outputs for the Conv neural network."""
