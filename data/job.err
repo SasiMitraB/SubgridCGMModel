@@ -7,3 +7,25 @@
 MovieWriter ffmpeg unavailable; using Pillow instead.
 MovieWriter ffmpeg unavailable; using Pillow instead.
 MovieWriter ffmpeg unavailable; using Pillow instead.
+MovieWriter ffmpeg unavailable; using Pillow instead.
+Traceback (most recent call last):
+  File "/u/dipda/.local/lib/python3.6/site-packages/PIL/Image.py", line 2220, in save
+    format = EXTENSION[ext]
+KeyError: '.mp4'
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "mocks/mock_sg.py", line 888, in <module>
+    anim.save(save_path + "temperature_pdf_evolution.mp4", writer="ffmpeg")
+  File "/u/dipda/.local/lib/python3.6/site-packages/matplotlib/animation.py", line 1161, in save
+    writer.grab_frame(**savefig_kwargs)
+  File "/usr/lib64/python3.6/contextlib.py", line 88, in __exit__
+    next(self.gen)
+  File "/u/dipda/.local/lib/python3.6/site-packages/matplotlib/animation.py", line 253, in saving
+    self.finish()
+  File "/u/dipda/.local/lib/python3.6/site-packages/matplotlib/animation.py", line 556, in finish
+    duration=int(1000 / self.fps), loop=0)
+  File "/u/dipda/.local/lib/python3.6/site-packages/PIL/Image.py", line 2222, in save
+    raise ValueError(f"unknown file extension: {ext}") from e
+ValueError: unknown file extension: .mp4
