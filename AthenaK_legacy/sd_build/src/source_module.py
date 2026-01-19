@@ -650,11 +650,15 @@ def source_func(rho, pres, ux, uy, ps, fmcl):
     fmcl_terms = np.array([subgrid_flux[10], subgrid_flux[11]])
     source_term[4] = - divergence(fmcl_terms, dx, dy)
 
-    for channel in range(5):
-        v = source_term[channel]
-        w = np.clip((np.abs(v)-np.percentile(np.abs(v),75)) / (np.percentile(np.abs(v),90)-np.percentile(np.abs(v),75)+1e-12), 0, 1)
-        A, B = gaussian_filter(v, 0.0), gaussian_filter(v, 1.0)
-        source_term[channel] = (1 - w) * A + w * B
+    # for channel in range(5):
+    #     v = source_term[channel]
+    #     w = np.clip((np.abs(v)-np.percentile(np.abs(v),75)) / (np.percentile(np.abs(v),90)-np.percentile(np.abs(v),75)+1e-12), 0, 1)
+    #     A, B = gaussian_filter(v, 0.0), gaussian_filter(v, 1.0)
+    #     source_term[channel] = (1 - w) * A + w * B
+
+    y = np.arange(source_term[3].shape[0])[:, None]
+    mask = np.clip(0.5 * (1 + np.cos(np.pi * np.clip((np.abs(y - 64/3) - 15) / 15, 0, 1))), 0, 1)
+    source_term[3] *= mask
 
     final_term = np.transpose(source_term, axes=(0, 2, 1))
     return final_term.reshape(5, -1)
