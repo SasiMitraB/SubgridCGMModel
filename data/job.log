@@ -1,14 +1,5 @@
 Starting SG Anim...
+LR and HR Density evolution animation saved
 profiles_mean_with_std_all.png saved
 conserved_quantities_mean_with_std.png saved
-derived_quantities_mean_with_std.png saved
-(500, 16, 8) (500, 16, 8) (500, 16, 8)
-(500, 16, 8) (500, 16, 8) (500, 16, 8)
-fluxes_mean_std.png saved
-divergence_fluxes_mean_std.png saved
-Cold mass evolution plot saved (with fit slopes)
-Saved snapshot of all fields
-Saved updated animation with correct dynamic colorbars
-Saved conserved-field animation with dynamic colorbars
-Density evolution animation saved
 Done

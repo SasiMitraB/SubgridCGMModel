@@ -7,8 +7,8 @@ from scipy.ndimage import gaussian_filter, sobel
 
 np.random.seed(10)
 device = torch.device('cpu')
-resolution = (512, 256)
-downsample = 32  
+resolution = (2048, 1024)
+downsample = 128  
 in_channels = 6
 out_channels = 12
 layer_size1 = 64
@@ -16,7 +16,7 @@ layer_size2 = 128
 layer_size3 = 256
 layer_size4 = 256
 layer_size5 = 512
-kernel_size = 5
+kernel_size = 11
 batch_size = 64
 learning_rate = 1e-3
 weight_decay = 1e-4
@@ -652,11 +652,11 @@ def source_func(rho, pres, ux, uy, ps, fmcl):
     fmcl_terms = np.array([subgrid_flux[10], subgrid_flux[11]])
     source_term[4] = - divergence(fmcl_terms, dx, dy)
 
-    # for channel in range(5):
-    #     v = source_term[channel]
-    #     w = np.clip((np.abs(v)-np.percentile(np.abs(v),75)) / (np.percentile(np.abs(v),90)-np.percentile(np.abs(v),75)+1e-12), 0, 1)
-    #     A, B = gaussian_filter(v, 0.0), gaussian_filter(v, 1.0)
-    #     source_term[channel] = (1 - w) * A + w * B
+    for channel in range(5):
+        v = source_term[channel]
+        w = np.clip((np.abs(v)-np.percentile(np.abs(v),25)) / (np.percentile(np.abs(v),50)-np.percentile(np.abs(v),25)+1e-12), 0, 1)
+        A, B = gaussian_filter(v, 0.0), gaussian_filter(v, 15.0)
+        source_term[channel] = (1 - w) * A + w * B
 
     final_term = np.transpose(source_term, axes=(0, 2, 1))
     return final_term.reshape(5, -1)

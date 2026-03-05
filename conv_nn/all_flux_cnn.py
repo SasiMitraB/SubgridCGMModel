@@ -12,17 +12,17 @@ import data_preprocess
 from data_preprocess import simulation_data
 
 np.random.seed(10)
-device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-# device = torch.device('cpu')
+# device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+device = torch.device('cpu')
 
-resolution = (512, 256)  
-downsample = 32
+resolution = (2048, 1024)  
+downsample = 128
 in_channels = 6
 out_channels = 12
 layer_size1 = 64
 layer_size2 = 128
 layer_size3 = 256
-kernel_size = 5
+kernel_size = 11
 num_epochs = 1000
 print_every = 50
 batch_size = 32
@@ -37,7 +37,7 @@ def nn_data(resolution: tuple, downsample: int) -> tuple:
     sim_data.down_sample = downsample
     sim_data.resolution = resolution
 
-    folder_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/datafiles/c{resolution}_{downsample}"
+    folder_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/datafiles/c{resolution}_128"
     file_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/kh_build/src/c{resolution[0]}_{resolution[1]}/bin"
     if os.path.exists(f"{folder_path}"):
 
@@ -213,9 +213,9 @@ if __name__ == "__main__":
 
     # Initialize the model, loss function, and optimizer
     cnn_model = ConvNN(in_channels, layer_size1, layer_size2, layer_size3, out_channels, kernel_size).to(device)
-    # criterion = nn.MSELoss()
+    criterion = nn.MSELoss()
     # criterion = nn.SmoothL1Loss(beta=1.0)
-    criterion = CharbonnierLoss(eps=1e-3)
+    # criterion = CharbonnierLoss(eps=1e-3)
 
     optimizer = torch.optim.Adam(cnn_model.parameters(), lr=learning_rate, weight_decay=weight_decay)
 

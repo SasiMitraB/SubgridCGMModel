@@ -71,9 +71,9 @@ class simulation_data():
     down_sample: int = 8
     total_time: float = 5.0 # Myr
     delta_time: float = 0.01 # Myr
-    total_length: float = 20 # pc
-    total_width: float = 10 # pc
-    resolution: tuple = (512, 256) 
+    total_length: float = 80 # pc
+    total_width: float = 40 # pc
+    resolution: tuple = (2048, 1024) 
     gamma: float = 5./3.
 
     def __init__(self: "simulation_data") -> None:

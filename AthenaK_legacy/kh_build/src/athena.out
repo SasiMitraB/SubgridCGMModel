@@ -7,27 +7,16 @@ Number of parallel ranks = 1
 
 Setup complete, executing task list(s)...
 
-elapsed=7.895890e-02 cycle=1600 time=5.170251e+00 dt=3.127739e-03
-elapsed=1.851776e-01 cycle=1700 time=5.501676e+00 dt=3.388925e-03
-elapsed=2.875666e-01 cycle=1800 time=5.826545e+00 dt=3.380019e-03
-elapsed=3.876635e-01 cycle=1900 time=6.163003e+00 dt=3.277769e-03
-elapsed=4.953567e-01 cycle=2000 time=6.499441e+00 dt=3.378283e-03
-elapsed=5.999613e-01 cycle=2100 time=6.836704e+00 dt=3.381109e-03
-elapsed=7.016677e-01 cycle=2200 time=7.149585e+00 dt=3.137914e-03
-elapsed=8.359525e-01 cycle=2300 time=7.479567e+00 dt=3.384844e-03
-elapsed=1.007380e+00 cycle=2400 time=7.804904e+00 dt=3.377070e-03
-elapsed=1.129203e+00 cycle=2500 time=8.140055e+00 dt=3.322846e-03
-elapsed=1.341715e+00 cycle=2600 time=8.477458e+00 dt=3.381038e-03
-elapsed=1.522227e+00 cycle=2700 time=8.815329e+00 dt=3.387686e-03
-elapsed=1.692501e+00 cycle=2800 time=9.153384e+00 dt=3.376077e-03
-elapsed=1.895907e+00 cycle=2900 time=9.491120e+00 dt=3.375294e-03
-elapsed=2.120482e+00 cycle=3000 time=9.828651e+00 dt=3.376129e-03
+elapsed=1.330416e-01 cycle=500 time=5.663267e+00 dt=1.029978e-02
+elapsed=1.398936e+00 cycle=600 time=6.662327e+00 dt=8.069271e-03
+elapsed=2.637986e+00 cycle=700 time=7.759043e+00 dt=1.202429e-02
+elapsed=3.884226e+00 cycle=800 time=9.060985e+00 dt=1.363315e-02
 
 Terminating on time limit
-time=1.000000e+01 cycle=3051
+time=1.000000e+01 cycle=876
 tlim=1.000000e+01 nlim=-1
 
-MeshBlock-cycles = 3012
-cpu time used  = 2.165563e+00
-zone-cycles/cpu_second = 8.901519e+04
+MeshBlock-cycles = 870
+cpu time used  = 4.811056e+00
+zone-cycles/cpu_second = 1.157334e+04
 particle-updates/cpu_second = 0.000000e+00
