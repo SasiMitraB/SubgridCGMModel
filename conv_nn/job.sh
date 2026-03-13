@@ -5,11 +5,11 @@
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=40
-#SBATCH --time=00:30:00
+#SBATCH --time=03:00:00
 #SBATCH --output=job.log
 #SBATCH --error=job.err
 
 echo "Starting CNN training..."
-python3 -u all_flux_cnn.py
+python3 -u pdf_cnn.py
 
 echo "Job complete."

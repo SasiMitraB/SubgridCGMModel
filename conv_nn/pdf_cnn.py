@@ -18,16 +18,16 @@ device = torch.device('cpu')
 resolution = (512, 256)  
 downsample = 32
 in_channels = 6
-out_channels = 12
-layer_size1 = 64
-layer_size2 = 128
-layer_size3 = 256
-kernel_size = 11
+out_channels = 200
+layer_size1 = 32
+layer_size2 = 64
+layer_size3 = 128
+kernel_size = 5
 num_epochs = 1000
 print_every = 50
-batch_size = 32
+batch_size = 64
 learning_rate = 1e-3
-weight_decay = 1e-4
+weight_decay = 1e-3
 dropout_rate = 0.5
 
 def nn_data(resolution: tuple, downsample: int) -> tuple:
