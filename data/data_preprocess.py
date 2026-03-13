@@ -458,4 +458,32 @@ class simulation_data():
 
         return subgrid_flux
     
+    def calc_pixel_pdf(self: "simulation_data", bins: int = 200) -> np.ndarray:
+
+        ds = self.down_sample
+        nt, nx, ny = self.temp.shape
+
+        pixel_pdf = np.zeros((nt, nx//ds, ny//ds, bins))
+
+        temp_bins = np.logspace(4, 6, bins+1)
+
+        for i in tqdm(range(nt), desc="Calculating pixel PDFs"):
+            for j in range(nx//ds):
+                for k in range(ny//ds):
+
+                    block = self.temp[
+                        i,
+                        j*ds:(j+1)*ds,
+                        k*ds:(k+1)*ds
+                    ]
+
+                    hist, _ = np.histogram(block.ravel(), bins=temp_bins)
+
+                    if hist.sum() > 0:
+                        pixel_pdf[i,j,k] = hist / hist.sum()
+
+        pixel_pdf = np.transpose(pixel_pdf, (0, 3, 1, 2))
+        return pixel_pdf
+                    
+    
 
