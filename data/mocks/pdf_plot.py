@@ -21,6 +21,8 @@ bins = 64
 
 folder_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/datafiles/c{resolution}_128"
 
+os.mkdir("mocks/pdf", exist_ok=True)
+
 gif_path = "mocks/pdf/pdf_animation.gif"
 first_frame_path = "mocks/pdf/pdf_snapshot_t0.png"
 
