@@ -265,12 +265,13 @@ if __name__ == "__main__":
 
     # Log input
     mean_log = torch.log(mean_pdf_expanded)
+    target_log = torch.log(train_outputs_safe)
 
-    # KL
     baseline_kl = F.kl_div(
         mean_log,
-        train_outputs_safe,
-        reduction="batchmean"
+        target_log,
+        reduction="batchmean",
+        log_target=True
     )
 
     print(f"Baseline KL (mean predictor, train set): {baseline_kl.item():.6f}")
