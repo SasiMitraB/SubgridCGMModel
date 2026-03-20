@@ -247,35 +247,6 @@ if __name__ == "__main__":
     validation_loader = DataLoader(val_dataset, batch_size=batch_size)
     test_loader = DataLoader(test_dataset, batch_size=batch_size)
 
-    # Compute mean PDF baseline (train set only)
-    train_outputs = output_tensor[indices[:train_end]]
-
-    # ---- CLAMP TARGET ----
-    train_outputs_safe = torch.clamp(train_outputs, min=1e-8)
-    train_outputs_safe = train_outputs_safe / train_outputs_safe.sum(dim=1, keepdim=True)
-
-    # Mean PDF
-    mean_pdf = torch.mean(train_outputs_safe, dim=0, keepdim=True)
-
-    mean_pdf = torch.clamp(mean_pdf, min=1e-8)
-    mean_pdf = mean_pdf / mean_pdf.sum(dim=1, keepdim=True)
-
-    # Expand
-    mean_pdf_expanded = mean_pdf.repeat(len(train_outputs_safe), 1, 1, 1)
-
-    # Log input
-    mean_log = torch.log(mean_pdf_expanded)
-    target_log = torch.log(train_outputs_safe)
-
-    baseline_kl = F.kl_div(
-        mean_log,
-        target_log,
-        reduction="batchmean",
-        log_target=True
-    )
-
-    print(f"Baseline KL (mean predictor, train set): {baseline_kl.item():.6f}")
-
     epochs_array = []
     train_loss_arr = []
     val_loss_arr = []
