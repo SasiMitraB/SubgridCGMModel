@@ -57,13 +57,24 @@ print(f"Shape: nt={nt}, bins={nb}, nx={nx}, ny={ny}")
 
 
 # =========================
-# FIGURE SETUP (GRID + TEMP)
+# COARSE-GRAIN TEMP
+# =========================
+print("Computing coarse-grained temperature...")
+
+cg_temp = np.zeros((nt, nx, ny))
+
+for t in range(nt):
+    cg_temp[t] = sim_data.coarse_grain(sim_data.temp[t])
+
+
+# =========================
+# FIGURE SETUP
 # =========================
 fig = plt.figure(figsize=(ny*2.2, nx*1.8))
 
-gs = fig.add_gridspec(nrows=1, ncols=2, width_ratios=[3, 1])
+gs = fig.add_gridspec(1, 2, width_ratios=[3, 1])
 
-# Left: PDF grid
+# ---- PDF GRID ----
 pdf_axes = np.empty((nx, ny), dtype=object)
 sub_gs = gs[0].subgridspec(nx, ny)
 
@@ -72,7 +83,7 @@ for i in range(nx):
         ax = fig.add_subplot(sub_gs[i, j])
         pdf_axes[i, j] = ax
 
-        # Enable borders
+        # square borders
         for spine in ax.spines.values():
             spine.set_visible(True)
             spine.set_linewidth(0.3)
@@ -80,16 +91,19 @@ for i in range(nx):
         ax.set_xticks([])
         ax.set_yticks([])
 
-# Right: temperature map
+# ---- TEMP PANEL ----
 temp_ax = fig.add_subplot(gs[1])
 
-temp_im = temp_ax.imshow(sim_data.temp[0], origin="lower", cmap="inferno")
-temp_ax.set_title("Temperature")
-plt.colorbar(temp_im, ax=temp_ax, fraction=0.046)
+log_temp0 = np.log10(cg_temp[0] + 1e-8)
+temp_im = temp_ax.imshow(log_temp0, origin="lower", cmap="inferno")
+
+temp_ax.set_title("log10 Temp (CG)")
+cbar = plt.colorbar(temp_im, ax=temp_ax, fraction=0.046)
+cbar.set_label("log10 Temperature")
 
 
 # =========================
-# LINES FOR PDF
+# INIT LINES
 # =========================
 x = np.arange(nb)
 
@@ -105,7 +119,7 @@ for i in range(nx):
 
 
 # =========================
-# INIT
+# INIT FUNCTION
 # =========================
 def init():
     for i in range(nx):
@@ -115,7 +129,7 @@ def init():
 
 
 # =========================
-# UPDATE
+# UPDATE FUNCTION
 # =========================
 def update(frame):
 
@@ -124,21 +138,25 @@ def update(frame):
     for i in range(nx):
         for j in range(ny):
 
-            y = pdf[:, i, j]
+            # FIX: flip vertically to match imshow
+            ii = nx - 1 - i
+
+            y = pdf[:, ii, j]
             y = y / (y.max() + 1e-8)
 
             lines[i][j].set_data(x, y)
 
-    # update temperature image
-    temp_im.set_data(sim_data.temp[frame])
+    # update temp (log scale CG)
+    log_temp = np.log10(cg_temp[frame] + 1e-8)
+    temp_im.set_data(log_temp)
 
     fig.suptitle(f"t = {frame}", fontsize=12)
 
     # Save first frame
     if frame == 0:
         fig.savefig(first_frame_path, dpi=300)
-        plt.imsave(temp_frame_path, sim_data.temp[0], cmap="inferno")
-        print(f"Saved first snapshot → {first_frame_path}")
+        plt.imsave(temp_frame_path, log_temp, cmap="inferno")
+        print(f"Saved PDF snapshot → {first_frame_path}")
         print(f"Saved temp snapshot → {temp_frame_path}")
 
     return sum(lines, []) + [temp_im]
@@ -154,7 +172,7 @@ anim = animation.FuncAnimation(
     update,
     frames=nt,
     init_func=init,
-    blit=False   # IMPORTANT: multiple artists
+    blit=False
 )
 
 print("Saving GIF...")
