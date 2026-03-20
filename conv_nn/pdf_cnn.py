@@ -18,17 +18,17 @@ device = torch.device('cpu')
 resolution = (512, 256)  
 downsample = 32
 in_channels = 6
-out_channels = 200
-layer_size1 = 32
-layer_size2 = 64
-layer_size3 = 128
+out_channels = 64
+layer_size1 = 16
+layer_size2 = 32
+layer_size3 = 64
 kernel_size = 5
 num_epochs = 1000
 print_every = 50
 batch_size = 64
 learning_rate = 1e-3
 weight_decay = 1e-3
-dropout_rate = 0.5
+dropout_rate = 0.1
 
 def nn_data(resolution: tuple, downsample: int) -> tuple:
     """ A function to load the data and return the inputs and outputs for the Conv neural network."""
@@ -85,7 +85,7 @@ def nn_data(resolution: tuple, downsample: int) -> tuple:
                 cg[f'cg_{field}'][i] = sim_data.coarse_grain(getattr(sim_data, field)[i])
             elif field in ['fmcl']:
                 cg[f'cg_{field}'][i] = sim_data.calc_fmcl(sim_data.rho[i], sim_data.temp[i])
-    temp_pdf = sim_data.calc_pixel_pdf()
+    temp_pdf = sim_data.calc_pixel_pdf(bins = out_channels)
     temp_pdf /= temp_pdf.sum(axis=-1, keepdims=True)
     temp_cdf = np.cumsum(temp_pdf, axis=-1)
 
@@ -198,7 +198,8 @@ if __name__ == "__main__":
     cnn_model = ConvNN(in_channels, layer_size1, layer_size2, layer_size3,
                        out_channels, kernel_size).to(device)
 
-    criterion = nn.KLDivLoss(reduction="batchmean")
+    # criterion = nn.KLDivLoss(reduction="batchmean")
+    criterion = nn.SmoothL1Loss()
 
     optimizer = torch.optim.Adam(
         cnn_model.parameters(),
