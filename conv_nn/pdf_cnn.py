@@ -86,8 +86,7 @@ def nn_data(resolution: tuple, downsample: int) -> tuple:
             elif field in ['fmcl']:
                 cg[f'cg_{field}'][i] = sim_data.calc_fmcl(sim_data.rho[i], sim_data.temp[i])
     temp_pdf = sim_data.calc_pixel_pdf(bins = out_channels)
-    temp_pdf /= temp_pdf.sum(axis=-1, keepdims=True)
-    temp_cdf = np.cumsum(temp_pdf, axis=-1)
+    temp_pdf /= temp_pdf.sum(axis=1, keepdims=True)
 
     input_tensors = [torch.from_numpy(cg[f'cg_{f}']).unsqueeze(1).float() for f in fields]
     # input_tensors = [
@@ -95,7 +94,7 @@ def nn_data(resolution: tuple, downsample: int) -> tuple:
     #     for f in fields
     # ]
     input_tensor = torch.cat(input_tensors, dim=1)
-    output_tensor = torch.from_numpy(temp_cdf).float()
+    output_tensor = torch.from_numpy(temp_pdf).float()
     # output_tensor = torch.from_numpy(source_term[100:]).unsqueeze(1).float()
 
     return input_tensor, output_tensor
