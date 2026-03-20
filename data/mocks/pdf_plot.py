@@ -25,6 +25,7 @@ os.makedirs("mocks/pdf", exist_ok=True)
 
 gif_path = "mocks/pdf/pdf_animation.gif"
 first_frame_path = "mocks/pdf/pdf_snapshot_t0.png"
+temp_frame_path = "mocks/pdf/temp_snapshot_t0.png"
 
 
 # =========================
@@ -48,8 +49,6 @@ print("Data loaded.")
 print("Computing pixel PDFs...")
 
 temp_pdf = sim_data.calc_pixel_pdf(bins=bins)
-
-# Normalize safely
 temp_pdf /= (temp_pdf.sum(axis=1, keepdims=True) + 1e-12)
 
 nt, nb, nx, ny = temp_pdf.shape
@@ -58,27 +57,55 @@ print(f"Shape: nt={nt}, bins={nb}, nx={nx}, ny={ny}")
 
 
 # =========================
-# SETUP FIGURE
+# FIGURE SETUP (GRID + TEMP)
 # =========================
-fig, axes = plt.subplots(nx, ny, figsize=(ny*1.8, nx*1.8))
+fig = plt.figure(figsize=(ny*2.2, nx*1.8))
 
+gs = fig.add_gridspec(nrows=1, ncols=2, width_ratios=[3, 1])
+
+# Left: PDF grid
+pdf_axes = np.empty((nx, ny), dtype=object)
+sub_gs = gs[0].subgridspec(nx, ny)
+
+for i in range(nx):
+    for j in range(ny):
+        ax = fig.add_subplot(sub_gs[i, j])
+        pdf_axes[i, j] = ax
+
+        # Enable borders
+        for spine in ax.spines.values():
+            spine.set_visible(True)
+            spine.set_linewidth(0.3)
+
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+# Right: temperature map
+temp_ax = fig.add_subplot(gs[1])
+
+temp_im = temp_ax.imshow(sim_data.temp[0], origin="lower", cmap="inferno")
+temp_ax.set_title("Temperature")
+plt.colorbar(temp_im, ax=temp_ax, fraction=0.046)
+
+
+# =========================
+# LINES FOR PDF
+# =========================
 x = np.arange(nb)
 
-# store line objects for animation
 lines = []
 for i in range(nx):
     row = []
     for j in range(ny):
-        line, = axes[i, j].plot([], [], lw=1)
-        axes[i, j].set_xlim(0, nb-1)
-        axes[i, j].set_ylim(0, 1)
-        axes[i, j].axis("off")
+        line, = pdf_axes[i, j].plot([], [], lw=1)
+        pdf_axes[i, j].set_xlim(0, nb-1)
+        pdf_axes[i, j].set_ylim(0, 1)
         row.append(line)
     lines.append(row)
 
 
 # =========================
-# INITIAL FRAME
+# INIT
 # =========================
 def init():
     for i in range(nx):
@@ -88,7 +115,7 @@ def init():
 
 
 # =========================
-# UPDATE FUNCTION
+# UPDATE
 # =========================
 def update(frame):
 
@@ -98,22 +125,27 @@ def update(frame):
         for j in range(ny):
 
             y = pdf[:, i, j]
-            y = y / (y.max() + 1e-8)  # normalize for visibility
+            y = y / (y.max() + 1e-8)
 
             lines[i][j].set_data(x, y)
 
-    fig.suptitle(f"Pixel PDFs (t = {frame})", fontsize=12)
+    # update temperature image
+    temp_im.set_data(sim_data.temp[frame])
 
-    # Save first frame as PNG
+    fig.suptitle(f"t = {frame}", fontsize=12)
+
+    # Save first frame
     if frame == 0:
-        plt.savefig(first_frame_path, dpi=300)
+        fig.savefig(first_frame_path, dpi=300)
+        plt.imsave(temp_frame_path, sim_data.temp[0], cmap="inferno")
         print(f"Saved first snapshot → {first_frame_path}")
+        print(f"Saved temp snapshot → {temp_frame_path}")
 
-    return sum(lines, [])
+    return sum(lines, []) + [temp_im]
 
 
 # =========================
-# CREATE ANIMATION
+# ANIMATION
 # =========================
 print("Creating animation...")
 
@@ -122,12 +154,9 @@ anim = animation.FuncAnimation(
     update,
     frames=nt,
     init_func=init,
-    blit=True
+    blit=False   # IMPORTANT: multiple artists
 )
 
-# =========================
-# SAVE GIF
-# =========================
 print("Saving GIF...")
 
 anim.save(gif_path, writer="pillow", fps=10)
