@@ -185,6 +185,69 @@ class ConvNN(nn.Module):
         x = self.decoder(x)
         return x
     
+class UNet(nn.Module):
+    def __init__(self, in_channels, out_channels, base_channels=32):
+        super().__init__()
+
+        # -------- Encoder --------
+        self.enc1 = self.conv_block(in_channels, base_channels)
+        self.enc2 = self.conv_block(base_channels, base_channels*2)
+        self.enc3 = self.conv_block(base_channels*2, base_channels*4)
+
+        self.pool = nn.MaxPool2d(2)
+
+        # -------- Bottleneck --------
+        self.bottleneck = self.conv_block(base_channels*4, base_channels*8)
+
+        # -------- Decoder --------
+        self.up3 = nn.ConvTranspose2d(base_channels*8, base_channels*4, kernel_size=2, stride=2)
+        self.dec3 = self.conv_block(base_channels*8, base_channels*4)
+
+        self.up2 = nn.ConvTranspose2d(base_channels*4, base_channels*2, kernel_size=2, stride=2)
+        self.dec2 = self.conv_block(base_channels*4, base_channels*2)
+
+        self.up1 = nn.ConvTranspose2d(base_channels*2, base_channels, kernel_size=2, stride=2)
+        self.dec1 = self.conv_block(base_channels*2, base_channels)
+
+        # -------- Output --------
+        self.final = nn.Conv2d(base_channels, out_channels, kernel_size=1)
+
+    def conv_block(self, in_ch, out_ch):
+        return nn.Sequential(
+            nn.Conv2d(in_ch, out_ch, 3, padding=1),
+            nn.BatchNorm2d(out_ch),
+            nn.ReLU(),
+
+            nn.Conv2d(out_ch, out_ch, 3, padding=1),
+            nn.BatchNorm2d(out_ch),
+            nn.ReLU(),
+        )
+
+    def forward(self, x):
+
+        # Encoder
+        e1 = self.enc1(x)
+        e2 = self.enc2(self.pool(e1))
+        e3 = self.enc3(self.pool(e2))
+
+        # Bottleneck
+        b = self.bottleneck(self.pool(e3))
+
+        # Decoder
+        d3 = self.up3(b)
+        d3 = torch.cat([d3, e3], dim=1)
+        d3 = self.dec3(d3)
+
+        d2 = self.up2(d3)
+        d2 = torch.cat([d2, e2], dim=1)
+        d2 = self.dec2(d2)
+
+        d1 = self.up1(d2)
+        d1 = torch.cat([d1, e1], dim=1)
+        d1 = self.dec1(d1)
+
+        return self.final(d1)
+    
 if __name__ == "__main__":
 
     file_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/kh_build/src/c{resolution[0]}_{resolution[1]}/bin"
@@ -194,8 +257,9 @@ if __name__ == "__main__":
     torch.cuda.empty_cache()
 
     # Initialize model
-    cnn_model = ConvNN(in_channels, layer_size1, layer_size2, layer_size3,
-                       out_channels, kernel_size).to(device)
+    # cnn_model = ConvNN(in_channels, layer_size1, layer_size2, layer_size3,
+    #                    out_channels, kernel_size).to(device)
+    cnn_model = UNet(in_channels, out_channels).to(device)
 
     criterion = nn.KLDivLoss(reduction="batchmean")
 
