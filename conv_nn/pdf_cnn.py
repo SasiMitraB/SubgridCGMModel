@@ -95,7 +95,7 @@ def nn_data(resolution: tuple, downsample: int) -> tuple:
     #     for f in fields
     # ]
     input_tensor = torch.cat(input_tensors, dim=1)
-    output_tensor = torch.from_numpy(temp_pdf).float()
+    output_tensor = torch.from_numpy(temp_cdf).float()
     # output_tensor = torch.from_numpy(source_term[100:]).unsqueeze(1).float()
 
     return input_tensor, output_tensor
