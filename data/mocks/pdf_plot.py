@@ -7,7 +7,8 @@ import sys
 # =========================
 # IMPORT YOUR CLASS
 # =========================
-sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../data')))
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 from data_preprocess import simulation_data
 
 
