@@ -61,9 +61,11 @@ print(f"Shape: nt={nt}, bins={nb}, nx={nx}, ny={ny}")
 # =========================
 print("Computing coarse-grained temperature...")
 
+cg_rho = np.zeros((nt, nx, ny))
 cg_temp = np.zeros((nt, nx, ny))
 
 for t in range(nt):
+    cg_rho[t] = sim_data.coarse_grain(sim_data.rho[t])
     cg_temp[t] = sim_data.coarse_grain(sim_data.temp[t])
 
 
@@ -94,12 +96,12 @@ for i in range(nx):
 # ---- TEMP PANEL ----
 temp_ax = fig.add_subplot(gs[1])
 
-log_temp0 = np.log10(cg_temp[0] + 1e-8)
+log_temp0 = np.log10(cg_temp[0])
 temp_im = temp_ax.imshow(log_temp0, origin="lower", cmap="inferno")
 
-temp_ax.set_title("log10 Temp (CG)")
+temp_ax.set_title(r"$\log_{10}$ Temp (CG)")
 cbar = plt.colorbar(temp_im, ax=temp_ax, fraction=0.046)
-cbar.set_label("log10 Temperature")
+cbar.set_label(r"$\log_{10}$ Temperature")
 
 
 # =========================
@@ -150,7 +152,7 @@ def update(frame):
     log_temp = np.log10(cg_temp[frame] + 1e-8)
     temp_im.set_data(log_temp)
 
-    fig.suptitle(f"t = {frame}", fontsize=12)
+    fig.suptitle(f"t = {frame}", fontsize=100)
 
     # Save first frame
     if frame == 0:
