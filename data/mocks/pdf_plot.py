@@ -152,7 +152,7 @@ def update(frame):
     log_temp = np.log10(cg_temp[frame] + 1e-8)
     temp_im.set_data(log_temp)
 
-    fig.suptitle(f"t = {frame}", fontsize=100)
+    fig.suptitle(f"t = {frame}", fontsize=48)
 
     # Save first frame
     if frame == 0:
