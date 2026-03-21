@@ -29,6 +29,7 @@ batch_size = 64
 learning_rate = 1e-3
 weight_decay = 1e-3
 dropout_rate = 0.1
+bins = 20
 
 def nn_data(resolution: tuple, downsample: int) -> tuple:
     """ A function to load the data and return the inputs and outputs for the Conv neural network."""
@@ -85,7 +86,7 @@ def nn_data(resolution: tuple, downsample: int) -> tuple:
                 cg[f'cg_{field}'][i] = sim_data.coarse_grain(getattr(sim_data, field)[i])
             elif field in ['fmcl']:
                 cg[f'cg_{field}'][i] = sim_data.calc_fmcl(sim_data.rho[i], sim_data.temp[i])
-    temp_pdf = sim_data.calc_pixel_pdf(bins = out_channels)
+    temp_pdf = sim_data.calc_pixel_pdf(bins = bins)
     temp_pdf /= temp_pdf.sum(axis=1, keepdims=True)
 
     input_tensors = [torch.from_numpy(cg[f'cg_{f}']).unsqueeze(1).float() for f in fields]
@@ -99,51 +100,89 @@ def nn_data(resolution: tuple, downsample: int) -> tuple:
 
     return input_tensor, output_tensor
 
-def snapshot_pred(rho: np.ndarray, temp: np.ndarray, pressure: np.ndarray, ux: np.ndarray, uy: np.ndarray, eint: np.ndarray, ps: np.ndarray, downsample: int, resolution: np.ndarray) -> np.ndarray:
-    """ A function to predict the source terms for a given snapshot using the trained model."""
+def snapshot_pred(
+    rho: np.ndarray,
+    temp: np.ndarray,
+    pressure: np.ndarray,
+    ux: np.ndarray,
+    uy: np.ndarray,
+    eint: np.ndarray,
+    ps: np.ndarray,
+    downsample: int,
+    resolution: np.ndarray
+) -> np.ndarray:
+    """
+    Predict pixel temperature PDFs for a given snapshot.
+    Returns: (bins, nx, ny)
+    """
 
     sim_data = simulation_data()
     sim_data.down_sample = downsample
     sim_data.resolution = resolution
 
     shape = (resolution[0] // downsample, resolution[1] // downsample)
+
     fields = ['rho', 'temp', 'ux', 'uy', 'ps', 'fmcl']
     cg = {f'cg_{field}': np.zeros(shape) for field in fields}
 
+    # -------------------------
+    # Coarse-grain inputs
+    # -------------------------
     for field in fields:
         if field in ['rho', 'temp', 'ux', 'uy', 'ps']:
             cg[f'cg_{field}'] = sim_data.coarse_grain(locals()[field])
-        elif field in ['fmcl']:
+        elif field == 'fmcl':
             cg[f'cg_{field}'] = sim_data.calc_fmcl(rho, temp)
-    
-    subgrid_flux = np.zeros((10, shape[0], shape[1]))
 
-    input_tensors = [torch.from_numpy(cg[f'cg_{f}']).unsqueeze(0).float() for f in fields]
-    input_tensor = torch.cat(input_tensors, dim=0)
-    input_tensor = input_tensor.unsqueeze(0)
-    input_mean = np.load(f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/conv_nn/all_flux_model_saves/cnn_{sim_data.resolution}_{downsample}_input_mean.npy")
-    input_std = np.load(f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/conv_nn/all_flux_model_saves/cnn_{sim_data.resolution}_{downsample}_input_std.npy")
+    # -------------------------
+    # Build input tensor
+    # -------------------------
+    input_tensors = [
+        torch.from_numpy(cg[f'cg_{f}']).unsqueeze(0).float()
+        for f in fields
+    ]
+
+    input_tensor = torch.cat(input_tensors, dim=0)   # (C, nx, ny)
+    input_tensor = input_tensor.unsqueeze(0)         # (1, C, nx, ny)
+
+    # -------------------------
+    # Normalize input (IMPORTANT)
+    # -------------------------
+    input_mean = np.load(
+        f"pdf_model_saves/cnn_{resolution}_{downsample}_input_mean.npy"
+    )
+    input_std = np.load(
+        f"pdf_model_saves/cnn_{resolution}_{downsample}_input_std.npy"
+    )
+
     input_tensor = (input_tensor - input_mean) / input_std
     input_tensor = input_tensor.to(device)
 
-    global in_channels, layer_size1, layer_size2, layer_size3, out_channels, kernel_size
+    # -------------------------
+    # Load model
+    # -------------------------
+    model_path = f"pdf_model_saves/cnn_{resolution}_{downsample}.pth"
 
+    cnn_model = ConvNN(
+        in_channels, layer_size1, layer_size2,
+        layer_size3, out_channels, kernel_size
+    ).to(device)
 
-    model_path = f'/ptmp/mpa/dipda/subgrid/SubgridCGMModel/conv_nn/all_flux_model_saves/cnn_{sim_data.resolution}_{downsample}.pth'
-    cnn_model = ConvNN(in_channels, layer_size1, layer_size2, layer_size3, out_channels, kernel_size).to(device)
     cnn_model.load_state_dict(torch.load(model_path, map_location=device))
     cnn_model.eval()
 
+    # -------------------------
+    # Predict PDF
+    # -------------------------
     with torch.no_grad():
-        output_mean = torch.from_numpy(np.load(f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/conv_nn/all_flux_model_saves/cnn_{sim_data.resolution}_{downsample}_output_mean.npy"))
-        output_std = torch.from_numpy(np.load(f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/conv_nn/all_flux_model_saves/cnn_{sim_data.resolution}_{downsample}_output_std.npy"))
-        output_mean = output_mean.to(device)
-        output_std = output_std.to(device)
-        pred = cnn_model(input_tensor)  
-        pred = pred * output_std + output_mean  
-        subgrid_flux = pred[0].cpu().numpy()  
-    
-    return subgrid_flux
+
+        logits = cnn_model(input_tensor)   # (1, bins, nx, ny)
+
+        pdf = torch.softmax(logits, dim=1)   # convert to PDF
+
+        pdf = pdf[0].cpu().numpy()  # (bins, nx, ny)
+
+    return pdf
 
 class ConvNN(nn.Module):
 
