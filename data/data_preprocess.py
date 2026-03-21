@@ -465,7 +465,7 @@ class simulation_data():
 
         pixel_pdf = np.zeros((nt, nx//ds, ny//ds, bins))
 
-        temp_bins = np.logspace(3.9, 6.1, bins+1)
+        temp_bins = np.logspace(3.0, 7.0, bins+1)
 
         for i in tqdm(range(nt), desc="Calculating pixel PDFs"):
             for j in range(nx//ds):
