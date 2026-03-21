@@ -18,7 +18,7 @@ device = torch.device('cpu')
 resolution = (512, 256)  
 downsample = 32
 in_channels = 6
-out_channels = 32
+out_channels = 20
 layer_size1 = 64
 layer_size2 = 128
 layer_size3 = 256
@@ -29,7 +29,6 @@ batch_size = 64
 learning_rate = 1e-3
 weight_decay = 1e-3
 dropout_rate = 0.1
-bins = 20
 
 def nn_data(resolution: tuple, downsample: int) -> tuple:
     """ A function to load the data and return the inputs and outputs for the Conv neural network."""
@@ -86,7 +85,7 @@ def nn_data(resolution: tuple, downsample: int) -> tuple:
                 cg[f'cg_{field}'][i] = sim_data.coarse_grain(getattr(sim_data, field)[i])
             elif field in ['fmcl']:
                 cg[f'cg_{field}'][i] = sim_data.calc_fmcl(sim_data.rho[i], sim_data.temp[i])
-    temp_pdf = sim_data.calc_pixel_pdf(bins = bins)
+    temp_pdf = sim_data.calc_pixel_pdf(bins = out_channels)
     temp_pdf /= temp_pdf.sum(axis=1, keepdims=True)
 
     input_tensors = [torch.from_numpy(cg[f'cg_{f}']).unsqueeze(1).float() for f in fields]
