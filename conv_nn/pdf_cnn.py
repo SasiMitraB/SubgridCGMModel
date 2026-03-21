@@ -148,10 +148,10 @@ def snapshot_pred(
     # Normalize input (IMPORTANT)
     # -------------------------
     input_mean = np.load(
-        f"pdf_model_saves/cnn_{resolution}_{downsample}_input_mean.npy"
+        f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/conv_nn/pdf_model_saves/cnn_{resolution}_{downsample}_input_mean.npy"
     )
     input_std = np.load(
-        f"pdf_model_saves/cnn_{resolution}_{downsample}_input_std.npy"
+        f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/conv_nn/pdf_model_saves/cnn_{resolution}_{downsample}_input_std.npy"
     )
 
     input_tensor = (input_tensor - input_mean) / input_std
@@ -160,7 +160,7 @@ def snapshot_pred(
     # -------------------------
     # Load model
     # -------------------------
-    model_path = f"pdf_model_saves/cnn_{resolution}_{downsample}.pth"
+    model_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/conv_nn/pdf_model_saves/cnn_{resolution}_{downsample}.pth"
 
     cnn_model = ConvNN(
         in_channels, layer_size1, layer_size2,

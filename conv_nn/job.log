@@ -3,16 +3,16 @@ Training all fluxes model
 Input data loaded
 Normalizing input tensor
 Number of samples: 500
-Epoch [50/1000] Train Loss: 11.924360 | Val Loss: 12.271824
-Epoch [100/1000] Train Loss: 5.317927 | Val Loss: 7.137118
-Epoch [150/1000] Train Loss: 3.569172 | Val Loss: 6.314126
-Epoch [200/1000] Train Loss: 2.856352 | Val Loss: 6.220418
-Epoch [250/1000] Train Loss: 2.441049 | Val Loss: 6.269340
-Epoch [300/1000] Train Loss: 2.086447 | Val Loss: 6.436178
-Epoch [350/1000] Train Loss: 1.842895 | Val Loss: 6.635836
-Epoch [400/1000] Train Loss: 1.684628 | Val Loss: 6.839910
-Epoch [450/1000] Train Loss: 1.480017 | Val Loss: 6.836955
-Epoch [500/1000] Train Loss: 1.385027 | Val Loss: 7.105484
-Early stopping at epoch 500
-Test Loss: 8.195353
+Epoch [50/1000] Train Loss: 8.752364 | Val Loss: 9.638121
+Epoch [100/1000] Train Loss: 4.467734 | Val Loss: 6.181823
+Epoch [150/1000] Train Loss: 3.019997 | Val Loss: 5.100587
+Epoch [200/1000] Train Loss: 2.540325 | Val Loss: 5.075791
+Epoch [250/1000] Train Loss: 2.158273 | Val Loss: 4.743225
+Epoch [300/1000] Train Loss: 1.861911 | Val Loss: 4.668483
+Epoch [350/1000] Train Loss: 1.721372 | Val Loss: 4.636252
+Epoch [400/1000] Train Loss: 1.825250 | Val Loss: 4.822665
+Epoch [450/1000] Train Loss: 1.482720 | Val Loss: 4.650244
+Epoch [500/1000] Train Loss: 1.438734 | Val Loss: 4.622521
+Early stopping at epoch 501
+Test Loss: 5.568604
 Job complete.

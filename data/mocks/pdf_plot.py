@@ -1,9 +1,11 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
-from conv_nn.pdf_cnn import snapshot_pred
-import os
 import sys
+import os
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
+from conv_nn.pdf_cnn import snapshot_pred
 
 # =========================
 # IMPORT YOUR CLASS
