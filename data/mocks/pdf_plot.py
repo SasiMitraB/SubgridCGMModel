@@ -20,7 +20,7 @@ from data_preprocess import simulation_data
 # =========================
 resolution = (512, 256)
 downsample = 32
-bins = 20
+bins = 40
 
 folder_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/datafiles/c{resolution}_128"
 
