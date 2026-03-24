@@ -19,5 +19,9 @@ echo "Converting gif to mp4..."
 ffmpeg -i mocks/pdf/pdf_animation.gif -movflags faststart -pix_fmt yuv420p mocks/pdf/pdf_animation.mp4
 ffmpeg -i mocks/pdf/pdf_compare_animation.gif -movflags faststart -pix_fmt yuv420p mocks/pdf/pdf_compare_animation.mp4
 
+echo "Deleting GIFs..."
+rm mocks/pdf/pdf_animation.gif mocks/pdf/pdf_animation.gif
+rm mocks/pdf/pdf_animation.gif mocks/pdf/pdf_compare_animation.gif
+
 echo "Conversion done."
 
