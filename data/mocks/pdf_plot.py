@@ -1,13 +1,17 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import imageio
+import matplotlib.animation as animation
 import sys
 import os
-
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
-
 from conv_nn.pdf_cnn import snapshot_pred
+
+# =========================
+# IMPORT YOUR CLASS
+# =========================
+sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
+sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 from data_preprocess import simulation_data
 
 
@@ -22,12 +26,9 @@ folder_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/datafiles
 
 os.makedirs("mocks/pdf", exist_ok=True)
 
-video_path = "mocks/pdf/pdf_animation.mp4"
-video_compare_path = "mocks/pdf/pdf_compare_animation.mp4"
-
+gif_path = "mocks/pdf/pdf_animation.gif"
 first_frame_path = "mocks/pdf/pdf_snapshot_t0.png"
 temp_frame_path = "mocks/pdf/temp_snapshot_t0.png"
-snapshot_compare_path = "mocks/pdf/pdf_compare_t0.png"
 
 
 # =========================
@@ -59,14 +60,10 @@ temp_pdf = sim_data.calc_pixel_pdf(bins=bins)
 temp_pdf /= (temp_pdf.sum(axis=1, keepdims=True) + 1e-12)
 
 conv_temp_pdf = np.zeros_like(temp_pdf)
-
 for i in range(temp_pdf.shape[0]):
-    conv_temp_pdf[i] = snapshot_pred(
-        sim_data.rho[i], sim_data.temp[i], sim_data.pressure[i],
-        sim_data.ux[i], sim_data.uy[i], sim_data.eint[i], sim_data.ps[i],
-        downsample, (sim_data.resolution[0], sim_data.resolution[1])
-    )
-
+    conv_temp_pdf[i] = snapshot_pred(sim_data.rho[i], sim_data.temp[i], sim_data.pressure[i], \
+                                        sim_data.ux[i], sim_data.uy[i], sim_data.eint[i], sim_data.ps[i],
+                                        downsample, (sim_data.resolution[0], sim_data.resolution[1]))
 conv_temp_pdf /= (conv_temp_pdf.sum(axis=1, keepdims=True) + 1e-12)
 
 nt, nb, nx, ny = temp_pdf.shape
@@ -88,94 +85,206 @@ for t in range(nt):
 
 
 # =========================
-# CREATE FRAMES (MAIN)
+# FIGURE SETUP
 # =========================
-print("Generating frames for main animation...")
+fig = plt.figure(figsize=(ny*2.2, nx*1.8))
 
-frames = []
+gs = fig.add_gridspec(1, 2, width_ratios=[3, 1])
 
-for frame in range(nt):
+# ---- PDF GRID ----
+pdf_axes = np.empty((nx, ny), dtype=object)
+sub_gs = gs[0].subgridspec(nx, ny)
 
-    fig = plt.figure(figsize=(ny*2.2, nx*1.8))
-    gs = fig.add_gridspec(1, 2, width_ratios=[3, 1])
+for i in range(nx):
+    for j in range(ny):
+        ax = fig.add_subplot(sub_gs[i, j])
+        pdf_axes[i, j] = ax
 
-    # PDF grid
-    sub_gs = gs[0].subgridspec(nx, ny)
+        # square borders
+        for spine in ax.spines.values():
+            spine.set_visible(True)
+            spine.set_linewidth(0.3)
+
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+# ---- TEMP PANEL ----
+temp_ax = fig.add_subplot(gs[1])
+
+log_temp0 = np.log10(cg_temp[0])
+temp_im = temp_ax.imshow(log_temp0, origin="lower", cmap="inferno")
+
+temp_ax.set_title(r"$\log_{10}$ Temp (CG)")
+cbar = plt.colorbar(temp_im, ax=temp_ax, fraction=0.046)
+cbar.set_label(r"$\log_{10}$ Temperature")
+
+
+# =========================
+# INIT LINES
+# =========================
+x = np.arange(nb)
+
+lines = []
+for i in range(nx):
+    row = []
+    for j in range(ny):
+        line, = pdf_axes[i, j].plot([], [], lw=1)
+        pdf_axes[i, j].set_xlim(0, nb-1)
+        pdf_axes[i, j].set_ylim(0, 1)
+        row.append(line)
+    lines.append(row)
+
+
+# =========================
+# INIT FUNCTION
+# =========================
+def init():
+    for i in range(nx):
+        for j in range(ny):
+            lines[i][j].set_data([], [])
+    return sum(lines, [])
+
+
+# =========================
+# UPDATE FUNCTION
+# =========================
+def update(frame):
 
     pdf = temp_pdf[frame]
-    x = np.arange(nb)
 
     for i in range(nx):
         for j in range(ny):
 
-            ax = fig.add_subplot(sub_gs[i, j])
-
+            # FIX: flip vertically to match imshow
             ii = nx - 1 - i
+
             y = pdf[:, ii, j]
             y = y / (y.max() + 1e-8)
 
-            ax.plot(x, y, lw=1)
-            ax.set_xlim(0, nb-1)
-            ax.set_ylim(0, 1)
+            lines[i][j].set_data(x, y)
 
-            ax.set_xticks([])
-            ax.set_yticks([])
-
-            for spine in ax.spines.values():
-                spine.set_visible(True)
-                spine.set_linewidth(0.3)
-
-    # TEMP PANEL
-    temp_ax = fig.add_subplot(gs[1])
+    # update temp (log scale CG)
     log_temp = np.log10(cg_temp[frame] + 1e-8)
-    im = temp_ax.imshow(log_temp, origin="lower", cmap="inferno")
+    temp_im.set_data(log_temp)
 
-    temp_ax.set_title(r"$\log_{10}$ Temp (CG)")
-    plt.colorbar(im, ax=temp_ax, fraction=0.046)
+    fig.suptitle(f"t = {frame}", fontsize=48)
 
-    fig.suptitle(f"t = {frame}", fontsize=32)
-
-    # SAVE SNAPSHOT
+    # Save first frame
     if frame == 0:
         fig.savefig(first_frame_path, dpi=300)
         plt.imsave(temp_frame_path, log_temp, cmap="inferno")
         print(f"Saved PDF snapshot → {first_frame_path}")
+        print(f"Saved temp snapshot → {temp_frame_path}")
 
-    # CONVERT FIG → IMAGE
-    fig.canvas.draw()
-    image = np.frombuffer(fig.canvas.tostring_rgb(), dtype='uint8')
-    image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
-
-    frames.append(image)
-    plt.close(fig)
+    return sum(lines, []) + [temp_im]
 
 
 # =========================
-# SAVE VIDEO
+# ANIMATION
 # =========================
-print("Saving MP4...")
+print("Creating animation...")
 
-imageio.mimsave(video_path, frames, fps=10)
+anim = animation.FuncAnimation(
+    fig,
+    update,
+    frames=nt,
+    init_func=init,
+    blit=False
+)
 
-print(f"Saved → {video_path}")
+print("Saving GIF...")
+
+anim.save(gif_path, writer="pillow", fps=10)
+
+print(f"Saved animation → {gif_path}")
+
+plt.close()
+
+# =========================
+# TRUE vs PRED PDF COMPARISON
+# =========================
+print("Creating TRUE vs PRED PDF comparison animation...")
+
+gif_path_compare = "mocks/pdf/pdf_compare_animation.gif"
+snapshot_compare_path = "mocks/pdf/pdf_compare_t0.png"
+
+# ---- FIGURE ----
+fig2 = plt.figure(figsize=(ny*4.0, nx*1.8))
+
+gs2 = fig2.add_gridspec(1, 2, width_ratios=[1, 1])
+
+# LEFT = TRUE
+true_axes = np.empty((nx, ny), dtype=object)
+sub_gs_left = gs2[0].subgridspec(nx, ny)
+
+for i in range(nx):
+    for j in range(ny):
+        ax = fig2.add_subplot(sub_gs_left[i, j])
+        true_axes[i, j] = ax
+
+        for spine in ax.spines.values():
+            spine.set_visible(True)
+            spine.set_linewidth(0.3)
+
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+# RIGHT = PRED
+pred_axes = np.empty((nx, ny), dtype=object)
+sub_gs_right = gs2[1].subgridspec(nx, ny)
+
+for i in range(nx):
+    for j in range(ny):
+        ax = fig2.add_subplot(sub_gs_right[i, j])
+        pred_axes[i, j] = ax
+
+        for spine in ax.spines.values():
+            spine.set_visible(True)
+            spine.set_linewidth(0.3)
+
+        ax.set_xticks([])
+        ax.set_yticks([])
+
+# ---- INIT LINES ----
+true_lines = []
+pred_lines = []
+
+for i in range(nx):
+    row_true = []
+    row_pred = []
+    for j in range(ny):
+
+        lt, = true_axes[i, j].plot([], [], lw=1)
+        lp, = pred_axes[i, j].plot([], [], lw=1, color='r')
+
+        true_axes[i, j].set_xlim(0, nb-1)
+        true_axes[i, j].set_ylim(0, 1)
+
+        pred_axes[i, j].set_xlim(0, nb-1)
+        pred_axes[i, j].set_ylim(0, 1)
+
+        row_true.append(lt)
+        row_pred.append(lp)
+
+    true_lines.append(row_true)
+    pred_lines.append(row_pred)
 
 
 # =========================
-# TRUE vs PRED COMPARISON
+# INIT
 # =========================
-print("Generating comparison frames...")
+def init_compare():
+    for i in range(nx):
+        for j in range(ny):
+            true_lines[i][j].set_data([], [])
+            pred_lines[i][j].set_data([], [])
+    return sum(true_lines, []) + sum(pred_lines, [])
 
-frames_compare = []
 
-for frame in range(nt):
-
-    fig = plt.figure(figsize=(ny*4.0, nx*1.8))
-    gs = fig.add_gridspec(1, 2)
-
-    sub_left = gs[0].subgridspec(nx, ny)
-    sub_right = gs[1].subgridspec(nx, ny)
-
-    x = np.arange(nb)
+# =========================
+# UPDATE
+# =========================
+def update_compare(frame):
 
     true_pdf = temp_pdf[frame]
     pred_pdf = conv_temp_pdf[frame]
@@ -183,55 +292,43 @@ for frame in range(nt):
     for i in range(nx):
         for j in range(ny):
 
-            ii = nx - 1 - i
+            ii = nx - 1 - i  # match orientation
 
             y_true = true_pdf[:, ii, j]
             y_pred = pred_pdf[:, ii, j]
 
-            y_true /= (y_true.max() + 1e-8)
-            y_pred /= (y_pred.max() + 1e-8)
+            # normalize visually
+            y_true = y_true / (y_true.max() + 1e-8)
+            y_pred = y_pred / (y_pred.max() + 1e-8)
 
-            # TRUE
-            ax1 = fig.add_subplot(sub_left[i, j])
-            ax1.plot(x, y_true, lw=1)
-            ax1.set_xlim(0, nb-1)
-            ax1.set_ylim(0, 1)
-            ax1.set_xticks([])
-            ax1.set_yticks([])
+            true_lines[i][j].set_data(x, y_true)
+            pred_lines[i][j].set_data(x, y_pred)
 
-            for spine in ax1.spines.values():
-                spine.set_linewidth(0.3)
+    fig2.suptitle(f"True vs Predicted PDFs | t = {frame}", fontsize=48)
 
-            # PRED
-            ax2 = fig.add_subplot(sub_right[i, j])
-            ax2.plot(x, y_pred, lw=1, color='r')
-            ax2.set_xlim(0, nb-1)
-            ax2.set_ylim(0, 1)
-            ax2.set_xticks([])
-            ax2.set_yticks([])
-
-            for spine in ax2.spines.values():
-                spine.set_linewidth(0.3)
-
-    fig.suptitle(f"True vs Predicted PDFs | t = {frame}", fontsize=32)
-
+    # Save t0 snapshot
     if frame == 0:
-        fig.savefig(snapshot_compare_path, dpi=300)
+        fig2.savefig(snapshot_compare_path, dpi=300)
         print(f"Saved comparison snapshot → {snapshot_compare_path}")
 
-    fig.canvas.draw()
-    image = np.frombuffer(fig.canvas.tostring_rgb(), dtype='uint8')
-    image = image.reshape(fig.canvas.get_width_height()[::-1] + (3,))
-
-    frames_compare.append(image)
-    plt.close(fig)
+    return sum(true_lines, []) + sum(pred_lines, [])
 
 
 # =========================
-# SAVE COMPARISON VIDEO
+# ANIMATION
 # =========================
-print("Saving comparison MP4...")
+anim2 = animation.FuncAnimation(
+    fig2,
+    update_compare,
+    frames=nt,
+    init_func=init_compare,
+    blit=False
+)
 
-imageio.mimsave(video_compare_path, frames_compare, fps=10)
+print("Saving comparison GIF...")
 
-print(f"Saved → {video_compare_path}")
+anim2.save(gif_path_compare, writer="pillow", fps=10)
+
+print(f"Saved comparison animation → {gif_path_compare}")
+
+plt.close(fig2)
