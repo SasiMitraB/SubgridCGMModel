@@ -17,7 +17,7 @@ device = torch.device('cpu')
 
 resolution = (512, 256)  
 downsample = 32
-in_channels = 6
+in_channels = 5
 out_channels = 40
 layer_size1 = 64
 layer_size2 = 128
@@ -76,15 +76,13 @@ def nn_data(resolution: tuple, downsample: int) -> tuple:
     print("Input data loaded")
 
     shape = (sim_data.rho.shape[0], sim_data.rho.shape[1] // sim_data.down_sample, sim_data.rho.shape[2] // sim_data.down_sample)
-    fields = ['rho', 'temp', 'ux', 'uy', 'ps', 'fmcl']
+    fields = ['rho', 'temp', 'ux', 'uy', 'ps']
     cg = {f'cg_{field}': np.zeros(shape) for field in fields}
 
     for i in range(sim_data.rho.shape[0]):
         for field in fields:
             if field in ['rho', 'temp', 'ux', 'uy', 'ps']:
                 cg[f'cg_{field}'][i] = sim_data.coarse_grain(getattr(sim_data, field)[i])
-            elif field in ['fmcl']:
-                cg[f'cg_{field}'][i] = sim_data.calc_fmcl(sim_data.rho[i], sim_data.temp[i])
     temp_pdf = sim_data.calc_pixel_pdf(bins = out_channels)
     temp_pdf /= temp_pdf.sum(axis=1, keepdims=True)
 
@@ -121,7 +119,7 @@ def snapshot_pred(
 
     shape = (resolution[0] // downsample, resolution[1] // downsample)
 
-    fields = ['rho', 'temp', 'ux', 'uy', 'ps', 'fmcl']
+    fields = ['rho', 'temp', 'ux', 'uy', 'ps']
     cg = {f'cg_{field}': np.zeros(shape) for field in fields}
 
     # -------------------------
@@ -130,8 +128,6 @@ def snapshot_pred(
     for field in fields:
         if field in ['rho', 'temp', 'ux', 'uy', 'ps']:
             cg[f'cg_{field}'] = sim_data.coarse_grain(locals()[field])
-        elif field == 'fmcl':
-            cg[f'cg_{field}'] = sim_data.calc_fmcl(rho, temp)
 
     # -------------------------
     # Build input tensor
