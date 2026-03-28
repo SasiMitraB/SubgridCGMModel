@@ -14,6 +14,59 @@ sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
 from data_preprocess import simulation_data
 
+def lambda_cool(temp):
+    """
+    Cooling function ISMCoolFn translated from AthenaK C++.
+    Works on scalars or numpy arrays (any shape).
+    Returns Λ(T) in erg cm^3 / s.
+    """
+    logt = np.log10(temp)
+
+    lhd = np.array([
+        -22.5977, -21.9689, -21.5972, -21.4615, -21.4789, -21.5497, -21.6211, -21.6595,
+        -21.6426, -21.5688, -21.4771, -21.3755, -21.2693, -21.1644, -21.0658, -20.9778,
+        -20.8986, -20.8281, -20.7700, -20.7223, -20.6888, -20.6739, -20.6815, -20.7051,
+        -20.7229, -20.7208, -20.7058, -20.6896, -20.6797, -20.6749, -20.6709, -20.6748,
+        -20.7089, -20.8031, -20.9647, -21.1482, -21.2932, -21.3767, -21.4129, -21.4291,
+        -21.4538, -21.5055, -21.5740, -21.6300, -21.6615, -21.6766, -21.6886, -21.7073,
+        -21.7304, -21.7491, -21.7607, -21.7701, -21.7877, -21.8243, -21.8875, -21.9738,
+        -22.0671, -22.1537, -22.2265, -22.2821, -22.3213, -22.3462, -22.3587, -22.3622,
+        -22.3590, -22.3512, -22.3420, -22.3342, -22.3312, -22.3346, -22.3445, -22.3595,
+        -22.3780, -22.4007, -22.4289, -22.4625, -22.4995, -22.5353, -22.5659, -22.5895,
+        -22.6059, -22.6161, -22.6208, -22.6213, -22.6184, -22.6126, -22.6045, -22.5945,
+        -22.5831, -22.5707, -22.5573, -22.5434, -22.5287, -22.5140, -22.4992, -22.4844,
+        -22.4695, -22.4543, -22.4392, -22.4237, -22.4087, -22.3928
+    ])
+
+    lam = np.zeros_like(temp, dtype=float)
+
+    # turn off cooling below 1e4 K
+    mask_off = logt <= 4.0
+    lam[mask_off] = 0.0
+
+    # KI02 regime (4.0 < logT <= 4.2)
+    mask_ki = (logt > 4.0) & (logt <= 4.2)
+    if np.any(mask_ki):
+        lam[mask_ki] = (2.0e-19*np.exp(-1.184e5/(temp[mask_ki] + 1.0e3)) +
+                        2.8e-28*np.sqrt(temp[mask_ki])*np.exp(-92.0/temp[mask_ki]))
+
+    # CGOLS fit (logT > 8.15)
+    mask_hi = logt > 8.15
+    lam[mask_hi] = 10.0**(0.45*logt[mask_hi] - 26.065)
+
+    # SPEX interpolation (4.2 < logT <= 8.15)
+    mask_mid = (logt > 4.2) & (logt <= 8.15)
+    if np.any(mask_mid):
+        ipps = (25.0*logt[mask_mid] - 103).astype(int)
+        # Clamp to [0,100] like C++
+        ipps = np.clip(ipps, 0, 100)
+        x0 = 4.12 + 0.04*ipps
+        dx = logt[mask_mid] - x0
+        logcool = (lhd[ipps+1]*dx - lhd[ipps]*(dx - 0.04)) * 25.0
+        lam[mask_mid] = 10.0**logcool
+
+    return lam
+
 
 # =========================
 # SETTINGS
@@ -203,17 +256,77 @@ plt.close()
 # =========================
 # TRUE vs PRED PDF COMPARISON
 # =========================
+# =========================
+# COOLING COMPUTATION BLOCK
+# =========================
+print("Computing cooling rates (true vs CNN)...")
+
+mu = 0.62
+kb = 1.380649e-16
+
+# ---- IMPORTANT: match your PDF bins ----
+temp_bins = np.logspace(3, 7, nb + 1)
+temp_centers = 0.5 * (temp_bins[:-1] + temp_bins[1:])  # (bins,)
+
+# =========================
+# TRUE COOLING (fine → coarse)
+# =========================
+true_cool = np.zeros((nt, nx, ny))
+
+for t in range(nt):
+    rho = sim_data.rho[t]
+    temp = sim_data.temp[t]
+
+    n = rho / mu
+    lam = lambda_cool(temp)
+
+    fine_cool = lam * n**2 * 1.975e27
+    true_cool[t] = sim_data.coarse_grain(fine_cool)
+
+
+# =========================
+# COARSE-GRAIN PRESSURE
+# =========================
+cg_pressure = np.zeros((nt, nx, ny))
+
+for t in range(nt):
+    cg_pressure[t] = sim_data.coarse_grain(sim_data.pressure[t])
+
+
+# =========================
+# CNN COOLING (PDF + isobaric)
+# =========================
+cnn_cool = np.zeros((nt, nx, ny))
+
+T = temp_centers[:, None, None]   # (bins,1,1)
+
+for t in range(nt):
+
+    pdf = conv_temp_pdf[t]  # (bins,nx,ny)
+    P = cg_pressure[t][None, :, :]  # (1,nx,ny)
+
+    n = P / (kb * T)
+    lam = lambda_cool(T)
+
+    cool = lam * n**2 * 1.975e27
+
+    cnn_cool[t] = np.sum(pdf * cool, axis=0)
+
+print("Cooling computation done.")
+
+
+# =========================
+# TRUE vs PRED PDF ANIMATION
+# =========================
 print("Creating TRUE vs PRED PDF comparison animation...")
 
 gif_path_compare = "mocks/pdf/pdf_compare_animation.gif"
 snapshot_compare_path = "mocks/pdf/pdf_compare_t0.png"
 
-# ---- FIGURE ----
 fig2 = plt.figure(figsize=(ny*4.0, nx*1.8))
-
 gs2 = fig2.add_gridspec(1, 2, width_ratios=[1, 1])
 
-# LEFT = TRUE
+# ---- LEFT (TRUE) ----
 true_axes = np.empty((nx, ny), dtype=object)
 sub_gs_left = gs2[0].subgridspec(nx, ny)
 
@@ -229,7 +342,7 @@ for i in range(nx):
         ax.set_xticks([])
         ax.set_yticks([])
 
-# RIGHT = PRED
+# ---- RIGHT (PRED) ----
 pred_axes = np.empty((nx, ny), dtype=object)
 sub_gs_right = gs2[1].subgridspec(nx, ny)
 
@@ -245,13 +358,17 @@ for i in range(nx):
         ax.set_xticks([])
         ax.set_yticks([])
 
-# ---- INIT LINES ----
-true_lines = []
-pred_lines = []
+
+# =========================
+# LINES + TEXT
+# =========================
+true_lines, pred_lines = [], []
+true_texts, pred_texts = [], []
 
 for i in range(nx):
-    row_true = []
-    row_pred = []
+    row_tl, row_pl = [], []
+    row_tt, row_pt = [], []
+
     for j in range(ny):
 
         lt, = true_axes[i, j].plot([], [], lw=1)
@@ -263,11 +380,28 @@ for i in range(nx):
         pred_axes[i, j].set_xlim(0, nb-1)
         pred_axes[i, j].set_ylim(0, 1)
 
-        row_true.append(lt)
-        row_pred.append(lp)
+        # TEXT
+        ttxt = true_axes[i, j].text(
+            0.05, 0.85, "", transform=true_axes[i, j].transAxes,
+            fontsize=6, color="black"
+        )
+        ptxt = pred_axes[i, j].text(
+            0.05, 0.85, "", transform=pred_axes[i, j].transAxes,
+            fontsize=6, color="red"
+        )
 
-    true_lines.append(row_true)
-    pred_lines.append(row_pred)
+        row_tl.append(lt)
+        row_pl.append(lp)
+        row_tt.append(ttxt)
+        row_pt.append(ptxt)
+
+    true_lines.append(row_tl)
+    pred_lines.append(row_pl)
+    true_texts.append(row_tt)
+    pred_texts.append(row_pt)
+
+
+x = np.arange(nb)
 
 
 # =========================
@@ -278,6 +412,8 @@ def init_compare():
         for j in range(ny):
             true_lines[i][j].set_data([], [])
             pred_lines[i][j].set_data([], [])
+            true_texts[i][j].set_text("")
+            pred_texts[i][j].set_text("")
     return sum(true_lines, []) + sum(pred_lines, [])
 
 
@@ -292,26 +428,36 @@ def update_compare(frame):
     for i in range(nx):
         for j in range(ny):
 
-            ii = nx - 1 - i  # match orientation
+            ii = nx - 1 - i
 
             y_true = true_pdf[:, ii, j]
             y_pred = pred_pdf[:, ii, j]
 
-            # normalize visually
-            y_true = y_true / (y_true.max() + 1e-8)
-            y_pred = y_pred / (y_pred.max() + 1e-8)
+            y_true /= (y_true.max() + 1e-8)
+            y_pred /= (y_pred.max() + 1e-8)
 
             true_lines[i][j].set_data(x, y_true)
             pred_lines[i][j].set_data(x, y_pred)
 
+            # ---- cooling values ----
+            tc = true_cool[frame, ii, j]
+            pc = cnn_cool[frame, ii, j]
+
+            true_texts[i][j].set_text(f"{tc:.1e}")
+            pred_texts[i][j].set_text(f"{pc:.1e}")
+
     fig2.suptitle(f"True vs Predicted PDFs | t = {frame}", fontsize=48)
 
-    # Save t0 snapshot
     if frame == 0:
         fig2.savefig(snapshot_compare_path, dpi=300)
         print(f"Saved comparison snapshot → {snapshot_compare_path}")
 
-    return sum(true_lines, []) + sum(pred_lines, [])
+    return (
+        sum(true_lines, []) +
+        sum(pred_lines, []) +
+        sum(true_texts, []) +
+        sum(pred_texts, [])
+    )
 
 
 # =========================
