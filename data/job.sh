@@ -16,6 +16,7 @@ echo "Starting SG Anim..."
 python3 -u mocks/pdf_plot.py
 
 echo "Converting gif to mp4..."
+module load ffmpeg
 ffmpeg -i mocks/pdf/pdf_animation.gif -movflags faststart -pix_fmt yuv420p mocks/pdf/pdf_animation.mp4
 ffmpeg -i mocks/pdf/pdf_compare_animation.gif -movflags faststart -pix_fmt yuv420p mocks/pdf/pdf_compare_animation.mp4
 
