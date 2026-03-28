@@ -1,5 +1,5 @@
 #!/bin/bash
-# #SBATCH --job-name=sg_plot
+#SBATCH --job-name=pdf_plot
 # #SBATCH --partition=p.test	
 #SBATCH --partition=p.gpu
 #SBATCH --gres=gpu:2
