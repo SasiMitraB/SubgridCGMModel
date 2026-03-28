@@ -334,10 +334,13 @@ plt.scatter(true_vals, pred_vals, s=2, alpha=0.3)
 # y = x reference
 mn = min(true_vals.min(), pred_vals.min())
 mx = max(true_vals.max(), pred_vals.max())
-plt.plot([mn, mx], [mn, mx], 'k--', lw=1)
+plt.plot([1e-1, 1e3], [1e-1, 1e3], 'r--', lw=1)
 
 plt.xscale("log")
 plt.yscale("log")
+
+plt.xlim(1e-1, 1e3)
+plt.ylim(1e-1, 1e3)
 
 plt.xlabel("True Cooling")
 plt.ylabel("Predicted Cooling")
