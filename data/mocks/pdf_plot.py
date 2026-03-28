@@ -308,7 +308,7 @@ for t in range(nt):
     n = P / (kb * T)
     lam = lambda_cool(T)
 
-    cool = lam * n**2 * 1.975e27
+    cool = lam * n**2 
 
     cnn_cool[t] = np.sum(pdf * cool, axis=0)
 
