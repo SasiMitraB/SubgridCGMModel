@@ -26,8 +26,8 @@ os.makedirs(save_path, exist_ok=True)
 
 sim_data = simulation_data()
 sim_data.resolution = resolution
-sim_data.input_data(file_path, start=442)
-sim_data.input_cons_data(file_path, start=442)
+sim_data.input_data(file_path, start=501)
+sim_data.input_cons_data(file_path, start=501)
 
 rho = sim_data.rho
 pres = sim_data.pressure
@@ -51,7 +51,7 @@ lr_resolution = resolution
 lr_file_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/kh_build/src/c{lr_resolution[0]}_{lr_resolution[1]}/bin"
 lr_sim_data = simulation_data()
 lr_sim_data.resolution = lr_resolution
-lr_sim_data.input_data(lr_file_path, start=442)
+lr_sim_data.input_data(lr_file_path, start=501)
 lr_rho = lr_sim_data.rho
 lr_temp = lr_sim_data.temp
 lr_pres = lr_sim_data.pressure
@@ -59,7 +59,7 @@ lr_ux = lr_sim_data.ux
 lr_uy = lr_sim_data.uy
 lr_ien = lr_sim_data.eint
 
-lr_sim_data.input_cons_data(lr_file_path, start=442)
+lr_sim_data.input_cons_data(lr_file_path, start=501)
 lr_cons_rho = lr_sim_data.cons_rho
 lr_cons_momx = lr_sim_data.cons_momx
 lr_cons_momy = lr_sim_data.cons_momy
@@ -161,47 +161,47 @@ cg_hr_rho = cg_hr_rho[:rho.shape[0]]
 cg_hr_temp = cg_hr_temp[:temp.shape[0]]
 cg_hr_pres = cg_hr_pres[:temp.shape[0]]
 
-fig, axs = plt.subplots(1, 2, figsize=(5, 5))
+# fig, axs = plt.subplots(1, 2, figsize=(5, 5))
 
-im_lr_rho = axs[0].imshow(lr_rho[0], origin='lower', cmap='plasma', norm=LogNorm())
-axs[0].set_title(rf'LR (${lr_resolution[0]} \times {lr_resolution[1]}$) Density')
-plt.colorbar(im_lr_rho, ax=axs[0], fraction=0.046, pad=0.04)
+# im_lr_rho = axs[0].imshow(lr_rho[0], origin='lower', cmap='plasma', norm=LogNorm())
+# axs[0].set_title(rf'LR (${lr_resolution[0]} \times {lr_resolution[1]}$) Density')
+# plt.colorbar(im_lr_rho, ax=axs[0], fraction=0.046, pad=0.04)
 
-# im_lr2_rho = axs[1].imshow(lr_rho2[0], origin='lower', cmap='plasma', norm=LogNorm())
-# axs[1].set_title(rf'LR (${lr_resolution2[0]} \times {lr_resolution2[1]}$) Density')
-# plt.colorbar(im_lr2_rho, ax=axs[1], fraction=0.046, pad=0.04)
+# # im_lr2_rho = axs[1].imshow(lr_rho2[0], origin='lower', cmap='plasma', norm=LogNorm())
+# # axs[1].set_title(rf'LR (${lr_resolution2[0]} \times {lr_resolution2[1]}$) Density')
+# # plt.colorbar(im_lr2_rho, ax=axs[1], fraction=0.046, pad=0.04)
 
-# im_lr3_rho = axs[2].imshow(lr_rho3[0], origin='lower', cmap='plasma', norm=LogNorm())
-# axs[2].set_title(rf'LR (${lr_resolution3[0]} \times {lr_resolution3[1]}$) Density')
-# plt.colorbar(im_lr3_rho, ax=axs[2], fraction=0.046, pad=0.04)
+# # im_lr3_rho = axs[2].imshow(lr_rho3[0], origin='lower', cmap='plasma', norm=LogNorm())
+# # axs[2].set_title(rf'LR (${lr_resolution3[0]} \times {lr_resolution3[1]}$) Density')
+# # plt.colorbar(im_lr3_rho, ax=axs[2], fraction=0.046, pad=0.04)
 
-# im_lr4_rho = axs[3].imshow(lr_rho4[0], origin='lower', cmap='plasma', norm=LogNorm())
-# axs[3].set_title(rf'LR (${lr_resolution4[0]} \times {lr_resolution4[1]}$) Density')
-# plt.colorbar(im_lr4_rho, ax=axs[3], fraction=0.046, pad=0.04)
+# # im_lr4_rho = axs[3].imshow(lr_rho4[0], origin='lower', cmap='plasma', norm=LogNorm())
+# # axs[3].set_title(rf'LR (${lr_resolution4[0]} \times {lr_resolution4[1]}$) Density')
+# # plt.colorbar(im_lr4_rho, ax=axs[3], fraction=0.046, pad=0.04)
 
-# im_lr5_rho = axs[4].imshow(lr_rho5[0], origin='lower', cmap='plasma', norm=LogNorm())
-# axs[4].set_title(rf'LR (${lr_resolution5[0]} \times {lr_resolution5[1]}$) Density')
-# plt.colorbar(im_lr5_rho, ax=axs[4], fraction=0.046, pad=0.04)
+# # im_lr5_rho = axs[4].imshow(lr_rho5[0], origin='lower', cmap='plasma', norm=LogNorm())
+# # axs[4].set_title(rf'LR (${lr_resolution5[0]} \times {lr_resolution5[1]}$) Density')
+# # plt.colorbar(im_lr5_rho, ax=axs[4], fraction=0.046, pad=0.04)
 
-im_hr_rho = axs[1].imshow(hr_rho[0], origin='lower', cmap='plasma', norm=LogNorm())
-axs[1].set_title(rf'HR (${hr_resolution[0]} \times {hr_resolution[1]}$) Density')
-plt.colorbar(im_hr_rho, ax=axs[1], fraction=0.046, pad=0.04)
+# im_hr_rho = axs[1].imshow(hr_rho[0], origin='lower', cmap='plasma', norm=LogNorm())
+# axs[1].set_title(rf'HR (${hr_resolution[0]} \times {hr_resolution[1]}$) Density')
+# plt.colorbar(im_hr_rho, ax=axs[1], fraction=0.046, pad=0.04)
 
-def update_rho(frame):
-     im_lr_rho.set_data(lr_rho[frame])
-#     im_lr2_rho.set_data(lr_rho2[frame])
-#     im_lr3_rho.set_data(lr_rho3[frame])
-#     im_lr4_rho.set_data(lr_rho4[frame])
-#     im_lr5_rho.set_data(lr_rho5[frame])
-     im_hr_rho.set_data(hr_rho[frame])
-     for ax in axs.flat:
-         ax.set_xlabel(f'Timestep: {frame}')
-     return [im_lr_rho, im_hr_rho]
+# def update_rho(frame):
+#      im_lr_rho.set_data(lr_rho[frame])
+# #     im_lr2_rho.set_data(lr_rho2[frame])
+# #     im_lr3_rho.set_data(lr_rho3[frame])
+# #     im_lr4_rho.set_data(lr_rho4[frame])
+# #     im_lr5_rho.set_data(lr_rho5[frame])
+#      im_hr_rho.set_data(hr_rho[frame])
+#      for ax in axs.flat:
+#          ax.set_xlabel(f'Timestep: {frame}')
+#      return [im_lr_rho, im_hr_rho]
 
-ani_rho = animation.FuncAnimation(fig, update_rho, frames=rho.shape[0], interval=100, blit=True)
-ani_rho.save(save_path + "lr_hr_density_evolution.gif", writer='ffmpeg')
-plt.close(fig)
-print("LR and HR Density evolution animation saved")
+# ani_rho = animation.FuncAnimation(fig, update_rho, frames=rho.shape[0], interval=100, blit=True)
+# ani_rho.save(save_path + "lr_hr_density_evolution.gif", writer='ffmpeg')
+# plt.close(fig)
+# print("LR and HR Density evolution animation saved")
 
 # sg1_file_path = f"/tmp/dipayandatta/athenak/sg_build/src/s1_{resolution[0]}_{resolution[1]}/bin"
 # sg1_sim_data = simulation_data()
