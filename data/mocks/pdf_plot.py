@@ -315,25 +315,40 @@ for t in range(nt):
 print("Cooling computation done.")
 
 # =========================
+# COARSE-GRAIN TEMPERATURE
+# =========================
+cg_temp = np.zeros((nt, nx, ny))
+
+for t in range(nt):
+    cg_temp[t] = sim_data.coarse_grain(sim_data.temp[t])
+
+# =========================
 # GLOBAL SCATTER (ALL DATA)
 # =========================
 print("Creating global cooling scatter plot...")
 
 true_vals = true_cool.flatten()
 pred_vals = cnn_cool.flatten()
+temp_vals = cg_temp.flatten()   # temperature for coloring
 
 # Avoid log issues
 eps = 1e-30
 true_vals = np.clip(true_vals, eps, None)
 pred_vals = np.clip(pred_vals, eps, None)
+temp_vals = np.clip(temp_vals, eps, None)
 
 plt.figure(figsize=(6, 6))
 
-plt.scatter(true_vals, pred_vals, s=2, alpha=0.3)
+from matplotlib.colors import LogNorm
+
+sc = plt.scatter(true_vals, pred_vals,
+                 c=temp_vals,
+                 s=2,
+                 alpha=0.3,
+                 cmap='viridis',
+                 norm=LogNorm())
 
 # y = x reference
-mn = min(true_vals.min(), pred_vals.min())
-mx = max(true_vals.max(), pred_vals.max())
 plt.plot([1e-1, 1e3], [1e-1, 1e3], 'r--', lw=1)
 
 plt.xscale("log")
@@ -345,6 +360,10 @@ plt.ylim(1e-1, 1e3)
 plt.xlabel("True Cooling")
 plt.ylabel("Predicted Cooling")
 plt.title("Cooling: True vs Predicted (All Pixels, All Timesteps)")
+
+# Colorbar
+cbar = plt.colorbar(sc)
+cbar.set_label("Temperature (K)")
 
 plt.tight_layout()
 plt.savefig("mocks/pdf/cooling_scatter_global.png", dpi=300)
