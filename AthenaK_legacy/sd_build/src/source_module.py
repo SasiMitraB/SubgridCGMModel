@@ -804,7 +804,7 @@ def source_func(rho, pres, ux, uy, ps, fmcl):
     temp_bins = np.logspace(3, 7, nb + 1)
     temp_centers = 0.5 * (temp_bins[:-1] + temp_bins[1:])
     T = temp_centers[:, None, None]
-    P = pres[None, :, :]
+    P = np.transpose(pres)[None, :, :]
     n = P / (kb * T)
     cool = lambda_cool(T) * n**2
     cool_rate = np.sum(pdf * cool, axis=0)
