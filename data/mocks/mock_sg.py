@@ -26,8 +26,8 @@ os.makedirs(save_path, exist_ok=True)
 
 sim_data = simulation_data()
 sim_data.resolution = resolution
-sim_data.input_data(file_path, start=501)
-sim_data.input_cons_data(file_path, start=501)
+sim_data.input_data(file_path, start=442)
+sim_data.input_cons_data(file_path, start=442)
 
 rho = sim_data.rho
 pres = sim_data.pressure
@@ -51,7 +51,7 @@ lr_resolution = resolution
 lr_file_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/kh_build/src/c{lr_resolution[0]}_{lr_resolution[1]}/bin"
 lr_sim_data = simulation_data()
 lr_sim_data.resolution = lr_resolution
-lr_sim_data.input_data(lr_file_path, start=501)
+lr_sim_data.input_data(lr_file_path, start=442)
 lr_rho = lr_sim_data.rho
 lr_temp = lr_sim_data.temp
 lr_pres = lr_sim_data.pressure
@@ -59,7 +59,7 @@ lr_ux = lr_sim_data.ux
 lr_uy = lr_sim_data.uy
 lr_ien = lr_sim_data.eint
 
-lr_sim_data.input_cons_data(lr_file_path, start=501)
+lr_sim_data.input_cons_data(lr_file_path, start=442)
 lr_cons_rho = lr_sim_data.cons_rho
 lr_cons_momx = lr_sim_data.cons_momx
 lr_cons_momy = lr_sim_data.cons_momy
@@ -100,8 +100,8 @@ lr_fmcl = (lr_temp < 1e5).astype(float)
 # lr_rho5 = lr_sim_data5.rho
 # lr_temp5 = lr_sim_data5.temp
 
-hr_resolution = (2048, 1024)
-hr_downsample = 128
+hr_resolution = (512, 256)
+hr_downsample = 32
 hr_file_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/kh_build/src/c{hr_resolution[0]}_{hr_resolution[1]}/bin"
 hr_sim_data = simulation_data()
 hr_sim_data.resolution = hr_resolution
