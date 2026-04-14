@@ -12,6 +12,9 @@
 #SBATCH --output=job.log
 #SBATCH --error=job.err
 
+rm mocks/pdf/pdf_animation.mp4
+rm mocks/pdf/pdf_compare_animation.mp4
+
 echo "Starting SG Anim..."
 python3 -u mocks/pdf_plot.py
 
