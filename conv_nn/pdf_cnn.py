@@ -218,7 +218,29 @@ class ConvNN(nn.Module):
         x = self.encoder(x)
         x = self.decoder(x)
         return x
-    
+
+class WassersteinLoss(nn.Module):
+    def __init__(self):
+        super().__init__()
+
+    def forward(self, logits, target):
+        """
+        logits: (B, bins, nx, ny)
+        target: (B, bins, nx, ny) — must be normalized PDF
+        """
+
+        # Convert logits → probabilities
+        pred = torch.softmax(logits, dim=1)
+
+        # Compute CDF along bin axis
+        cdf_pred = torch.cumsum(pred, dim=1)
+        cdf_target = torch.cumsum(target, dim=1)
+
+        # Wasserstein-1 distance
+        loss = torch.mean(torch.abs(cdf_pred - cdf_target))
+
+        return loss
+
 if __name__ == "__main__":
 
     file_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/kh_build/src/c{resolution[0]}_{resolution[1]}/bin"
@@ -231,7 +253,8 @@ if __name__ == "__main__":
     cnn_model = ConvNN(in_channels, layer_size1, layer_size2, layer_size3,
                        out_channels, kernel_size).to(device)
 
-    criterion = nn.KLDivLoss(reduction="batchmean")
+    # criterion = nn.KLDivLoss(reduction="batchmean")
+    criterion = WassersteinLoss()
 
     optimizer = torch.optim.Adam(
         cnn_model.parameters(),
@@ -294,9 +317,10 @@ if __name__ == "__main__":
 
             outputs = cnn_model(inputs)
 
-            log_probs = torch.log_softmax(outputs, dim=1)
+            # log_probs = torch.log_softmax(outputs, dim=1)
 
-            loss = criterion(log_probs, labels)
+            # loss = criterion(log_probs, labels)
+            loss = criterion(outputs, labels)
 
             optimizer.zero_grad()
             loss.backward()
@@ -313,9 +337,10 @@ if __name__ == "__main__":
             for x_batch, y_batch in train_loader:
 
                 preds = cnn_model(x_batch)
-                log_preds = torch.log_softmax(preds, dim=1)
+                # log_preds = torch.log_softmax(preds, dim=1)
 
-                train_loss_total += criterion(log_preds, y_batch).item()
+                # train_loss_total += criterion(log_preds, y_batch).item()
+                train_loss_total += criterion(preds, y_batch).item()
 
             train_loss = train_loss_total / len(train_loader)
 
@@ -323,9 +348,10 @@ if __name__ == "__main__":
             for x_batch, y_batch in validation_loader:
 
                 preds = cnn_model(x_batch)
-                log_preds = torch.log_softmax(preds, dim=1)
+                # log_preds = torch.log_softmax(preds, dim=1)
 
-                val_loss_total += criterion(log_preds, y_batch).item()
+                # val_loss_total += criterion(log_preds, y_batch).item()
+                val_loss_total += criterion(preds, y_batch).item()
 
             val_loss = val_loss_total / len(validation_loader)
 
@@ -368,9 +394,10 @@ if __name__ == "__main__":
 
             preds = cnn_model(x_batch)
 
-            log_preds = torch.log_softmax(preds, dim=1)
+            # log_preds = torch.log_softmax(preds, dim=1)
 
-            test_loss_total += criterion(log_preds, y_batch).item()
+            # test_loss_total += criterion(log_preds, y_batch).item()
+            test_loss_total += criterion(preds, y_batch).item()
 
         test_loss = test_loss_total / len(test_loader)
 
@@ -393,7 +420,8 @@ if __name__ == "__main__":
     plt.axhline(test_loss, linestyle="--", color="red")
 
     plt.xlabel("Epochs")
-    plt.ylabel("KL Divergence")
+    # plt.ylabel("KL Divergence")
+    plt.ylabel("Wasserstein Loss")
     plt.title("Training Loss")
 
     plt.legend()
