@@ -348,6 +348,25 @@ sc = plt.scatter(true_vals, pred_vals,
                  cmap='plasma',
                  norm=LogNorm(vmin=1e3, vmax=1e8))
 
+# =========================
+# Annotate points near True ≈ 1
+# =========================
+
+# Define window around 1 (in log space this is better)
+mask = (true_vals > 0.8) & (true_vals < 1.25)
+
+indices = np.where(mask)[0]
+
+# Randomly pick a few points to avoid clutter
+n_annotate = min(10, len(indices))
+chosen = np.random.choice(indices, size=n_annotate, replace=False)
+
+for i in chosen:
+    plt.text(true_vals[i], pred_vals[i],
+             f"{temp_vals[i]:.1e}",
+             fontsize=6,
+             alpha=0.7)
+
 # y = x reference
 plt.plot([1e-1, 1e3], [1e-1, 1e3], 'r--', lw=1)
 
