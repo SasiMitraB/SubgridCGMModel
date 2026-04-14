@@ -345,8 +345,8 @@ sc = plt.scatter(true_vals, pred_vals,
                  c=temp_vals,
                  s=2,
                  alpha=0.3,
-                 cmap='viridis',
-                 norm=LogNorm())
+                 cmap='plasma',
+                 norm=LogNorm(vmin=1e3, vmax=1e8))
 
 # y = x reference
 plt.plot([1e-1, 1e3], [1e-1, 1e3], 'r--', lw=1)
