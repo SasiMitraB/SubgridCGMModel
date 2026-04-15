@@ -300,7 +300,7 @@ class WassersteinLoss(nn.Module):
         return loss
     
 class KLWithLeakageLoss(nn.Module):
-    def __init__(self, alpha=100000.0, T0=1e6, width=0.1):
+    def __init__(self, alpha=100, T0=1e6, width=0.1):
         super().__init__()
         self.kl = nn.KLDivLoss(reduction="batchmean")
         self.alpha = alpha
