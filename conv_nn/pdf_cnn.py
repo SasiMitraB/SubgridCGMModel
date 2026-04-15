@@ -88,6 +88,13 @@ def lambda_cool(temp):
 
     return lam
 
+lambda_vals = lambda_cool(T_centers)
+
+# normalize (important for stability)
+lambda_weights = lambda_vals / (lambda_vals.max() + 1e-30)
+
+lambda_weights = torch.tensor(lambda_weights, dtype=torch.float32)
+
 def nn_data(resolution: tuple, downsample: int) -> tuple:
     """ A function to load the data and return the inputs and outputs for the Conv neural network."""
 
@@ -300,7 +307,7 @@ class WassersteinLoss(nn.Module):
         return loss
     
 class KLWithLeakageLoss(nn.Module):
-    def __init__(self, alpha=10000, T0=1e6, width=0.1):
+    def __init__(self, alpha=0, T0=1e6, width=0.1):
         super().__init__()
         self.kl = nn.KLDivLoss(reduction="batchmean")
         self.alpha = alpha
@@ -312,7 +319,17 @@ class KLWithLeakageLoss(nn.Module):
 
     def forward(self, log_probs, target):
         # KL loss
-        kl_loss = self.kl(log_probs, target)
+        # kl_loss = self.kl(log_probs, target)
+
+        # expand weights to match dimensions
+        weights = lambda_weights.to(target.device)[None, :, None, None]
+
+        # weighted KL: sum target * (log target - log pred) * weight
+        kl_elementwise = target * (torch.log(target + 1e-12) - log_probs)
+
+        weighted_kl = kl_elementwise * weights
+
+        kl_loss = torch.mean(weighted_kl)
 
         # Convert to probabilities
         pred = torch.exp(log_probs)
