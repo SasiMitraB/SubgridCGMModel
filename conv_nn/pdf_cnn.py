@@ -19,9 +19,9 @@ resolution = (512, 256)
 downsample = 32
 in_channels = 5
 out_channels = 40
-layer_size1 = 64
-layer_size2 = 128
-layer_size3 = 256
+layer_size1 = 32
+layer_size2 = 64
+layer_size3 = 128
 kernel_size = 5
 num_epochs = 1000
 print_every = 50
@@ -29,6 +29,11 @@ batch_size = 64
 learning_rate = 1e-3
 weight_decay = 1e-3
 dropout_rate = 0.3
+
+T_edges = np.logspace(3.0, 7.0, out_channels + 1)
+T_centers = 0.5 * (T_edges[:-1] + T_edges[1:])
+
+logT_centers = torch.log10(torch.tensor(T_centers, dtype=torch.float32))
 
 def lambda_cool(temp):
     """
@@ -295,33 +300,44 @@ class WassersteinLoss(nn.Module):
         return loss
     
 class KLWithLeakageLoss(nn.Module):
-    def __init__(self, alpha=2.0):
+    def __init__(self, alpha=10.0, T0=1e6, width=0.1):
         super().__init__()
         self.kl = nn.KLDivLoss(reduction="batchmean")
         self.alpha = alpha
 
-    def forward(self, log_probs, target):
-        """
-        log_probs: log softmax outputs (B, bins, nx, ny)
-        target: true PDF (B, bins, nx, ny)
-        """
+        # store logT info
+        self.logT_centers = logT_centers
+        self.logT0 = np.log10(T0)
+        self.width = width
 
-        # Standard KL
+    def forward(self, log_probs, target):
+        # KL loss
         kl_loss = self.kl(log_probs, target)
 
-        # Convert log_probs → probabilities
+        # Convert to probabilities
         pred = torch.exp(log_probs)
 
-        # Find peak bin from target
-        peak_idx = torch.argmax(target, dim=1, keepdim=True)
+        # Peak bin index from TRUE PDF
+        peak_idx = torch.argmax(target, dim=1)  # (B, nx, ny)
 
-        # Predicted mass at true peak
-        peak_prob = torch.gather(pred, 1, peak_idx)
+        # Get logT of peak bin
+        logT_peak = self.logT_centers.to(target.device)[peak_idx]
 
-        # Leakage = mass outside peak
-        leakage = torch.mean(1.0 - peak_prob)
+        # Build mask: only penalize near 1e6 K
+        mask = torch.exp(-((logT_peak - self.logT0)**2) / (2 * self.width**2))
 
-        return kl_loss + self.alpha * leakage
+        # Predicted mass at peak
+        peak_prob = torch.gather(pred, 1, peak_idx.unsqueeze(1)).squeeze(1)
+
+        # Leakage
+        leakage = 1.0 - peak_prob
+
+        # Apply mask
+        masked_leakage = leakage * mask
+
+        leakage_loss = torch.mean(masked_leakage)
+
+        return kl_loss + self.alpha * leakage_loss
 
 if __name__ == "__main__":
 
@@ -336,7 +352,7 @@ if __name__ == "__main__":
                        out_channels, kernel_size).to(device)
 
     # criterion = nn.KLDivLoss(reduction="batchmean")
-    criterion = KLWithLeakageLoss(alpha=2.0)
+    criterion = KLWithLeakageLoss()
     # criterion = WassersteinLoss()
 
     optimizer = torch.optim.Adam(
@@ -477,10 +493,10 @@ if __name__ == "__main__":
 
             preds = cnn_model(x_batch)
 
-            # log_preds = torch.log_softmax(preds, dim=1)
+            log_preds = torch.log_softmax(preds, dim=1)
 
-            # test_loss_total += criterion(log_preds, y_batch).item()
-            test_loss_total += criterion(preds, y_batch).item()
+            test_loss_total += criterion(log_preds, y_batch).item()
+            # test_loss_total += criterion(preds, y_batch).item()
 
         test_loss = test_loss_total / len(test_loader)
 
