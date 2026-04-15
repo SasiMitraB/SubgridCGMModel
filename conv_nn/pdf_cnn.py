@@ -329,11 +329,20 @@ class KLWithLeakageLoss(nn.Module):
         # Predicted mass at peak
         peak_prob = torch.gather(pred, 1, peak_idx.unsqueeze(1)).squeeze(1)
 
-        # Leakage
+        # measure sharpness of TRUE PDF
+        true_peak = torch.max(target, dim=1).values  # (B, nx, ny)
+
+        # only apply leakage if true PDF is sharp
+        sharp_mask = (true_peak > 0.8).float()
+
+        # combine with temperature mask
+        final_mask = mask * sharp_mask
+
+        # leakage
         leakage = 1.0 - peak_prob
 
-        # Apply mask
-        masked_leakage = leakage * mask
+        # apply mask
+        masked_leakage = leakage * final_mask
 
         leakage_loss = torch.mean(masked_leakage)
 
