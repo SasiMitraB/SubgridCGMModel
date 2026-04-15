@@ -300,7 +300,7 @@ class WassersteinLoss(nn.Module):
         return loss
     
 class KLWithLeakageLoss(nn.Module):
-    def __init__(self, alpha=10.0, T0=1e6, width=0.1):
+    def __init__(self, alpha=1000.0, T0=1e6, width=0.1):
         super().__init__()
         self.kl = nn.KLDivLoss(reduction="batchmean")
         self.alpha = alpha
@@ -347,7 +347,7 @@ class KLWithLeakageLoss(nn.Module):
         leakage_loss = torch.mean(masked_leakage)
 
         return kl_loss + self.alpha * leakage_loss
-    
+        
 if __name__ == "__main__":
 
     file_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/kh_build/src/c{resolution[0]}_{resolution[1]}/bin"
