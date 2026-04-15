@@ -361,7 +361,7 @@ if __name__ == "__main__":
                        out_channels, kernel_size).to(device)
 
     # criterion = nn.KLDivLoss(reduction="batchmean")
-    criterion = KLWithLeakageLoss()
+    criterion = KLWithLeakageLoss(alpha=0)
     # criterion = WassersteinLoss()
 
     optimizer = torch.optim.Adam(
