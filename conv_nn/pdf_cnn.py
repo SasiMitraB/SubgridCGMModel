@@ -323,31 +323,31 @@ class KLWithLeakageLoss(nn.Module):
         # Get logT of peak bin
         logT_peak = self.logT_centers.to(target.device)[peak_idx]
 
-        # Build mask: only penalize near 1e6 K
-        mask = torch.exp(-((logT_peak - self.logT0)**2) / (2 * self.width**2))
+        # Temperature mask (Gaussian around 1e6 K)
+        temp_mask = torch.exp(
+            -((logT_peak - self.logT0) ** 2) / (2 * self.width ** 2)
+        )
 
         # Predicted mass at peak
         peak_prob = torch.gather(pred, 1, peak_idx.unsqueeze(1)).squeeze(1)
 
-        # measure sharpness of TRUE PDF
+        # True peak value
         true_peak = torch.max(target, dim=1).values  # (B, nx, ny)
 
-        # only apply leakage if true PDF is sharp
-        sharp_mask = (true_peak > 0.8).float()
+        # CONDITION: sharp + near 1e6 K
+        condition = (temp_mask > 0.5) & (true_peak > 0.9)
+        final_mask = condition.float()
 
-        # combine with temperature mask
-        final_mask = mask * sharp_mask
+        # Leakage = true - pred (only where condition holds)
+        leakage = torch.clamp(true_peak - peak_prob, min=0.0)
 
-        # leakage
-        leakage = 1.0 - peak_prob
-
-        # apply mask
+        # Apply mask
         masked_leakage = leakage * final_mask
 
         leakage_loss = torch.mean(masked_leakage)
 
         return kl_loss + self.alpha * leakage_loss
-
+    
 if __name__ == "__main__":
 
     file_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/kh_build/src/c{resolution[0]}_{resolution[1]}/bin"
