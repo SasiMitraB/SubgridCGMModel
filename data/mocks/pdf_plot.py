@@ -65,10 +65,8 @@ def lambda_cool(temp):
         logcool = (lhd[ipps+1]*dx - lhd[ipps]*(dx - 0.04)) * 25.0
         lam[mask_mid] = 10.0**logcool
 
-    if logt < 5.5:
-        lam = 0.0
-    elif logt > 6.5:
-        lam = 0.0
+    mask_off = (logt < 5.5) & (logt > 6.5)
+    lam[mask_off] = 0.0
 
     return lam
 
