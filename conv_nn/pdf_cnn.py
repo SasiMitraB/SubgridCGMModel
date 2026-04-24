@@ -380,8 +380,8 @@ if __name__ == "__main__":
     cnn_model = ConvNN(in_channels, layer_size1, layer_size2, layer_size3,
                        out_channels, kernel_size).to(device)
 
-    # criterion = nn.KLDivLoss(reduction="batchmean")
-    criterion = KLWithLeakageLoss()
+    criterion = nn.KLDivLoss(reduction="batchmean")
+    # criterion = KLWithLeakageLoss()
     # criterion = WassersteinLoss()
 
     optimizer = torch.optim.Adam(
