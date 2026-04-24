@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=pdf_plot
-# #SBATCH --partition=p.test	
-#SBATCH --partition=p.gpu
-#SBATCH --gres=gpu:2
+#SBATCH --partition=p.test	
+# #SBATCH --partition=p.gpu
+# #SBATCH --gres=gpu:2
 # #SBATCH --partition=p.gpu.ampere
 # #SBATCH --gres=gpu:a100:4
 #SBATCH --nodes=1
