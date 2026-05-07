@@ -1,8 +1,8 @@
 #!/bin/bash
 #SBATCH --job-name=cnn_train
-# #SBATCH --partition=p.gpu
-# #SBATCH --gres=gpu:2
-#SBATCH --partition=p.24h
+#SBATCH --partition=p.gpu
+#SBATCH --gres=gpu:2
+# #SBATCH --partition=p.24h
 #SBATCH --nodes=1
 #SBATCH --ntasks=1
 #SBATCH --cpus-per-task=40
@@ -11,6 +11,6 @@
 #SBATCH --error=job.err
 
 echo "Starting CNN training..."
-python3 -u pdf_cnn.py
+python3 -u log_cnn.py
 
 echo "Job complete."
