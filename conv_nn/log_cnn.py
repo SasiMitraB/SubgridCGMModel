@@ -179,72 +179,126 @@ def snapshot_pred(
 ) -> np.ndarray:
     """
     Predict pixel temperature PDFs for a given snapshot.
-    Returns: (bins, nx, ny)
+
+    Returns:
+        pdf : (bins, nx, ny)
     """
 
     sim_data = simulation_data()
     sim_data.down_sample = downsample
     sim_data.resolution = resolution
 
-    shape = (resolution[0] // downsample, resolution[1] // downsample)
+    shape = (
+        resolution[0] // downsample,
+        resolution[1] // downsample
+    )
 
     fields = ['rho', 'temp', 'ux', 'uy', 'ps']
-    cg = {f'cg_{field}': np.zeros(shape) for field in fields}
 
-    # -------------------------
+    cg = {
+        f'cg_{field}': np.zeros(shape)
+        for field in fields
+    }
+
+    # ---------------------------------
     # Coarse-grain inputs
-    # -------------------------
-    for field in fields:
-        if field in ['rho', 'temp', 'ux', 'uy', 'ps']:
-            cg[f'cg_{field}'] = sim_data.coarse_grain(locals()[field])
+    # ---------------------------------
 
-    # -------------------------
+    for field in fields:
+
+        cg[f'cg_{field}'] = sim_data.coarse_grain(
+            locals()[field]
+        )
+
+    # ---------------------------------
     # Build input tensor
-    # -------------------------
+    # ---------------------------------
+
     input_tensors = [
-        torch.from_numpy(cg[f'cg_{f}']).unsqueeze(0).float()
+
+        torch.from_numpy(
+            cg[f'cg_{f}']
+        ).unsqueeze(0).float()
+
         for f in fields
     ]
 
-    input_tensor = torch.cat(input_tensors, dim=0)   # (C, nx, ny)
-    input_tensor = input_tensor.unsqueeze(0)         # (1, C, nx, ny)
+    input_tensor = torch.cat(
+        input_tensors,
+        dim=0
+    )
 
-    # -------------------------
-    # Normalize input (IMPORTANT)
-    # -------------------------
+    # (1,C,nx,ny)
+
+    input_tensor = input_tensor.unsqueeze(0)
+
+    # ---------------------------------
+    # Normalize
+    # ---------------------------------
+
     input_mean = np.load(
         f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/conv_nn/log_model_saves/cnn_{resolution}_{downsample}_input_mean.npy"
     )
+
     input_std = np.load(
         f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/conv_nn/log_model_saves/cnn_{resolution}_{downsample}_input_std.npy"
     )
 
-    input_tensor = (input_tensor - input_mean) / input_std
+    input_mean = torch.from_numpy(input_mean).float()
+    input_std = torch.from_numpy(input_std).float()
+
+    input_tensor = (
+        input_tensor - input_mean
+    ) / input_std
+
     input_tensor = input_tensor.to(device)
 
-    # -------------------------
+    # ---------------------------------
     # Load model
-    # -------------------------
-    model_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/conv_nn/log_model_saves/cnn_{resolution}_{downsample}.pth"
+    # ---------------------------------
 
-    cnn_model = ConvNN(
-        in_channels, layer_size1, layer_size2,
-        layer_size3, out_channels, kernel_size
+    model_path = (
+        f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/conv_nn/log_model_saves/"
+        f"cnn_{resolution}_{downsample}.pth"
+    )
+
+    cnn_model = GMM_CNN(
+        in_channels,
+        layer_size1,
+        layer_size2,
+        layer_size3,
+        kernel_size
     ).to(device)
 
-    cnn_model.load_state_dict(torch.load(model_path, map_location=device))
+    cnn_model.load_state_dict(
+        torch.load(
+            model_path,
+            map_location=device
+        )
+    )
+
     cnn_model.eval()
 
-    # -------------------------
+    # ---------------------------------
     # Predict PDF
-    # -------------------------
+    # ---------------------------------
+
     with torch.no_grad():
 
-        logits = cnn_model(input_tensor)   # (1, bins, nx, ny)
+        weights, mu, sigma = cnn_model(
+            input_tensor
+        )
 
-        pdf = torch.softmax(logits, dim=1)   # convert to PDF
+        pdf = build_gmm_pdf(
+            weights,
+            mu,
+            sigma,
+            logT_centers
+        )
 
-        pdf = pdf[0].cpu().numpy()  # (bins, nx, ny)
+        # remove batch dimension
+
+        pdf = pdf[0].cpu().numpy()
 
     return pdf
 
