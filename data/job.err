@@ -1,6 +1,6 @@
 rm: cannot remove 'mocks/pdf/log_pdf_animation.mp4': No such file or directory
 rm: cannot remove 'mocks/pdf/log_pdf_compare_animation.mp4': No such file or directory
-Calculating pixel PDFs:   0%|          | 0/500 [00:00<?, ?it/s]Calculating pixel PDFs:   2%|▏         | 11/500 [00:00<00:04, 109.72it/s]Calculating pixel PDFs:   5%|▍         | 23/500 [00:00<00:04, 115.73it/s]Calculating pixel PDFs:   7%|▋         | 36/500 [00:00<00:03, 117.80it/s]Calculating pixel PDFs:  10%|▉         | 48/500 [00:00<00:03, 118.62it/s]Calculating pixel PDFs:  12%|█▏        | 61/500 [00:00<00:03, 119.49it/s]Calculating pixel PDFs:  15%|█▍        | 74/500 [00:00<00:03, 119.99it/s]Calculating pixel PDFs:  17%|█▋        | 86/500 [00:00<00:03, 119.82it/s]Calculating pixel PDFs:  20%|█▉        | 99/500 [00:00<00:03, 119.91it/s]Calculating pixel PDFs:  22%|██▏       | 111/500 [00:00<00:03, 119.94it/s]Calculating pixel PDFs:  25%|██▍       | 124/500 [00:01<00:03, 120.05it/s]Calculating pixel PDFs:  27%|██▋       | 137/500 [00:01<00:03, 120.26it/s]Calculating pixel PDFs:  30%|███       | 150/500 [00:01<00:02, 120.21it/s]Calculating pixel PDFs:  33%|███▎      | 163/500 [00:01<00:02, 120.28it/s]Calculating pixel PDFs:  35%|███▌      | 176/500 [00:01<00:02, 120.30it/s]Calculating pixel PDFs:  38%|███▊      | 189/500 [00:01<00:02, 120.31it/s]Calculating pixel PDFs:  40%|████      | 202/500 [00:01<00:02, 120.09it/s]Calculating pixel PDFs:  43%|████▎     | 215/500 [00:01<00:02, 120.06it/s]Calculating pixel PDFs:  46%|████▌     | 228/500 [00:01<00:02, 120.35it/s]Calculating pixel PDFs:  48%|████▊     | 241/500 [00:02<00:02, 119.99it/s]Calculating pixel PDFs:  51%|█████     | 253/500 [00:02<00:02, 119.89it/s]Calculating pixel PDFs:  53%|█████▎    | 265/500 [00:02<00:01, 119.91it/s]Calculating pixel PDFs:  56%|█████▌    | 278/500 [00:02<00:01, 119.96it/s]Calculating pixel PDFs:  58%|█████▊    | 291/500 [00:02<00:01, 120.14it/s]Calculating pixel PDFs:  61%|██████    | 304/500 [00:02<00:01, 120.10it/s]Calculating pixel PDFs:  63%|██████▎   | 317/500 [00:02<00:01, 120.33it/s]Calculating pixel PDFs:  66%|██████▌   | 330/500 [00:02<00:01, 120.46it/s]Calculating pixel PDFs:  69%|██████▊   | 343/500 [00:02<00:01, 120.54it/s]Calculating pixel PDFs:  71%|███████   | 356/500 [00:02<00:01, 120.59it/s]Calculating pixel PDFs:  74%|███████▍  | 369/500 [00:03<00:01, 119.45it/s]Calculating pixel PDFs:  76%|███████▋  | 382/500 [00:03<00:00, 119.66it/s]Calculating pixel PDFs:  79%|███████▉  | 395/500 [00:03<00:00, 120.01it/s]Calculating pixel PDFs:  82%|████████▏ | 408/500 [00:03<00:00, 120.05it/s]Calculating pixel PDFs:  84%|████████▍ | 421/500 [00:03<00:00, 120.17it/s]Calculating pixel PDFs:  87%|████████▋ | 434/500 [00:03<00:00, 120.36it/s]Calculating pixel PDFs:  89%|████████▉ | 447/500 [00:03<00:00, 119.81it/s]Calculating pixel PDFs:  92%|█████████▏| 459/500 [00:03<00:00, 118.67it/s]Calculating pixel PDFs:  94%|█████████▍| 471/500 [00:03<00:00, 118.41it/s]Calculating pixel PDFs:  97%|█████████▋| 484/500 [00:04<00:00, 119.03it/s]Calculating pixel PDFs:  99%|█████████▉| 497/500 [00:04<00:00, 119.57it/s]Calculating pixel PDFs: 100%|██████████| 500/500 [00:04<00:00, 119.74it/s]
+Calculating pixel PDFs:   0%|          | 0/500 [00:00<?, ?it/s]Calculating pixel PDFs:   2%|▏         | 11/500 [00:00<00:04, 107.10it/s]Calculating pixel PDFs:   5%|▍         | 23/500 [00:00<00:04, 114.39it/s]Calculating pixel PDFs:   7%|▋         | 36/500 [00:00<00:03, 117.10it/s]Calculating pixel PDFs:  10%|▉         | 49/500 [00:00<00:03, 118.45it/s]Calculating pixel PDFs:  12%|█▏        | 62/500 [00:00<00:03, 119.39it/s]Calculating pixel PDFs:  15%|█▌        | 75/500 [00:00<00:03, 120.00it/s]Calculating pixel PDFs:  18%|█▊        | 88/500 [00:00<00:03, 120.18it/s]Calculating pixel PDFs:  20%|██        | 101/500 [00:00<00:03, 120.28it/s]Calculating pixel PDFs:  23%|██▎       | 114/500 [00:00<00:03, 120.32it/s]Calculating pixel PDFs:  25%|██▌       | 127/500 [00:01<00:03, 120.37it/s]Calculating pixel PDFs:  28%|██▊       | 140/500 [00:01<00:03, 119.94it/s]Calculating pixel PDFs:  30%|███       | 152/500 [00:01<00:02, 119.95it/s]Calculating pixel PDFs:  33%|███▎      | 165/500 [00:01<00:02, 120.16it/s]Calculating pixel PDFs:  36%|███▌      | 178/500 [00:01<00:02, 120.30it/s]Calculating pixel PDFs:  38%|███▊      | 191/500 [00:01<00:02, 120.26it/s]Calculating pixel PDFs:  41%|████      | 204/500 [00:01<00:02, 120.00it/s]Calculating pixel PDFs:  43%|████▎     | 217/500 [00:01<00:02, 120.04it/s]Calculating pixel PDFs:  46%|████▌     | 230/500 [00:01<00:02, 120.39it/s]Calculating pixel PDFs:  49%|████▊     | 243/500 [00:02<00:02, 120.23it/s]Calculating pixel PDFs:  51%|█████     | 256/500 [00:02<00:02, 120.10it/s]Calculating pixel PDFs:  54%|█████▍    | 269/500 [00:02<00:01, 120.17it/s]Calculating pixel PDFs:  56%|█████▋    | 282/500 [00:02<00:01, 120.22it/s]Calculating pixel PDFs:  59%|█████▉    | 295/500 [00:02<00:01, 120.37it/s]Calculating pixel PDFs:  62%|██████▏   | 308/500 [00:02<00:01, 120.41it/s]Calculating pixel PDFs:  64%|██████▍   | 321/500 [00:02<00:01, 120.57it/s]Calculating pixel PDFs:  67%|██████▋   | 334/500 [00:02<00:01, 120.67it/s]Calculating pixel PDFs:  69%|██████▉   | 347/500 [00:02<00:01, 120.76it/s]Calculating pixel PDFs:  72%|███████▏  | 360/500 [00:03<00:01, 120.73it/s]Calculating pixel PDFs:  75%|███████▍  | 373/500 [00:03<00:01, 120.64it/s]Calculating pixel PDFs:  77%|███████▋  | 386/500 [00:03<00:00, 120.67it/s]Calculating pixel PDFs:  80%|███████▉  | 399/500 [00:03<00:00, 120.71it/s]Calculating pixel PDFs:  82%|████████▏ | 412/500 [00:03<00:00, 120.76it/s]Calculating pixel PDFs:  85%|████████▌ | 425/500 [00:03<00:00, 120.81it/s]Calculating pixel PDFs:  88%|████████▊ | 438/500 [00:03<00:00, 120.92it/s]Calculating pixel PDFs:  90%|█████████ | 451/500 [00:03<00:00, 120.94it/s]Calculating pixel PDFs:  93%|█████████▎| 464/500 [00:03<00:00, 120.83it/s]Calculating pixel PDFs:  95%|█████████▌| 477/500 [00:03<00:00, 120.60it/s]Calculating pixel PDFs:  98%|█████████▊| 490/500 [00:04<00:00, 120.64it/s]Calculating pixel PDFs: 100%|██████████| 500/500 [00:04<00:00, 120.15it/s]
 ffmpeg version 7.1.1 Copyright (c) 2000-2025 the FFmpeg developers
   built with gcc 9 (Ubuntu 9.4.0-1ubuntu1~20.04.2)
   configuration: --enable-nonfree --enable-gpl --enable-openssl --enable-libdav1d --enable-libsvtav1 --enable-libx264 --enable-libx265 --enable-libvpx --enable-libxvid --enable-libvidstab --enable-libaom --enable-libzimg --enable-lv2 --enable-libopencore_amrnb --enable-libopencore_amrwb --enable-libmp3lame --enable-libopus --enable-libvorbis --enable-libtheora --enable-libfdk-aac --enable-libjxl --enable-libwebp --enable-libfreetype --enable-vapoursynth --enable-libsrt --enable-libzvbi --enable-libzmq --disable-ffnvcodec --enable-amf --disable-debug --disable-shared --enable-pthreads --enable-static --enable-version3 --extra-cflags='-I/builds/khr/ffmpeg-build-script/workspace/include -Wno-int-conversion -fPIC -I/builds/khr/ffmpeg-build-script/workspace/include/lilv-0' --extra-ldexeflags='-static -fPIC' --extra-ldflags=-L/builds/khr/ffmpeg-build-script/workspace/lib --extra-libs='-ldl -lpthread -lm -lz' --pkgconfigdir=/builds/khr/ffmpeg-build-script/workspace/lib/pkgconfig --pkg-config-flags=--static --prefix=/builds/khr/ffmpeg-build-script/workspace --extra-version=
@@ -12,9 +12,44 @@ ffmpeg version 7.1.1 Copyright (c) 2000-2025 the FFmpeg developers
   libswscale      8.  3.100 /  8.  3.100
   libswresample   5.  3.100 /  5.  3.100
   libpostproc    58.  3.100 / 58.  3.100
-[in#0 @ 0xbd01300] Error opening input: No such file or directory
-Error opening input file mocks/pdf/pdf_animation.gif.
-Error opening input files: No such file or directory
+Input #0, gif, from 'mocks/pdf/log_pdf_animation.gif':
+  Duration: 00:00:50.00, start: 0.000000, bitrate: 10553 kb/s
+  Stream #0:0: Video: gif, bgra, 1760x2880, 10 fps, 10 tbr, 100 tbn
+Stream mapping:
+  Stream #0:0 -> #0:0 (gif (native) -> h264 (libx264))
+Press [q] to stop, [?] for help
+[libx264 @ 0x32ce4840] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2 AVX512
+[libx264 @ 0x32ce4840] profile High, level 5.0, 4:2:0, 8-bit
+[libx264 @ 0x32ce4840] 264 - core 165 - H.264/MPEG-4 AVC codec - Copyleft 2003-2025 - http://www.videolan.org/x264.html - options: cabac=1 ref=3 deblock=1:0:0 analyse=0x3:0x113 me=hex subme=7 psy=1 psy_rd=1.00:0.00 mixed_ref=1 me_range=16 chroma_me=1 trellis=1 8x8dct=1 cqm=0 deadzone=21,11 fast_pskip=1 chroma_qp_offset=-2 threads=60 lookahead_threads=10 sliced_threads=0 nr=0 decimate=1 interlaced=0 bluray_compat=0 constrained_intra=0 bframes=3 b_pyramid=2 b_adapt=1 b_bias=0 direct=1 weightb=1 open_gop=0 weightp=2 keyint=250 keyint_min=10 scenecut=40 intra_refresh=0 rc_lookahead=40 rc=crf mbtree=1 crf=23.0 qcomp=0.60 qpmin=0 qpmax=69 qpstep=4 ip_ratio=1.40 aq=1:1.00
+Output #0, mp4, to 'mocks/pdf/log_pdf_animation.mp4':
+  Metadata:
+    encoder         : Lavf61.7.100
+  Stream #0:0: Video: h264 (avc1 / 0x31637661), yuv420p(tv, progressive), 1760x2880, q=2-31, 10 fps, 10240 tbn
+      Metadata:
+        encoder         : Lavc61.19.101 libx264
+      Side data:
+        cpb: bitrate max/min/avg: 0/0/0 buffer size: 0 vbv_delay: N/A
+frame=    0 fps=0.0 q=0.0 size=       0KiB time=N/A bitrate=N/A speed=N/A    frame=    0 fps=0.0 q=0.0 size=       0KiB time=N/A bitrate=N/A speed=N/A    frame=    0 fps=0.0 q=0.0 size=       0KiB time=N/A bitrate=N/A speed=N/A    frame=    2 fps=1.0 q=25.0 size=       0KiB time=00:00:00.00 bitrate=N/A speed=   0x    frame=   32 fps= 13 q=25.0 size=     256KiB time=00:00:03.00 bitrate= 699.2kbits/s speed= 1.2x    frame=   61 fps= 20 q=25.0 size=     768KiB time=00:00:05.90 bitrate=1066.4kbits/s speed=1.97x    frame=   90 fps= 26 q=25.0 size=    1024KiB time=00:00:08.80 bitrate= 953.3kbits/s speed=2.51x    frame=  117 fps= 29 q=25.0 size=    1536KiB time=00:00:11.50 bitrate=1094.2kbits/s speed=2.87x    frame=  145 fps= 32 q=25.0 size=    1792KiB time=00:00:14.30 bitrate=1026.6kbits/s speed=3.18x    frame=  173 fps= 35 q=25.0 size=    2304KiB time=00:00:17.10 bitrate=1103.8kbits/s speed=3.42x    frame=  200 fps= 36 q=25.0 size=    2560KiB time=00:00:19.80 bitrate=1059.2kbits/s speed= 3.6x    frame=  227 fps= 38 q=25.0 size=    3072KiB time=00:00:22.50 bitrate=1118.5kbits/s speed=3.75x    frame=  254 fps= 39 q=25.0 size=    3584KiB time=00:00:25.20 bitrate=1165.1kbits/s speed=3.88x    frame=  281 fps= 40 q=25.0 size=    3840KiB time=00:00:27.90 bitrate=1127.5kbits/s speed=3.98x    frame=  308 fps= 41 q=25.0 size=    4352KiB time=00:00:30.60 bitrate=1165.1kbits/s speed=4.08x    frame=  335 fps= 42 q=25.0 size=    4608KiB time=00:00:33.30 bitrate=1133.6kbits/s speed=4.16x    frame=  363 fps= 43 q=25.0 size=    4864KiB time=00:00:36.10 bitrate=1103.8kbits/s speed=4.25x    frame=  391 fps= 43 q=25.0 size=    5376KiB time=00:00:38.90 bitrate=1132.1kbits/s speed=4.32x    [mp4 @ 0x32cb4c40] Starting second pass: moving the moov atom to the beginning of the file
+[out#0/mp4 @ 0x32cb4a80] video:6703KiB audio:0KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 0.101266%
+frame=  500 fps= 54 q=-1.0 Lsize=    6710KiB time=00:00:49.80 bitrate=1103.8kbits/s speed=5.35x    
+[libx264 @ 0x32ce4840] frame I:2     Avg QP:11.44  size: 78256
+[libx264 @ 0x32ce4840] frame P:126   Avg QP:22.35  size: 22254
+[libx264 @ 0x32ce4840] frame B:372   Avg QP:26.44  size: 10492
+[libx264 @ 0x32ce4840] consecutive B-frames:  0.8%  0.0%  0.0% 99.2%
+[libx264 @ 0x32ce4840] mb I  I16..4: 58.3% 30.2% 11.6%
+[libx264 @ 0x32ce4840] mb P  I16..4:  1.2%  1.7%  1.1%  P16..4:  3.0%  2.0%  0.9%  0.0%  0.0%    skip:90.1%
+[libx264 @ 0x32ce4840] mb B  I16..4:  0.4%  0.2%  0.2%  B16..8:  5.2%  1.7%  0.4%  direct: 0.9%  skip:91.0%  L0:50.2% L1:43.5% BI: 6.2%
+[libx264 @ 0x32ce4840] 8x8 transform intra:35.5% inter:33.5%
+[libx264 @ 0x32ce4840] coded y,uvDC,uvAC intra: 14.9% 31.5% 25.2% inter: 1.4% 1.5% 0.7%
+[libx264 @ 0x32ce4840] i16 v,h,dc,p: 72% 27%  1%  0%
+[libx264 @ 0x32ce4840] i8 v,h,dc,ddl,ddr,vr,hd,vl,hu: 30%  7% 63%  1%  0%  0%  0%  0%  0%
+[libx264 @ 0x32ce4840] i4 v,h,dc,ddl,ddr,vr,hd,vl,hu: 51% 17% 26%  1%  1%  1%  1%  1%  1%
+[libx264 @ 0x32ce4840] i8c dc,h,v,p: 54% 17% 29%  0%
+[libx264 @ 0x32ce4840] Weighted P-Frames: Y:0.0% UV:0.0%
+[libx264 @ 0x32ce4840] ref P L0: 52.5%  4.9% 25.2% 17.5%
+[libx264 @ 0x32ce4840] ref B L0: 76.4% 17.9%  5.7%
+[libx264 @ 0x32ce4840] ref B L1: 92.4%  7.6%
+[libx264 @ 0x32ce4840] kb/s:1098.15
 ffmpeg version 7.1.1 Copyright (c) 2000-2025 the FFmpeg developers
   built with gcc 9 (Ubuntu 9.4.0-1ubuntu1~20.04.2)
   configuration: --enable-nonfree --enable-gpl --enable-openssl --enable-libdav1d --enable-libsvtav1 --enable-libx264 --enable-libx265 --enable-libvpx --enable-libxvid --enable-libvidstab --enable-libaom --enable-libzimg --enable-lv2 --enable-libopencore_amrnb --enable-libopencore_amrwb --enable-libmp3lame --enable-libopus --enable-libvorbis --enable-libtheora --enable-libfdk-aac --enable-libjxl --enable-libwebp --enable-libfreetype --enable-vapoursynth --enable-libsrt --enable-libzvbi --enable-libzmq --disable-ffnvcodec --enable-amf --disable-debug --disable-shared --enable-pthreads --enable-static --enable-version3 --extra-cflags='-I/builds/khr/ffmpeg-build-script/workspace/include -Wno-int-conversion -fPIC -I/builds/khr/ffmpeg-build-script/workspace/include/lilv-0' --extra-ldexeflags='-static -fPIC' --extra-ldflags=-L/builds/khr/ffmpeg-build-script/workspace/lib --extra-libs='-ldl -lpthread -lm -lz' --pkgconfigdir=/builds/khr/ffmpeg-build-script/workspace/lib/pkgconfig --pkg-config-flags=--static --prefix=/builds/khr/ffmpeg-build-script/workspace --extra-version=
@@ -26,8 +61,41 @@ ffmpeg version 7.1.1 Copyright (c) 2000-2025 the FFmpeg developers
   libswscale      8.  3.100 /  8.  3.100
   libswresample   5.  3.100 /  5.  3.100
   libpostproc    58.  3.100 / 58.  3.100
-[in#0 @ 0xe653300] Error opening input: No such file or directory
-Error opening input file mocks/pdf/pdf_compare_animation.gif.
-Error opening input files: No such file or directory
-rm: cannot remove 'mocks/pdf/pdf_animation.gif': No such file or directory
-rm: cannot remove 'mocks/pdf/pdf_animation.gif': No such file or directory
+Input #0, gif, from 'mocks/pdf/log_pdf_compare_animation.gif':
+  Duration: 00:00:50.00, start: 0.000000, bitrate: 21922 kb/s
+  Stream #0:0: Video: gif, bgra, 3200x2880, 10 fps, 10 tbr, 100 tbn
+Stream mapping:
+  Stream #0:0 -> #0:0 (gif (native) -> h264 (libx264))
+Press [q] to stop, [?] for help
+[libx264 @ 0x1b19aec0] using cpu capabilities: MMX2 SSE2Fast SSSE3 SSE4.2 AVX FMA3 BMI2 AVX2 AVX512
+[libx264 @ 0x1b19aec0] profile High, level 5.1, 4:2:0, 8-bit
+[libx264 @ 0x1b19aec0] 264 - core 165 - H.264/MPEG-4 AVC codec - Copyleft 2003-2025 - http://www.videolan.org/x264.html - options: cabac=1 ref=3 deblock=1:0:0 analyse=0x3:0x113 me=hex subme=7 psy=1 psy_rd=1.00:0.00 mixed_ref=1 me_range=16 chroma_me=1 trellis=1 8x8dct=1 cqm=0 deadzone=21,11 fast_pskip=1 chroma_qp_offset=-2 threads=60 lookahead_threads=10 sliced_threads=0 nr=0 decimate=1 interlaced=0 bluray_compat=0 constrained_intra=0 bframes=3 b_pyramid=2 b_adapt=1 b_bias=0 direct=1 weightb=1 open_gop=0 weightp=2 keyint=250 keyint_min=10 scenecut=40 intra_refresh=0 rc_lookahead=40 rc=crf mbtree=1 crf=23.0 qcomp=0.60 qpmin=0 qpmax=69 qpstep=4 ip_ratio=1.40 aq=1:1.00
+Output #0, mp4, to 'mocks/pdf/log_pdf_compare_animation.mp4':
+  Metadata:
+    encoder         : Lavf61.7.100
+  Stream #0:0: Video: h264 (avc1 / 0x31637661), yuv420p(tv, progressive), 3200x2880, q=2-31, 10 fps, 10240 tbn
+      Metadata:
+        encoder         : Lavc61.19.101 libx264
+      Side data:
+        cpb: bitrate max/min/avg: 0/0/0 buffer size: 0 vbv_delay: N/A
+frame=    0 fps=0.0 q=0.0 size=       0KiB time=N/A bitrate=N/A speed=N/A    frame=    0 fps=0.0 q=0.0 size=       0KiB time=N/A bitrate=N/A speed=N/A    frame=    0 fps=0.0 q=0.0 size=       0KiB time=N/A bitrate=N/A speed=N/A    frame=    0 fps=0.0 q=0.0 size=       0KiB time=N/A bitrate=N/A speed=N/A    frame=    0 fps=0.0 q=0.0 size=       0KiB time=N/A bitrate=N/A speed=N/A    frame=    0 fps=0.0 q=0.0 size=       0KiB time=N/A bitrate=N/A speed=N/A    frame=   10 fps=2.9 q=25.0 size=     256KiB time=00:00:00.80 bitrate=2621.9kbits/s speed=0.228x    frame=   27 fps=6.7 q=25.0 size=    1024KiB time=00:00:02.50 bitrate=3355.6kbits/s speed=0.625x    frame=   44 fps=9.8 q=25.0 size=    1536KiB time=00:00:04.20 bitrate=2996.0kbits/s speed=0.933x    frame=   62 fps= 12 q=25.0 size=    2048KiB time=00:00:06.00 bitrate=2796.3kbits/s speed= 1.2x    frame=   79 fps= 14 q=25.0 size=    2560KiB time=00:00:07.70 bitrate=2723.6kbits/s speed= 1.4x    frame=   95 fps= 16 q=25.0 size=    3072KiB time=00:00:09.30 bitrate=2706.0kbits/s speed=1.55x    frame=  111 fps= 17 q=25.0 size=    3840KiB time=00:00:10.90 bitrate=2886.0kbits/s speed=1.68x    frame=  127 fps= 18 q=25.0 size=    4608KiB time=00:00:12.50 bitrate=3019.9kbits/s speed=1.78x    frame=  142 fps= 19 q=25.0 size=    5120KiB time=00:00:14.00 bitrate=2996.0kbits/s speed=1.87x    frame=  159 fps= 20 q=25.0 size=    5632KiB time=00:00:15.70 bitrate=2938.7kbits/s speed=1.96x    frame=  175 fps= 21 q=25.0 size=    6144KiB time=00:00:17.30 bitrate=2909.4kbits/s speed=2.03x    frame=  190 fps= 21 q=25.0 size=    6656KiB time=00:00:18.80 bitrate=2900.3kbits/s speed=2.09x    frame=  207 fps= 22 q=25.0 size=    7424KiB time=00:00:20.50 bitrate=2966.7kbits/s speed=2.16x    frame=  224 fps= 22 q=25.0 size=    7936KiB time=00:00:22.20 bitrate=2928.5kbits/s speed=2.22x    frame=  240 fps= 23 q=25.0 size=    8704KiB time=00:00:23.80 bitrate=2995.9kbits/s speed=2.27x    frame=  256 fps= 23 q=25.0 size=    9472KiB time=00:00:25.40 bitrate=3054.9kbits/s speed=2.31x    frame=  272 fps= 24 q=25.0 size=   10240KiB time=00:00:27.00 bitrate=3106.9kbits/s speed=2.35x    frame=  289 fps= 24 q=25.0 size=   11008KiB time=00:00:28.70 bitrate=3142.1kbits/s speed=2.39x    frame=  305 fps= 24 q=25.0 size=   11520KiB time=00:00:30.30 bitrate=3114.6kbits/s speed=2.42x    frame=  321 fps= 25 q=25.0 size=   12032KiB time=00:00:31.90 bitrate=3089.9kbits/s speed=2.45x    frame=  337 fps= 25 q=25.0 size=   12544KiB time=00:00:33.50 bitrate=3067.5kbits/s speed=2.48x    frame=  354 fps= 25 q=25.0 size=   13056KiB time=00:00:35.20 bitrate=3038.5kbits/s speed=2.51x    frame=  370 fps= 26 q=25.0 size=   13568KiB time=00:00:36.80 bitrate=3020.4kbits/s speed=2.54x    frame=  387 fps= 26 q=25.0 size=   14080KiB time=00:00:38.50 bitrate=2995.9kbits/s speed=2.57x    frame=  459 fps= 30 q=-1.0 size=   16384KiB time=00:00:45.70 bitrate=2936.9kbits/s speed=2.95x    [mp4 @ 0x1b18ac40] Starting second pass: moving the moov atom to the beginning of the file
+[out#0/mp4 @ 0x1b18aa80] video:17772KiB audio:0KiB subtitle:0KiB other streams:0KiB global headers:0KiB muxing overhead: 0.039030%
+frame=  500 fps= 32 q=-1.0 Lsize=   17779KiB time=00:00:49.80 bitrate=2924.6kbits/s speed=3.17x    
+[libx264 @ 0x1b19aec0] frame I:2     Avg QP:12.02  size:228564
+[libx264 @ 0x1b19aec0] frame P:126   Avg QP:22.23  size: 61711
+[libx264 @ 0x1b19aec0] frame B:372   Avg QP:28.01  size: 26789
+[libx264 @ 0x1b19aec0] consecutive B-frames:  0.8%  0.0%  0.0% 99.2%
+[libx264 @ 0x1b19aec0] mb I  I16..4: 59.4% 24.3% 16.3%
+[libx264 @ 0x1b19aec0] mb P  I16..4:  0.5%  0.8%  0.9%  P16..4:  4.1%  2.9%  1.5%  0.0%  0.0%    skip:89.2%
+[libx264 @ 0x1b19aec0] mb B  I16..4:  0.1%  0.2%  0.1%  B16..8:  6.4%  2.2%  0.6%  direct: 0.5%  skip:89.9%  L0:49.7% L1:43.5% BI: 6.8%
+[libx264 @ 0x1b19aec0] 8x8 transform intra:34.7% inter:26.2%
+[libx264 @ 0x1b19aec0] coded y,uvDC,uvAC intra: 21.3% 31.5% 30.0% inter: 1.8% 1.8% 1.6%
+[libx264 @ 0x1b19aec0] i16 v,h,dc,p: 71% 27%  2%  0%
+[libx264 @ 0x1b19aec0] i8 v,h,dc,ddl,ddr,vr,hd,vl,hu: 22%  3% 74%  1%  0%  0%  0%  0%  0%
+[libx264 @ 0x1b19aec0] i4 v,h,dc,ddl,ddr,vr,hd,vl,hu: 42% 23% 27%  1%  1%  2%  1%  2%  2%
+[libx264 @ 0x1b19aec0] i8c dc,h,v,p: 61% 14% 25%  0%
+[libx264 @ 0x1b19aec0] Weighted P-Frames: Y:0.0% UV:0.0%
+[libx264 @ 0x1b19aec0] ref P L0: 53.5%  4.2% 24.0% 18.3%
+[libx264 @ 0x1b19aec0] ref B L0: 75.6% 18.0%  6.4%
+[libx264 @ 0x1b19aec0] ref B L1: 91.4%  8.6%
+[libx264 @ 0x1b19aec0] kb/s:2911.71
