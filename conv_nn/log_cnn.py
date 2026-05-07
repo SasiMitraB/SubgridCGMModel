@@ -548,9 +548,9 @@ if __name__ == "__main__":
     input_std = input_tensor.std(dim=(0,2,3), keepdim=True)
     input_std[input_std == 0] = 1.0
 
-    np.save(f"pdf_model_saves/cnn_{resolution}_{downsample}_input_mean.npy",
+    np.save(f"log_model_saves/cnn_{resolution}_{downsample}_input_mean.npy",
             input_mean.cpu().numpy())
-    np.save(f"pdf_model_saves/cnn_{resolution}_{downsample}_input_std.npy",
+    np.save(f"log_model_saves/cnn_{resolution}_{downsample}_input_std.npy",
             input_std.cpu().numpy())
 
     input_tensor_norm = (input_tensor - input_mean) / input_std
@@ -705,7 +705,7 @@ if __name__ == "__main__":
     # Save model
     torch.save(
         cnn_model.state_dict(),
-        f"pdf_model_saves/cnn_{resolution}_{downsample}.pth"
+        f"log_model_saves/cnn_{resolution}_{downsample}.pth"
     )
 
     # Plot loss
@@ -719,8 +719,8 @@ if __name__ == "__main__":
     plt.axhline(test_loss, linestyle="--", color="red")
 
     plt.xlabel("Epochs")
-    # plt.ylabel("KL Divergence")
-    plt.ylabel("Wasserstein Loss")
+    plt.ylabel("KL Divergence")
+    # plt.ylabel("Wasserstein Loss")
     plt.title("Training Loss")
 
     plt.legend()
