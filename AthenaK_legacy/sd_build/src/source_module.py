@@ -170,6 +170,183 @@ class ConvNN(nn.Module):
         x = self.decoder(x)
         return x
 
+# CNN class for GMM PDF term prediction (outputs mixture weights, means, and sigmas for 3 components)
+class GMM_CNN(nn.Module):
+
+    def __init__(
+        self,
+        in_channels,
+        layer_size1,
+        layer_size2,
+        layer_size3,
+        kernel_size,
+        n_components=3
+    ):
+
+        super().__init__()
+
+        self.n_components = n_components
+
+        padding = kernel_size // 2
+
+        self.encoder = nn.Sequential(
+
+            nn.Conv2d(
+                in_channels,
+                layer_size1,
+                kernel_size,
+                padding=padding
+            ),
+            nn.BatchNorm2d(layer_size1),
+            nn.ReLU(),
+
+            nn.Conv2d(
+                layer_size1,
+                layer_size2,
+                kernel_size,
+                padding=padding
+            ),
+            nn.BatchNorm2d(layer_size2),
+            nn.ReLU(),
+
+            nn.Conv2d(
+                layer_size2,
+                layer_size3,
+                kernel_size,
+                padding=padding
+            ),
+            nn.BatchNorm2d(layer_size3),
+            nn.ReLU(),
+        )
+
+        # outputs:
+        #
+        # weights (3)
+        # means   (3)
+        # sigmas  (3)
+        #
+        # total = 9 channels
+
+        self.head = nn.Conv2d(
+            layer_size3,
+            9,
+            kernel_size=1
+        )
+
+    def forward(self, x):
+
+        x = self.encoder(x)
+
+        params = self.head(x)
+
+        # ----------------------------------------
+        # split parameters
+        # ----------------------------------------
+
+        raw_weights = params[:, 0:3]
+
+        raw_mu0  = params[:, 3]
+        raw_dmu1 = params[:, 4]
+        raw_dmu2 = params[:, 5]
+
+        raw_sigma = params[:, 6:9]
+
+        # ----------------------------------------
+        # mixture weights
+        # ----------------------------------------
+
+        weights = torch.softmax(
+            raw_weights,
+            dim=1
+        )
+
+        # ----------------------------------------
+        # ordered means
+        #
+        # mu0 < mu1 < mu2
+        # ----------------------------------------
+
+        mu0 = 3.0 + 4.0 * torch.sigmoid(raw_mu0)
+
+        dmu1 = F.softplus(raw_dmu1)
+        dmu2 = F.softplus(raw_dmu2)
+
+        mu1 = mu0 + dmu1
+        mu2 = mu1 + dmu2
+
+        mu = torch.stack(
+            [mu0, mu1, mu2],
+            dim=1
+        )
+
+        # ----------------------------------------
+        # sigmas
+        # ----------------------------------------
+
+        sigma = (
+            F.softplus(raw_sigma)
+            + 1e-3
+        )
+
+        return weights, mu, sigma
+
+def build_gmm_pdf(
+    weights,
+    mu,
+    sigma,
+    logT_centers
+):
+
+    """
+    weights : (B,3,nx,ny)
+    mu      : (B,3,nx,ny)
+    sigma   : (B,3,nx,ny)
+
+    returns:
+        pdf : (B,bins,nx,ny)
+    """
+
+    bins = len(logT_centers)
+
+    logT = logT_centers.to(weights.device)
+
+    # (1,1,bins,1,1)
+
+    logT = logT.view(
+        1,
+        1,
+        bins,
+        1,
+        1
+    )
+
+    weights = weights.unsqueeze(2)
+    mu = mu.unsqueeze(2)
+    sigma = sigma.unsqueeze(2)
+
+    gauss = torch.exp(
+        -0.5 *
+        ((logT - mu) / sigma)**2
+    )
+
+    gauss = gauss / (
+        np.sqrt(2*np.pi)
+        * sigma
+    )
+
+    pdf = weights * gauss
+
+    pdf = pdf.sum(dim=1)
+
+    # normalize discrete PDF
+
+    pdf = pdf / (
+        pdf.sum(dim=1, keepdim=True)
+        + 1e-12
+    )
+
+    return pdf
+
 # ---------- Residual UNet backbone (deep + skip connections) ----------
 class ResBlock(nn.Module):
     def __init__(self, in_ch, out_ch, k=3, groups=1, p=0.0):
@@ -760,8 +937,8 @@ class ResUNet(nn.Module):
 
 # Source terms for PDF predictions
 
-input_mean = np.load(f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/conv_nn/pdf_model_saves/cnn_{resolution}_{downsample}_input_mean.npy")
-input_std = np.load(f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/conv_nn/pdf_model_saves/cnn_{resolution}_{downsample}_input_std.npy")
+input_mean = np.load(f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/conv_nn/log_model_saves/cnn_{resolution}_{downsample}_input_mean.npy")
+input_std = np.load(f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/conv_nn/log_model_saves/cnn_{resolution}_{downsample}_input_std.npy")
 
 def source_func(rho, pres, ux, uy, ps, fmcl):
         
@@ -781,15 +958,31 @@ def source_func(rho, pres, ux, uy, ps, fmcl):
 
     source_term = np.zeros((5, shape[0], shape[1]))
 
-    model_path = f'/ptmp/mpa/dipda/subgrid/SubgridCGMModel/conv_nn/pdf_model_saves/cnn_{resolution}_{downsample}.pth'
-    cnn_model = ConvNN(in_channels, layer_size1, layer_size2, layer_size3, out_channels, kernel_size).to(device)
+    model_path = f'/ptmp/mpa/dipda/subgrid/SubgridCGMModel/conv_nn/log_model_saves/cnn_{resolution}_{downsample}.pth'
+        cnn_model = GMM_CNN(
+        in_channels,
+        layer_size1,
+        layer_size2,
+        layer_size3,
+        kernel_size
+    ).to(device)
     cnn_model.load_state_dict(torch.load(model_path, map_location=device))
     cnn_model.eval()
 
     with torch.no_grad():
-        logits = cnn_model(input_tensor)  
-        pdf = torch.softmax(logits, dim=1)   
-        pdf = pdf[0].cpu().numpy()  
+
+        weights, mu, sigma = cnn_model(
+            input_tensor
+        )
+
+        pdf = build_gmm_pdf(
+            weights,
+            mu,
+            sigma,
+            logT_centers
+        )
+
+        pdf = pdf[0].cpu().numpy()
 
     pdf /= (pdf.sum(axis=0, keepdims=True) + 1e-12)
     
