@@ -26,6 +26,7 @@ total_width: float = 40
 gamma: float = 5.0 / 3.0
 T_edges = np.logspace(3.0, 7.0, out_channels + 1)
 T_centers = 0.5 * (T_edges[:-1] + T_edges[1:])
+logT_centers = torch.log10(torch.tensor(T_centers, dtype=torch.float32))
 
 def divergence(f, dx, dy):
     dFx_dx = np.gradient(f[0], dy, dx)[1]
