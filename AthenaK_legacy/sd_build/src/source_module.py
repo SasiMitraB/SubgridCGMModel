@@ -959,7 +959,7 @@ def source_func(rho, pres, ux, uy, ps, fmcl):
     source_term = np.zeros((5, shape[0], shape[1]))
 
     model_path = f'/ptmp/mpa/dipda/subgrid/SubgridCGMModel/conv_nn/log_model_saves/cnn_{resolution}_{downsample}.pth'
-        cnn_model = GMM_CNN(
+    cnn_model = GMM_CNN(
         in_channels,
         layer_size1,
         layer_size2,
