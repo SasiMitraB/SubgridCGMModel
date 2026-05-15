@@ -24,6 +24,8 @@ dropout_rate = 0.3
 total_length: float = 80 
 total_width: float = 40 
 gamma: float = 5.0 / 3.0
+T_edges = np.logspace(3.0, 7.0, out_channels + 1)
+T_centers = 0.5 * (T_edges[:-1] + T_edges[1:])
 
 def divergence(f, dx, dy):
     dFx_dx = np.gradient(f[0], dy, dx)[1]
