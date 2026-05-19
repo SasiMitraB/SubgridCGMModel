@@ -25,8 +25,8 @@ ffmpeg -i mocks/pdf/log_pdf_animation.gif -movflags faststart -pix_fmt yuv420p m
 ffmpeg -i mocks/pdf/log_pdf_compare_animation.gif -movflags faststart -pix_fmt yuv420p mocks/pdf/log_pdf_compare_animation.mp4
 
 echo "Deleting GIFs..."
-# rm mocks/pdf/pdf_animation.gif mocks/pdf/log_pdf_animation.gif
-# rm mocks/pdf/pdf_animation.gif mocks/pdf/log_pdf_compare_animation.gif
+rm mocks/pdf/pdf_animation.gif mocks/pdf/log_pdf_animation.gif
+rm mocks/pdf/pdf_animation.gif mocks/pdf/log_pdf_compare_animation.gif
 
 echo "Conversion done."
 
