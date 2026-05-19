@@ -393,6 +393,56 @@ plt.show()
 
 print("Saved global scatter plot.")
 
+# ============================================================
+# PDF DISTRIBUTION PLOT
+# ============================================================
+
+print("Creating PDF distribution plot...")
+
+plt.figure(figsize=(7, 5))
+
+# Log-spaced bins
+bins = np.logspace(
+    np.log10(min(true_vals.min(), pred_vals.min())),
+    np.log10(max(true_vals.max(), pred_vals.max())),
+    100
+)
+
+# True distribution
+plt.hist(
+    true_vals,
+    bins=bins,
+    density=True,
+    histtype='step',
+    linewidth=2,
+    label='True Cooling'
+)
+
+# Predicted distribution
+plt.hist(
+    pred_vals,
+    bins=bins,
+    density=True,
+    histtype='step',
+    linewidth=2,
+    label='Predicted Cooling'
+)
+
+plt.xscale("log")
+plt.yscale("log")
+
+plt.xlabel("Cooling")
+plt.ylabel("PDF")
+plt.title("Cooling PDF Distribution")
+
+plt.legend()
+
+plt.tight_layout()
+plt.savefig("mocks/pdf/log_cooling_pdf_global.png", dpi=300)
+plt.show()
+
+print("Saved PDF distribution plot.")
+
 # =========================
 # TRUE vs PRED PDF ANIMATION
 # =========================
