@@ -376,8 +376,8 @@ plt.plot([1e-1, 1e3], [1e-1, 1e3], 'r--', lw=1)
 plt.xscale("log")
 plt.yscale("log")
 
-plt.xlim(1e-1, 1e3)
-plt.ylim(1e-1, 1e3)
+plt.xlim(1e-2, 1e3)
+plt.ylim(1e-2, 1e3)
 
 plt.xlabel("True Cooling")
 plt.ylabel("Predicted Cooling")
