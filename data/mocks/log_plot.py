@@ -431,6 +431,8 @@ plt.hist(
 plt.xscale("log")
 plt.yscale("log")
 
+plt.xlim(1e0, 1e3)
+
 plt.xlabel("Cooling")
 plt.ylabel("PDF")
 plt.title("Cooling PDF Distribution")
