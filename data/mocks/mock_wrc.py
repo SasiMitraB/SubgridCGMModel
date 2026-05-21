@@ -1,3 +1,5 @@
+# Python script for plotting the results of CNN training without radiative cooling
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt

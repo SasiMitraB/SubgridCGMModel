@@ -1,3 +1,5 @@
+# CNN to learn the PDF using discrete bins
+
 import numpy as np
 import matplotlib.pyplot as plt
 import torch

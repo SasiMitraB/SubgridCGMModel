@@ -1,8 +1,0 @@
-
-Root grid = 2 x 1 x 1 MeshBlocks
-Total number of MeshBlocks = 2
-Number of logical  levels of refinement = 1 (2 levels total)
-Number of physical levels of refinement = 0 (1 levels total)
-Number of parallel ranks = 1
-### FATAL ERROR in /data3/home/dipayandatta/Subgrid_CGM_Models/athenak/src/pgen/pgen.cpp at line 718
-User SRCs specified in <problem> block, but not enrolled by UserProblem().

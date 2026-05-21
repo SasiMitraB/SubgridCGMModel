@@ -1,3 +1,5 @@
+# Python script to compare the results of different CNN kernel sizes
+
 import numpy as np
 import matplotlib.pyplot as plt
 import sys

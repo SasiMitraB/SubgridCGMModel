@@ -1,3 +1,5 @@
+# CNN to learn the PDF using an analytic form (3 lognormals)
+
 import numpy as np
 import matplotlib.pyplot as plt
 import torch

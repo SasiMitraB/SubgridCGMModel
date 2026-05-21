@@ -1,3 +1,5 @@
+# Feedforward Neural Network script for predicting the fmcl source term in the subgrid CGM model
+
 import numpy as np
 import matplotlib.pyplot as plt
 import torch

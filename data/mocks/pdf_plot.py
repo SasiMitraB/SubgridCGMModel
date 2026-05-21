@@ -1,3 +1,5 @@
+# Python script to plot the actual and predicted PDFs using a discrete form for the PDFs (n bins in log temp space)
+
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
@@ -140,121 +142,121 @@ for t in range(nt):
     cg_temp[t] = sim_data.coarse_grain(sim_data.temp[t])
 
 
-# # =========================
-# # FIGURE SETUP
-# # =========================
-# fig = plt.figure(figsize=(ny*2.2, nx*1.8))
+# =========================
+# FIGURE SETUP
+# =========================
+fig = plt.figure(figsize=(ny*2.2, nx*1.8))
 
-# gs = fig.add_gridspec(1, 2, width_ratios=[3, 1])
+gs = fig.add_gridspec(1, 2, width_ratios=[3, 1])
 
-# # ---- PDF GRID ----
-# pdf_axes = np.empty((nx, ny), dtype=object)
-# sub_gs = gs[0].subgridspec(nx, ny)
+# ---- PDF GRID ----
+pdf_axes = np.empty((nx, ny), dtype=object)
+sub_gs = gs[0].subgridspec(nx, ny)
 
-# for i in range(nx):
-#     for j in range(ny):
-#         ax = fig.add_subplot(sub_gs[i, j])
-#         pdf_axes[i, j] = ax
+for i in range(nx):
+    for j in range(ny):
+        ax = fig.add_subplot(sub_gs[i, j])
+        pdf_axes[i, j] = ax
 
-#         # square borders
-#         for spine in ax.spines.values():
-#             spine.set_visible(True)
-#             spine.set_linewidth(0.3)
+        # square borders
+        for spine in ax.spines.values():
+            spine.set_visible(True)
+            spine.set_linewidth(0.3)
 
-#         ax.set_xticks([])
-#         ax.set_yticks([])
+        ax.set_xticks([])
+        ax.set_yticks([])
 
-# # ---- TEMP PANEL ----
-# temp_ax = fig.add_subplot(gs[1])
+# ---- TEMP PANEL ----
+temp_ax = fig.add_subplot(gs[1])
 
-# log_temp0 = np.log10(cg_temp[0])
-# temp_im = temp_ax.imshow(log_temp0, origin="lower", cmap="inferno")
+log_temp0 = np.log10(cg_temp[0])
+temp_im = temp_ax.imshow(log_temp0, origin="lower", cmap="inferno")
 
-# temp_ax.set_title(r"$\log_{10}$ Temp (CG)")
-# cbar = plt.colorbar(temp_im, ax=temp_ax, fraction=0.046)
-# cbar.set_label(r"$\log_{10}$ Temperature")
-
-
-# # =========================
-# # INIT LINES
-# # =========================
-# x = np.arange(nb)
-
-# lines = []
-# for i in range(nx):
-#     row = []
-#     for j in range(ny):
-#         line, = pdf_axes[i, j].plot([], [], lw=1)
-#         pdf_axes[i, j].set_xlim(0, nb-1)
-#         pdf_axes[i, j].set_ylim(0, 1)
-#         row.append(line)
-#     lines.append(row)
+temp_ax.set_title(r"$\log_{10}$ Temp (CG)")
+cbar = plt.colorbar(temp_im, ax=temp_ax, fraction=0.046)
+cbar.set_label(r"$\log_{10}$ Temperature")
 
 
-# # =========================
-# # INIT FUNCTION
-# # =========================
-# def init():
-#     for i in range(nx):
-#         for j in range(ny):
-#             lines[i][j].set_data([], [])
-#     return sum(lines, [])
+# =========================
+# INIT LINES
+# =========================
+x = np.arange(nb)
+
+lines = []
+for i in range(nx):
+    row = []
+    for j in range(ny):
+        line, = pdf_axes[i, j].plot([], [], lw=1)
+        pdf_axes[i, j].set_xlim(0, nb-1)
+        pdf_axes[i, j].set_ylim(0, 1)
+        row.append(line)
+    lines.append(row)
 
 
-# # =========================
-# # UPDATE FUNCTION
-# # =========================
-# def update(frame):
-
-#     pdf = temp_pdf[frame]
-
-#     for i in range(nx):
-#         for j in range(ny):
-
-#             # FIX: flip vertically to match imshow
-#             ii = nx - 1 - i
-
-#             y = pdf[:, ii, j]
-#             y = y / (y.max() + 1e-8)
-
-#             lines[i][j].set_data(x, y)
-
-#     # update temp (log scale CG)
-#     log_temp = np.log10(cg_temp[frame] + 1e-8)
-#     temp_im.set_data(log_temp)
-
-#     fig.suptitle(f"t = {frame}", fontsize=48)
-
-#     # Save first frame
-#     if frame == 0:
-#         fig.savefig(first_frame_path, dpi=300)
-#         plt.imsave(temp_frame_path, log_temp, cmap="inferno")
-#         print(f"Saved PDF snapshot → {first_frame_path}")
-#         print(f"Saved temp snapshot → {temp_frame_path}")
-
-#     return sum(lines, []) + [temp_im]
+# =========================
+# INIT FUNCTION
+# =========================
+def init():
+    for i in range(nx):
+        for j in range(ny):
+            lines[i][j].set_data([], [])
+    return sum(lines, [])
 
 
-# # =========================
-# # ANIMATION
-# # =========================
-# print("Creating animation...")
+# =========================
+# UPDATE FUNCTION
+# =========================
+def update(frame):
 
-# anim = animation.FuncAnimation(
-#     fig,
-#     update,
-#     frames=nt,
-#     init_func=init,
-#     blit=False
-# )
+    pdf = temp_pdf[frame]
 
-# print("Saving GIF...")
+    for i in range(nx):
+        for j in range(ny):
 
-# anim.save(gif_path, writer="pillow", fps=10)
+            # FIX: flip vertically to match imshow
+            ii = nx - 1 - i
 
-# print(f"Saved animation → {gif_path}")
+            y = pdf[:, ii, j]
+            y = y / (y.max() + 1e-8)
 
-# plt.close()
+            lines[i][j].set_data(x, y)
+
+    # update temp (log scale CG)
+    log_temp = np.log10(cg_temp[frame] + 1e-8)
+    temp_im.set_data(log_temp)
+
+    fig.suptitle(f"t = {frame}", fontsize=48)
+
+    # Save first frame
+    if frame == 0:
+        fig.savefig(first_frame_path, dpi=300)
+        plt.imsave(temp_frame_path, log_temp, cmap="inferno")
+        print(f"Saved PDF snapshot → {first_frame_path}")
+        print(f"Saved temp snapshot → {temp_frame_path}")
+
+    return sum(lines, []) + [temp_im]
+
+
+# =========================
+# ANIMATION
+# =========================
+print("Creating animation...")
+
+anim = animation.FuncAnimation(
+    fig,
+    update,
+    frames=nt,
+    init_func=init,
+    blit=False
+)
+
+print("Saving GIF...")
+
+anim.save(gif_path, writer="pillow", fps=10)
+
+print(f"Saved animation → {gif_path}")
+
+plt.close()
 
 # =========================
 # TRUE vs PRED PDF COMPARISON

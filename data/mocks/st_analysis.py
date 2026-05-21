@@ -1,3 +1,5 @@
+# Plot different properties of the source terms (like autocorrelation, structure function, Fourier transform) 
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt

@@ -1,3 +1,5 @@
+# Initial test script for checking the fmcl calculation
+
 import numpy as np
 import matplotlib.pyplot as plt
 import sys

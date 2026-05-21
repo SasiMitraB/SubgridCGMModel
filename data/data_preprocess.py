@@ -1,3 +1,4 @@
+# Python script for preprocessing the simulation data, calculating source terms, fluxes and PDFs
 
 import numpy as np 
 import os
@@ -13,6 +14,7 @@ def divergence(f, dx, dy):
 
 import numpy as np
 
+# Cooling function from AthenaK code
 def lambda_cool(temp):
     """
     Cooling function ISMCoolFn translated from AthenaK C++.
@@ -98,7 +100,7 @@ class simulation_data():
 
         cwd = os.getcwd()
         os.chdir(filepath)
-        num_snaps = 500 # len([f for f in os.listdir(filepath) if f.endswith('.bin')])//2
+        num_snaps = len([f for f in os.listdir(filepath) if f.endswith('.bin')])//2
 
         self.rho = np.zeros((num_snaps, self.resolution[0], self.resolution[1]))
         self.temp = np.zeros_like(self.rho)
@@ -134,7 +136,7 @@ class simulation_data():
 
         cwd = os.getcwd()
         os.chdir(filepath)
-        num_snaps = 500 # len([f for f in os.listdir(filepath) if f.endswith('.bin')])//2
+        num_snaps = len([f for f in os.listdir(filepath) if f.endswith('.bin')])//2
 
         self.cons_rho = np.zeros((num_snaps, self.resolution[0], self.resolution[1]))
         self.cons_momx = np.zeros_like(self.cons_rho)
@@ -184,6 +186,7 @@ class simulation_data():
         hist_data = fmcl_data.flatten()
         return hist_data
     
+    # Calculate individual source terms
     def calc_source_term(self: "simulation_data") -> np.ndarray:
 
         fmcl = np.zeros((self.rho.shape[0], self.rho.shape[1] // self.down_sample, self.rho.shape[2] // self.down_sample))
@@ -213,15 +216,16 @@ class simulation_data():
                 cg_rho[i+1] = self.coarse_grain(self.rho[i+1])
                 term1 = (fmcl[i+1] * cg_rho[i+1] - fmcl[i-1] * cg_rho[i-1]) / (2 * self.delta_time)
 
-            # dx = self.total_length / cg_rho.shape[1]
-            # dy = self.total_width / cg_rho.shape[2]
-            # term2 = cg_ux[i] * np.gradient(fmcl[i] * cg_rho[i], dy, dx)[1] + cg_uy[i] * np.gradient(fmcl[i] * cg_rho[i], dy, dx)[0] \
-            #     + cg_rho[i] * fmcl[i] * (np.gradient(cg_ux[i], dy, dx)[1] + np.gradient(cg_uy[i], dy, dx)[0])
+            dx = self.total_length / cg_rho.shape[1]
+            dy = self.total_width / cg_rho.shape[2]
+            term2 = cg_ux[i] * np.gradient(fmcl[i] * cg_rho[i], dy, dx)[1] + cg_uy[i] * np.gradient(fmcl[i] * cg_rho[i], dy, dx)[0] \
+                + cg_rho[i] * fmcl[i] * (np.gradient(cg_ux[i], dy, dx)[1] + np.gradient(cg_uy[i], dy, dx)[0])
             
-            source_term[i] = term1 # + term2
+            source_term[i] = term1 + term2
 
         return source_term
     
+    # Calculate and store all source terms in a single array
     def calc_all_source_terms(self: "simulation_data") -> np.ndarray:
 
         fmcl = np.zeros((self.rho.shape[0], self.rho.shape[1] // self.down_sample, self.rho.shape[2] // self.down_sample))
@@ -379,6 +383,7 @@ class simulation_data():
 
         return (source_term + div_term)
 
+    # Calculate the subgrid fluxes instead of the source terms
     def calc_subgrid_flux(self: "simulation_data") -> np.ndarray:
 
         fmcl = np.zeros((self.rho.shape[0], self.rho.shape[1] // self.down_sample, self.rho.shape[2] // self.down_sample))
@@ -459,6 +464,7 @@ class simulation_data():
 
         return subgrid_flux
     
+    # Calculate the PDF of each coarse-grained pixel
     def calc_pixel_pdf(self: "simulation_data", bins: int = 200) -> np.ndarray:
 
         ds = self.down_sample

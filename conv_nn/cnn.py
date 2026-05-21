@@ -1,3 +1,5 @@
+# CNN for learning the fmcl fluxes
+
 import numpy as np
 import matplotlib.pyplot as plt
 import torch

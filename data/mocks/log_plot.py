@@ -1,3 +1,5 @@
+# Python script to plot the actual and predicted PDFs using an analytic form for the PDFs (3 lognormals)
+
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
@@ -140,121 +142,121 @@ for t in range(nt):
     cg_temp[t] = sim_data.coarse_grain(sim_data.temp[t])
 
 
-# # =========================
-# # FIGURE SETUP
-# # =========================
-# fig = plt.figure(figsize=(ny*2.2, nx*1.8))
+# =========================
+# FIGURE SETUP
+# =========================
+fig = plt.figure(figsize=(ny*2.2, nx*1.8))
 
-# gs = fig.add_gridspec(1, 2, width_ratios=[3, 1])
+gs = fig.add_gridspec(1, 2, width_ratios=[3, 1])
 
-# # ---- PDF GRID ----
-# pdf_axes = np.empty((nx, ny), dtype=object)
-# sub_gs = gs[0].subgridspec(nx, ny)
+# ---- PDF GRID ----
+pdf_axes = np.empty((nx, ny), dtype=object)
+sub_gs = gs[0].subgridspec(nx, ny)
 
-# for i in range(nx):
-#     for j in range(ny):
-#         ax = fig.add_subplot(sub_gs[i, j])
-#         pdf_axes[i, j] = ax
+for i in range(nx):
+    for j in range(ny):
+        ax = fig.add_subplot(sub_gs[i, j])
+        pdf_axes[i, j] = ax
 
-#         # square borders
-#         for spine in ax.spines.values():
-#             spine.set_visible(True)
-#             spine.set_linewidth(0.3)
+        # square borders
+        for spine in ax.spines.values():
+            spine.set_visible(True)
+            spine.set_linewidth(0.3)
 
-#         ax.set_xticks([])
-#         ax.set_yticks([])
+        ax.set_xticks([])
+        ax.set_yticks([])
 
-# # ---- TEMP PANEL ----
-# temp_ax = fig.add_subplot(gs[1])
+# ---- TEMP PANEL ----
+temp_ax = fig.add_subplot(gs[1])
 
-# log_temp0 = np.log10(cg_temp[0])
-# temp_im = temp_ax.imshow(log_temp0, origin="lower", cmap="inferno")
+log_temp0 = np.log10(cg_temp[0])
+temp_im = temp_ax.imshow(log_temp0, origin="lower", cmap="inferno")
 
-# temp_ax.set_title(r"$\log_{10}$ Temp (CG)")
-# cbar = plt.colorbar(temp_im, ax=temp_ax, fraction=0.046)
-# cbar.set_label(r"$\log_{10}$ Temperature")
-
-
-# # =========================
-# # INIT LINES
-# # =========================
-# x = np.arange(nb)
-
-# lines = []
-# for i in range(nx):
-#     row = []
-#     for j in range(ny):
-#         line, = pdf_axes[i, j].plot([], [], lw=1)
-#         pdf_axes[i, j].set_xlim(0, nb-1)
-#         pdf_axes[i, j].set_ylim(0, 1)
-#         row.append(line)
-#     lines.append(row)
+temp_ax.set_title(r"$\log_{10}$ Temp (CG)")
+cbar = plt.colorbar(temp_im, ax=temp_ax, fraction=0.046)
+cbar.set_label(r"$\log_{10}$ Temperature")
 
 
-# # =========================
-# # INIT FUNCTION
-# # =========================
-# def init():
-#     for i in range(nx):
-#         for j in range(ny):
-#             lines[i][j].set_data([], [])
-#     return sum(lines, [])
+# =========================
+# INIT LINES
+# =========================
+x = np.arange(nb)
+
+lines = []
+for i in range(nx):
+    row = []
+    for j in range(ny):
+        line, = pdf_axes[i, j].plot([], [], lw=1)
+        pdf_axes[i, j].set_xlim(0, nb-1)
+        pdf_axes[i, j].set_ylim(0, 1)
+        row.append(line)
+    lines.append(row)
 
 
-# # =========================
-# # UPDATE FUNCTION
-# # =========================
-# def update(frame):
-
-#     pdf = temp_pdf[frame]
-
-#     for i in range(nx):
-#         for j in range(ny):
-
-#             # FIX: flip vertically to match imshow
-#             ii = nx - 1 - i
-
-#             y = pdf[:, ii, j]
-#             y = y / (y.max() + 1e-8)
-
-#             lines[i][j].set_data(x, y)
-
-#     # update temp (log scale CG)
-#     log_temp = np.log10(cg_temp[frame] + 1e-8)
-#     temp_im.set_data(log_temp)
-
-#     fig.suptitle(f"t = {frame}", fontsize=48)
-
-#     # Save first frame
-#     if frame == 0:
-#         fig.savefig(first_frame_path, dpi=300)
-#         plt.imsave(temp_frame_path, log_temp, cmap="inferno")
-#         print(f"Saved PDF snapshot → {first_frame_path}")
-#         print(f"Saved temp snapshot → {temp_frame_path}")
-
-#     return sum(lines, []) + [temp_im]
+# =========================
+# INIT FUNCTION
+# =========================
+def init():
+    for i in range(nx):
+        for j in range(ny):
+            lines[i][j].set_data([], [])
+    return sum(lines, [])
 
 
-# # =========================
-# # ANIMATION
-# # =========================
-# print("Creating animation...")
+# =========================
+# UPDATE FUNCTION
+# =========================
+def update(frame):
 
-# anim = animation.FuncAnimation(
-#     fig,
-#     update,
-#     frames=nt,
-#     init_func=init,
-#     blit=False
-# )
+    pdf = temp_pdf[frame]
 
-# print("Saving GIF...")
+    for i in range(nx):
+        for j in range(ny):
 
-# anim.save(gif_path, writer="pillow", fps=10)
+            # FIX: flip vertically to match imshow
+            ii = nx - 1 - i
 
-# print(f"Saved animation → {gif_path}")
+            y = pdf[:, ii, j]
+            y = y / (y.max() + 1e-8)
 
-# plt.close()
+            lines[i][j].set_data(x, y)
+
+    # update temp (log scale CG)
+    log_temp = np.log10(cg_temp[frame] + 1e-8)
+    temp_im.set_data(log_temp)
+
+    fig.suptitle(f"t = {frame}", fontsize=48)
+
+    # Save first frame
+    if frame == 0:
+        fig.savefig(first_frame_path, dpi=300)
+        plt.imsave(temp_frame_path, log_temp, cmap="inferno")
+        print(f"Saved PDF snapshot → {first_frame_path}")
+        print(f"Saved temp snapshot → {temp_frame_path}")
+
+    return sum(lines, []) + [temp_im]
+
+
+# =========================
+# ANIMATION
+# =========================
+print("Creating animation...")
+
+anim = animation.FuncAnimation(
+    fig,
+    update,
+    frames=nt,
+    init_func=init,
+    blit=False
+)
+
+print("Saving GIF...")
+
+anim.save(gif_path, writer="pillow", fps=10)
+
+print(f"Saved animation → {gif_path}")
+
+plt.close()
 
 # =========================
 # TRUE vs PRED PDF COMPARISON
@@ -445,175 +447,175 @@ plt.show()
 
 print("Saved PDF distribution plot.")
 
-# # =========================
-# # TRUE vs PRED PDF ANIMATION
-# # =========================
-# print("Creating TRUE vs PRED PDF comparison animation...")
+# =========================
+# TRUE vs PRED PDF ANIMATION
+# =========================
+print("Creating TRUE vs PRED PDF comparison animation...")
 
-# gif_path_compare = "mocks/pdf/log_pdf_compare_animation.gif"
-# snapshot_compare_path = "mocks/pdf/log_pdf_compare_t0.png"
+gif_path_compare = "mocks/pdf/log_pdf_compare_animation.gif"
+snapshot_compare_path = "mocks/pdf/log_pdf_compare_t0.png"
 
-# fig2 = plt.figure(figsize=(ny*4.0, nx*1.8))
-# gs2 = fig2.add_gridspec(1, 2, width_ratios=[1, 1])
+fig2 = plt.figure(figsize=(ny*4.0, nx*1.8))
+gs2 = fig2.add_gridspec(1, 2, width_ratios=[1, 1])
 
-# # ---- LEFT (TRUE) ----
-# true_axes = np.empty((nx, ny), dtype=object)
-# sub_gs_left = gs2[0].subgridspec(nx, ny)
+# ---- LEFT (TRUE) ----
+true_axes = np.empty((nx, ny), dtype=object)
+sub_gs_left = gs2[0].subgridspec(nx, ny)
 
-# for i in range(nx):
-#     for j in range(ny):
-#         ax = fig2.add_subplot(sub_gs_left[i, j])
-#         true_axes[i, j] = ax
+for i in range(nx):
+    for j in range(ny):
+        ax = fig2.add_subplot(sub_gs_left[i, j])
+        true_axes[i, j] = ax
 
-#         for spine in ax.spines.values():
-#             spine.set_visible(True)
-#             spine.set_linewidth(0.3)
+        for spine in ax.spines.values():
+            spine.set_visible(True)
+            spine.set_linewidth(0.3)
 
-#         ax.set_xticks([])
-#         ax.set_yticks([])
+        ax.set_xticks([])
+        ax.set_yticks([])
 
-# # ---- RIGHT (PRED) ----
-# pred_axes = np.empty((nx, ny), dtype=object)
-# sub_gs_right = gs2[1].subgridspec(nx, ny)
+# ---- RIGHT (PRED) ----
+pred_axes = np.empty((nx, ny), dtype=object)
+sub_gs_right = gs2[1].subgridspec(nx, ny)
 
-# for i in range(nx):
-#     for j in range(ny):
-#         ax = fig2.add_subplot(sub_gs_right[i, j])
-#         pred_axes[i, j] = ax
+for i in range(nx):
+    for j in range(ny):
+        ax = fig2.add_subplot(sub_gs_right[i, j])
+        pred_axes[i, j] = ax
 
-#         for spine in ax.spines.values():
-#             spine.set_visible(True)
-#             spine.set_linewidth(0.3)
+        for spine in ax.spines.values():
+            spine.set_visible(True)
+            spine.set_linewidth(0.3)
 
-#         ax.set_xticks([])
-#         ax.set_yticks([])
-
-
-# # =========================
-# # LINES + TEXT
-# # =========================
-# true_lines, pred_lines = [], []
-# true_texts, pred_texts = [], []
-
-# for i in range(nx):
-#     row_tl, row_pl = [], []
-#     row_tt, row_pt = [], []
-
-#     for j in range(ny):
-
-#         lt, = true_axes[i, j].plot([], [], lw=1)
-#         lp, = pred_axes[i, j].plot([], [], lw=1, color='r')
-
-#         true_axes[i, j].set_xlim(0, nb-1)
-#         true_axes[i, j].set_ylim(0, 1)
-
-#         pred_axes[i, j].set_xlim(0, nb-1)
-#         pred_axes[i, j].set_ylim(0, 1)
-
-#         # TEXT
-#         ttxt = true_axes[i, j].text(
-#             0.95, 0.95, "",
-#             transform=true_axes[i, j].transAxes,
-#             fontsize=6,
-#             color="black",
-#             ha="right",  
-#             va="top"     
-#         )
-
-#         ptxt = pred_axes[i, j].text(
-#             0.95, 0.95, "",
-#             transform=pred_axes[i, j].transAxes,
-#             fontsize=6,
-#             color="black",
-#             ha="right",
-#             va="top"
-#         )
-
-#         row_tl.append(lt)
-#         row_pl.append(lp)
-#         row_tt.append(ttxt)
-#         row_pt.append(ptxt)
-
-#     true_lines.append(row_tl)
-#     pred_lines.append(row_pl)
-#     true_texts.append(row_tt)
-#     pred_texts.append(row_pt)
+        ax.set_xticks([])
+        ax.set_yticks([])
 
 
-# x = np.arange(nb)
+# =========================
+# LINES + TEXT
+# =========================
+true_lines, pred_lines = [], []
+true_texts, pred_texts = [], []
+
+for i in range(nx):
+    row_tl, row_pl = [], []
+    row_tt, row_pt = [], []
+
+    for j in range(ny):
+
+        lt, = true_axes[i, j].plot([], [], lw=1)
+        lp, = pred_axes[i, j].plot([], [], lw=1, color='r')
+
+        true_axes[i, j].set_xlim(0, nb-1)
+        true_axes[i, j].set_ylim(0, 1)
+
+        pred_axes[i, j].set_xlim(0, nb-1)
+        pred_axes[i, j].set_ylim(0, 1)
+
+        # TEXT
+        ttxt = true_axes[i, j].text(
+            0.95, 0.95, "",
+            transform=true_axes[i, j].transAxes,
+            fontsize=6,
+            color="black",
+            ha="right",  
+            va="top"     
+        )
+
+        ptxt = pred_axes[i, j].text(
+            0.95, 0.95, "",
+            transform=pred_axes[i, j].transAxes,
+            fontsize=6,
+            color="black",
+            ha="right",
+            va="top"
+        )
+
+        row_tl.append(lt)
+        row_pl.append(lp)
+        row_tt.append(ttxt)
+        row_pt.append(ptxt)
+
+    true_lines.append(row_tl)
+    pred_lines.append(row_pl)
+    true_texts.append(row_tt)
+    pred_texts.append(row_pt)
 
 
-# # =========================
-# # INIT
-# # =========================
-# def init_compare():
-#     for i in range(nx):
-#         for j in range(ny):
-#             true_lines[i][j].set_data([], [])
-#             pred_lines[i][j].set_data([], [])
-#             true_texts[i][j].set_text("")
-#             pred_texts[i][j].set_text("")
-#     return sum(true_lines, []) + sum(pred_lines, [])
+x = np.arange(nb)
 
 
-# # =========================
-# # UPDATE
-# # =========================
-# def update_compare(frame):
-
-#     true_pdf = temp_pdf[frame]
-#     pred_pdf = conv_temp_pdf[frame]
-
-#     for i in range(nx):
-#         for j in range(ny):
-
-#             ii = nx - 1 - i
-
-#             y_true = true_pdf[:, ii, j]
-#             y_pred = pred_pdf[:, ii, j]
-
-#             y_true /= (y_true.max() + 1e-8)
-#             y_pred /= (y_pred.max() + 1e-8)
-
-#             true_lines[i][j].set_data(x, y_true)
-#             pred_lines[i][j].set_data(x, y_pred)
-
-#             # ---- cooling values ----
-#             tc = true_cool[frame, ii, j]
-#             pc = cnn_cool[frame, ii, j]
-
-#             true_texts[i][j].set_text(f"{tc:.1e}")
-#             pred_texts[i][j].set_text(f"{pc:.1e}")
-
-#     fig2.suptitle(f"True vs Predicted PDFs | t = {frame}", fontsize=48)
-
-#     if frame == 0:
-#         fig2.savefig(snapshot_compare_path, dpi=300)
-#         print(f"Saved comparison snapshot → {snapshot_compare_path}")
-
-#     return (
-#         sum(true_lines, []) +
-#         sum(pred_lines, []) +
-#         sum(true_texts, []) +
-#         sum(pred_texts, [])
-#     )
+# =========================
+# INIT
+# =========================
+def init_compare():
+    for i in range(nx):
+        for j in range(ny):
+            true_lines[i][j].set_data([], [])
+            pred_lines[i][j].set_data([], [])
+            true_texts[i][j].set_text("")
+            pred_texts[i][j].set_text("")
+    return sum(true_lines, []) + sum(pred_lines, [])
 
 
-# # =========================
-# # ANIMATION
-# # =========================
-# anim2 = animation.FuncAnimation(
-#     fig2,
-#     update_compare,
-#     frames=nt,
-#     init_func=init_compare,
-#     blit=False
-# )
+# =========================
+# UPDATE
+# =========================
+def update_compare(frame):
 
-# print("Saving comparison GIF...")
+    true_pdf = temp_pdf[frame]
+    pred_pdf = conv_temp_pdf[frame]
 
-# anim2.save(gif_path_compare, writer="pillow", fps=10)
+    for i in range(nx):
+        for j in range(ny):
 
-# print(f"Saved comparison animation → {gif_path_compare}")
+            ii = nx - 1 - i
 
-# plt.close(fig2)
+            y_true = true_pdf[:, ii, j]
+            y_pred = pred_pdf[:, ii, j]
+
+            y_true /= (y_true.max() + 1e-8)
+            y_pred /= (y_pred.max() + 1e-8)
+
+            true_lines[i][j].set_data(x, y_true)
+            pred_lines[i][j].set_data(x, y_pred)
+
+            # ---- cooling values ----
+            tc = true_cool[frame, ii, j]
+            pc = cnn_cool[frame, ii, j]
+
+            true_texts[i][j].set_text(f"{tc:.1e}")
+            pred_texts[i][j].set_text(f"{pc:.1e}")
+
+    fig2.suptitle(f"True vs Predicted PDFs | t = {frame}", fontsize=48)
+
+    if frame == 0:
+        fig2.savefig(snapshot_compare_path, dpi=300)
+        print(f"Saved comparison snapshot → {snapshot_compare_path}")
+
+    return (
+        sum(true_lines, []) +
+        sum(pred_lines, []) +
+        sum(true_texts, []) +
+        sum(pred_texts, [])
+    )
+
+
+# =========================
+# ANIMATION
+# =========================
+anim2 = animation.FuncAnimation(
+    fig2,
+    update_compare,
+    frames=nt,
+    init_func=init_compare,
+    blit=False
+)
+
+print("Saving comparison GIF...")
+
+anim2.save(gif_path_compare, writer="pillow", fps=10)
+
+print(f"Saved comparison animation → {gif_path_compare}")
+
+plt.close(fig2)

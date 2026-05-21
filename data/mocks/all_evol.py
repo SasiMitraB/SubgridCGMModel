@@ -1,3 +1,5 @@
+# Python script to plot the different source terms and subgrid fluxes and their correlations and Fourier transforms
+
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
@@ -163,40 +165,40 @@ for i in tqdm(range(subgrid_flux.shape[0]), desc = "Predicting subgrid flux"):
                                         sim_data.ux[i], sim_data.uy[i], sim_data.eint[i], sim_data.ps[i],
                                         downsample, (sim_data.resolution[0], sim_data.resolution[1]))
 
-# fig, axs = plt.subplots(1, 1, figsize=(5, 5))
+fig, axs = plt.subplots(1, 1, figsize=(5, 5))
 
-# im_src = axs.imshow(subgrid_flux[0, 7], origin='lower', cmap='viridis')
-# cbar_src = plt.colorbar(im_src, ax=axs, fraction=0.046, pad=0.04)
+im_src = axs.imshow(subgrid_flux[0, 7], origin='lower', cmap='viridis')
+cbar_src = plt.colorbar(im_src, ax=axs, fraction=0.046, pad=0.04)
 
-# def update_flux(frame):
-#     src = subgrid_flux[frame, 7]
-#     im_src.set_data(src)
+def update_flux(frame):
+    src = subgrid_flux[frame, 7]
+    im_src.set_data(src)
 
-#     all_vals = src.ravel()
-#     mean = np.mean(all_vals)
-#     std = np.std(all_vals)
-#     vmin = mean - 5 * std
-#     vmax = mean + 5 * std
+    all_vals = src.ravel()
+    mean = np.mean(all_vals)
+    std = np.std(all_vals)
+    vmin = mean - 5 * std
+    vmax = mean + 5 * std
 
-#     im_src.set_clim(vmin, vmax)
-#     cbar_src.update_normal(im_src)
+    im_src.set_clim(vmin, vmax)
+    cbar_src.update_normal(im_src)
 
-#     global_title.set_text(f'Timestep: {frame}')
-#     return im_src
+    global_title.set_text(f'Timestep: {frame}')
+    return im_src
 
-# plt.tight_layout(rect=[0, 0, 1, 0.97])
-# global_title = fig.suptitle(f'Timestep: 0', fontsize=16, y=0.985)
+plt.tight_layout(rect=[0, 0, 1, 0.97])
+global_title = fig.suptitle(f'Timestep: 0', fontsize=16, y=0.985)
 
-# ani_flux = animation.FuncAnimation(
-#     fig, update_flux,
-#     frames=subgrid_flux.shape[0],
-#     interval=100,
-#     blit=False
-# )
+ani_flux = animation.FuncAnimation(
+    fig, update_flux,
+    frames=subgrid_flux.shape[0],
+    interval=100,
+    blit=False
+)
 
-# ani_flux.save(save_path + "cooling_flux_evolution.mp4", writer='ffmpeg')
-# plt.close()
-# print("Cooling flux animation saved")
+ani_flux.save(save_path + "cooling_flux_evolution.mp4", writer='ffmpeg')
+plt.close()
+print("Cooling flux animation saved")
 
 def compute_corr(gt, pred, n):
     gt_flat   = gt.reshape(10, -1)
@@ -240,391 +242,391 @@ plt.close(fig)
 
 print("All flux correlations saved.")
 
-# source_term_plot = np.transpose(source_term, axes=(1, 0, 2, 3))
-# pred_source_term_plot = np.transpose(source_term_pred_cnn, axes=(1, 0, 2, 3))
+source_term_plot = np.transpose(source_term, axes=(1, 0, 2, 3))
+pred_source_term_plot = np.transpose(source_term_pred_cnn, axes=(1, 0, 2, 3))
 
-# gt_flat   = source_term_plot.reshape(5, -1)       
-# pred_flat = pred_source_term_plot.reshape(5, -1)  
+gt_flat   = source_term_plot.reshape(5, -1)       
+pred_flat = pred_source_term_plot.reshape(5, -1)  
 
-# idx = np.random.choice(gt_flat.shape[1], size=200, replace=False)
+idx = np.random.choice(gt_flat.shape[1], size=200, replace=False)
 
-# gt_sample   = gt_flat[:, idx]
-# pred_sample = pred_flat[:, idx]
+gt_sample   = gt_flat[:, idx]
+pred_sample = pred_flat[:, idx]
 
-# corr_gt   = np.corrcoef(gt_sample)
-# corr_pred = np.corrcoef(pred_sample)
+corr_gt   = np.corrcoef(gt_sample)
+corr_pred = np.corrcoef(pred_sample)
 
-# fig, axs = plt.subplots(1, 2, figsize=(9, 4), sharex=True, sharey=True)
-# im0 = axs[0].imshow(corr_gt, vmin=-1, vmax=1, cmap='coolwarm')
-# im1 = axs[1].imshow(corr_pred, vmin=-1, vmax=1, cmap='coolwarm')
-# axs[0].set_title("Actual Correlations")
-# axs[1].set_title("CNN Predicted Correlations")
-# for ax in axs:
-#     ax.set_xticks(range(5)); ax.set_yticks(range(5))
-#     ax.set_xlabel("Channel"); ax.set_ylabel("Channel")
-# fig.colorbar(im0, ax=axs, fraction=0.046, pad=0.01)
-# # plt.tight_layout()
-# plt.savefig(save_path + "random_correlation_matrices.png", dpi=300)
-# plt.close(fig)
-
-# corr_diff = np.mean((corr_gt - corr_pred)**2)
-# r_corr = 1 - np.linalg.norm(corr_pred - corr_gt) / np.linalg.norm(corr_gt)
-# print(f"Mean squared correlation difference: {corr_diff:.3e}")
-# print(f"Correlation consistency score: {r_corr:.3f}")
-
-# st = source_term_plot[3]
-# st_pred = pred_source_term_plot[3]
-# smooth_st_pred = np.zeros_like(st_pred)
-# adapt_st_pred = np.zeros_like(st_pred)
-
-# for i in range(st.shape[0]):
-#     smooth_st_pred[i] = gaussian_filter(st_pred[i], sigma=3)
-
-#     v = st_pred[i]
-#     w = np.clip((np.abs(v)-np.percentile(np.abs(v),75)) / (np.percentile(np.abs(v),90)-np.percentile(np.abs(v),75)+1e-12), 0, 1)
-#     A, B = gaussian_filter(v, 0.0), gaussian_filter(v, 3.0)
-#     adapt_st_pred[i] = (1-w)*A + w*B
-
-# st_x = np.mean(st, axis=1)
-# st_x_pred = np.mean(st_pred, axis=1)
-# smooth_st_x_pred = np.mean(smooth_st_pred, axis=1)
-# adapt_st_x_pred = np.mean(adapt_st_pred, axis=1)
-
-# fst_x = np.fft.fft(st_x, axis=1)
-# fst_x_pred = np.fft.fft(st_x_pred, axis=1)
-# fst_x_smooth = np.fft.fft(smooth_st_x_pred, axis=1)
-# fst_x_adapt = np.fft.fft(adapt_st_x_pred, axis=1)
-# k_val = np.fft.fftfreq(st_x.shape[1], d=10 / st_x.shape[1])
-
-# fst_x = np.fft.fftshift(fst_x, axes=1)
-# fst_x_pred = np.fft.fftshift(fst_x_pred, axes=1)
-# fst_x_smooth = np.fft.fftshift(fst_x_smooth, axes=1)
-# fst_x_adapt = np.fft.fftshift(fst_x_adapt, axes=1)
-# k_val = np.fft.fftshift(k_val)
-
-# t_idxs = 7
-# colors = plt.cm.plasma(np.linspace(1, 0, t_idxs))
-
-# plt.figure(figsize=(10, 6))
-# for t_idx in tqdm(np.linspace(0, fst_x.shape[0] - 1, t_idxs, dtype=int), desc="Plotting FFT along X"):
-#     plt.plot(np.abs(k_val), np.abs(fst_x[t_idx]), color=colors[int((t_idx / fst_x.shape[0]) * t_idxs)], label=f'{5*t_idx/fst_x.shape[0]:.2} Myr')
-# plt.xlabel(r'$k_x$')
-# plt.xlim(0.0, np.max(np.abs(k_val)))
-# plt.ylabel(r'FFT Coefficients')
-# plt.legend()
-# plt.title(rf'Energy Source Term FFT')
-# plt.savefig(f"{save_path}/fft_x_energy.png", dpi=300)
-# plt.clf()
-
-# plt.figure(figsize=(10, 6))
-# for t_idx in tqdm(np.linspace(0, fst_x_pred.shape[0] - 1, t_idxs, dtype=int), desc="Plotting Predicted FFT along X"):
-#     plt.plot(np.abs(k_val), np.abs(fst_x_pred[t_idx]), color=colors[int((t_idx / fst_x_pred.shape[0]) * t_idxs)], label=f'{5*t_idx/fst_x_pred.shape[0]:.2} Myr')
-# plt.xlabel(r'$k_x$')
-# plt.xlim(0.0, np.max(np.abs(k_val)))
-# plt.ylabel(r'FFT Coefficients')
-# plt.legend()
-# plt.title(rf'Predicted Energy Source Term FFT')
-# plt.savefig(f"{save_path}/predicted_fft_x_energy.png", dpi=300)
-# plt.clf()
-
-# plt.figure(figsize=(10, 6))
-# for t_idx in tqdm(np.linspace(0, fst_x_smooth.shape[0] - 1, t_idxs, dtype=int), desc="Plotting Smoothed Predicted FFT along X"):
-#     plt.plot(np.abs(k_val), np.abs(fst_x_smooth[t_idx]), color=colors[int((t_idx / fst_x_smooth.shape[0]) * t_idxs)], label=f'{5*t_idx/fst_x_smooth.shape[0]:.2} Myr')
-# plt.xlabel(r'$k_x$')
-# plt.xlim(0.0, np.max(np.abs(k_val)))
-# plt.ylabel(r'FFT Coefficients')
-# plt.legend()
-# plt.title(rf'Smoothed Predicted Energy Source Term FFT')
-# plt.savefig(f"{save_path}/smoothed_predicted_fft_x_energy.png", dpi=300)
-# plt.clf()
-
-# plt.figure(figsize=(10, 6))
-# for t_idx in tqdm(np.linspace(0, fst_x_adapt.shape[0] - 1, t_idxs, dtype=int), desc="Plotting Adaptively Smoothed Predicted FFT along X"):
-#     plt.plot(np.abs(k_val), np.abs(fst_x_adapt[t_idx]), color=colors[int((t_idx / fst_x_adapt.shape[0]) * t_idxs)], label=f'{5*t_idx/fst_x_adapt.shape[0]:.2} Myr')
-# plt.xlabel(r'$k_x$')
-# plt.xlim(0.0, np.max(np.abs(k_val)))
-# plt.ylabel(r'FFT Coefficients')
-# plt.legend()
-# plt.title(rf'Adaptively Smoothed Predicted Energy Source Term FFT')
-# plt.savefig(f"{save_path}/adaptively_smoothed_predicted_fft_x_energy.png", dpi=300)
-# plt.clf()
-
-# ener_bins = np.linspace(np.min(cg['cg_eint']), np.max(cg['cg_eint']), 1000)
-# bin_centers = 0.5 * (ener_bins[1:] + ener_bins[:-1])
-# for i in range(3, 4, 1):
-#     # flatten temp and source_term
-#     E = cg["cg_eint"].ravel()
-#     S = source_term_plot[i].ravel()
-#     pS = pred_source_term_plot[i].ravel()
-
-#     # digitize temps into bins
-#     inds = np.digitize(E, ener_bins)
-
-#     means = []
-#     pred_means = []
-#     stds = []
-#     pred_stds = []
-#     for b in range(1, len(ener_bins)):
-#         mask = inds == b
-#         if mask.sum() > 0:
-#             means.append(S[mask].mean())
-#             pred_means.append(pS[mask].mean())
-#             stds.append(S[mask].std())
-#             pred_stds.append(pS[mask].std())
-#         else:
-#             means.append(np.nan)
-#             pred_means.append(np.nan)
-#             stds.append(np.nan)
-#             pred_stds.append(np.nan)
-    
-#     means = np.array(means)
-#     pred_means = np.array(pred_means)
-#     stds = np.array(stds)
-#     pred_stds = np.array(pred_stds)
-
-#     # scatter plot
-#     plt.figure(figsize=(6,5))
-#     plt.scatter(E, S, s=1, alpha=1.0, c="tab:blue")
-#     plt.scatter(E, pS, s=1, alpha=0.3, c="tab:orange")
-#     plt.xscale("log")   
-#     plt.xlabel("Internal Energy")
-#     plt.ylabel("Source Term")
-#     plt.title(f"Predicted Source Term vs IEN (channel {i})")
-#     plt.tight_layout()
-#     plt.savefig(save_path + "scatter_plot/" + f"epred_scatter_{i}.png", dpi=300)
-#     plt.clf()
-
-# temp_bins = np.logspace(5, 6, 1000)  
-# bin_centers = 0.5 * (temp_bins[1:] + temp_bins[:-1])
-# for i in range(source_term_plot.shape[0]):
-#     # flatten temp and source_term
-#     T = cg["cg_temp"].ravel()
-#     S = source_term_plot[i].ravel()
-#     pS = pred_source_term_plot[i].ravel()
-
-#     # digitize temps into bins
-#     inds = np.digitize(T, temp_bins)
-
-#     means = []
-#     pred_means = []
-#     stds = []
-#     pred_stds = []
-#     for b in range(1, len(temp_bins)):
-#         mask = inds == b
-#         if mask.sum() > 0:
-#             means.append(S[mask].mean())
-#             pred_means.append(pS[mask].mean())
-#             stds.append(S[mask].std())
-#             pred_stds.append(pS[mask].std())
-#         else:
-#             means.append(np.nan)
-#             pred_means.append(np.nan)
-#             stds.append(np.nan)
-#             pred_stds.append(np.nan)
-    
-#     means = np.array(means)
-#     pred_means = np.array(pred_means)
-#     stds = np.array(stds)
-#     pred_stds = np.array(pred_stds)
-
-#     std_val = np.vstack([bin_centers, means, stds]).T
-#     np.save(std_save_path + f"std_{i}.npy", std_val)
-
-#     # # plot std vs temp
-#     # plt.figure(figsize=(6,5))
-#     # plt.plot(bin_centers, stds, linestyle='-', label='True', color='tab:blue')
-#     # plt.plot(bin_centers, pred_stds, linestyle='--', label='Predicted', color='tab:orange')
-#     # plt.xscale("log")
-#     # plt.xlabel("Temperature [K]")
-#     # plt.ylabel("Std(Source Term)")
-#     # plt.title(f"Std of Source Term vs Temperature (channel {i})")
-#     # plt.tight_layout()
-#     # plt.legend()
-#     # plt.savefig(save_path + "scatter_plot/" + f"std_{i}.png", dpi=300)
-#     # plt.clf()
-
-#     # # scatter plot
-#     # plt.figure(figsize=(6,5))
-#     # plt.scatter(T, S, s=1, alpha=1.0, c="tab:blue")
-#     # plt.scatter(T, pS, s=1, alpha=0.3, c="tab:orange")
-#     # plt.xscale("log")   
-#     # plt.xlabel("Temperature [K]")
-#     # plt.ylabel("Source Term")
-#     # plt.title(f"Predicted Source Term vs Temperature (channel {i})")
-#     # plt.tight_layout()
-#     # plt.savefig(save_path + "scatter_plot/" + f"pred_scatter_{i}.png", dpi=300)
-#     # plt.clf()
-
-#     # # Plot histograms (normalized as PDFs)
-#     # plt.figure(figsize=(6, 4))
-#     # plt.hist(S, bins=100, density=True, alpha=0.5,
-#     #          color="tab:blue", label="True")
-#     # plt.hist(pS, bins=100, density=True, alpha=0.5,
-#     #          color="tab:orange", label="Pred")
-
-#     # plt.title(f"PDF Channel {i}")
-#     # plt.xlabel("Source Term Value")
-#     # plt.ylabel("Normalized PDF")
-#     # plt.yscale('log')
-#     # plt.legend()
-#     # plt.tight_layout()
-
-#     # plt.savefig(save_path + f"pdf_channel_{i}.png", dpi=300)
-#     # plt.clf()
-
-# n_channels = source_term_plot.shape[0]
-# flattened = [source_term_plot[i].ravel() for i in range(n_channels)]
-# data = np.vstack(flattened).T  
-# fig = corner.corner(
-#     data,
-#     labels=[f"Channel {i}" for i in range(n_channels)],
-#     show_titles=True,
-#     title_fmt=".2e",
-#     plot_datapoints=True,
-#     plot_density=False,
-#     color="tab:blue",
-#     hist_bin_factor=1.2
-# )
-
-# pred_flattened = [pred_source_term_plot[i].ravel() for i in range(n_channels)]
-# pred_data = np.vstack(pred_flattened).T  
-# corner.corner(
-#     pred_data,
-#     fig=fig,                    
-#     plot_datapoints=True,
-#     plot_density=False,
-#     color="tab:orange",
-#     hist_bin_factor=1.2
-# )
-# plt.savefig(save_path + "corner_overlay.png", dpi=300)
-# plt.clf()
-
-# dy = sim_data.total_length / cg_rho.shape[1]
-# dx = sim_data.total_width / cg_rho.shape[2]
-
-# rho_lim = np.zeros(high_res_rho.shape[0])
-# ux_lim = np.zeros(high_res_rho.shape[0])
-# uy_lim = np.zeros(high_res_rho.shape[0])
-# en_lim = np.zeros(high_res_rho.shape[0])
-# fmcl_lim = np.zeros(high_res_rho.shape[0])
-# for i in range(high_res_rho.shape[0]):
-#     rho_lim[i] = (np.abs(np.max(source_term[i][0])) + np.abs(np.min(source_term[i][0])))/2
-#     ux_lim[i] = (np.abs(np.max(source_term[i][1])) + np.abs(np.min(source_term[i][1])))/2
-#     uy_lim[i] = (np.abs(np.max(source_term[i][2])) + np.abs(np.min(source_term[i][2])))/2
-#     en_lim[i] = (np.abs(np.max(source_term[i][3])) + np.abs(np.min(source_term[i][3])))/2
-#     fmcl_lim[i] = (np.abs(np.max(source_term[i][4])) + np.abs(np.min(source_term[i][4])))/2
-# time = sim_data.delta_time * np.arange(high_res_rho.shape[0])
-# plt.plot(time, rho_lim, label='Density Source Term')
-# plt.plot(time, ux_lim, label='X-Momentum Source Term')
-# plt.plot(time, uy_lim, label='Y-Momentum Source Term')
-# plt.plot(time, en_lim, label='Energy Source Term')
-# plt.plot(time, fmcl_lim, label='FMCL Source Term')
-# plt.xlabel('Time (Myr)')
-# plt.xscale('log')
-# plt.ylabel('Source Term Magnitude')
-# plt.yscale('log')
-# plt.legend()
-# plt.savefig(save_path + "source_term_magnitude.png", dpi=300)
-# plt.close()
-# print("Source term magnitude plot saved")
-
-# # fig, axs = plt.subplots(5, 2, figsize=(8, 15))
-# fig, axs = plt.subplots(5, 2, figsize=(5, 15))
-
-# for i in range(5):
-#     src = source_term[0, i]
-#     pred = source_term_pred_cnn[0, i]
-
-#     # Compute mean and std for color scaling
-#     all_vals = np.concatenate([src.ravel(), pred.ravel()])
-#     mean = np.mean(all_vals)
-#     std = np.std(all_vals)
-#     vmin = mean - 5 * std
-#     vmax = mean + 5 * std
-
-#     # Plot source term
-#     im_src = axs[i, 0].imshow(src, origin='lower', cmap='coolwarm', vmin=vmin, vmax=vmax)
-#     axs[i, 0].set_title(f'True Channel {i}')
-#     axs[i, 0].set_xlabel(f'Source Int: {np.trapezoid(np.trapezoid(src, dx=dx, axis=1), dx=dy, axis=0):.2f}')
-#     plt.colorbar(im_src, ax=axs[i, 0], fraction=0.046, pad=0.04)
-
-#     # Plot predicted source term
-#     im_pred = axs[i, 1].imshow(pred, origin='lower', cmap='coolwarm', vmin=vmin, vmax=vmax)
-#     axs[i, 1].set_title(f'Pred Channel {i}: R2 = {1 - np.sum((src - pred) ** 2) / np.sum((src - np.mean(src)) ** 2):.2f}')
-#     axs[i, 1].set_xlabel(f'Pred Int: {np.trapezoid(np.trapezoid(pred, dx=dx, axis=1), dx=dy, axis=0):.2f}')
-#     plt.colorbar(im_pred, ax=axs[i, 1], fraction=0.046, pad=0.04)
-
-# fig.suptitle("Timestep: 0", fontsize=16, y=0.99)
+fig, axs = plt.subplots(1, 2, figsize=(9, 4), sharex=True, sharey=True)
+im0 = axs[0].imshow(corr_gt, vmin=-1, vmax=1, cmap='coolwarm')
+im1 = axs[1].imshow(corr_pred, vmin=-1, vmax=1, cmap='coolwarm')
+axs[0].set_title("Actual Correlations")
+axs[1].set_title("CNN Predicted Correlations")
+for ax in axs:
+    ax.set_xticks(range(5)); ax.set_yticks(range(5))
+    ax.set_xlabel("Channel"); ax.set_ylabel("Channel")
+fig.colorbar(im0, ax=axs, fraction=0.046, pad=0.01)
 # plt.tight_layout()
-# plt.savefig(save_path + "source_term_snapshot_t0.png", dpi=300)
-# plt.close(fig)
-# print("Source term snapshot saved")
+plt.savefig(save_path + "random_correlation_matrices.png", dpi=300)
+plt.close(fig)
 
-# # fig, axs = plt.subplots(5, 2, figsize=(8, 15))
-# fig, axs = plt.subplots(5, 2, figsize=(5, 15))
+corr_diff = np.mean((corr_gt - corr_pred)**2)
+r_corr = 1 - np.linalg.norm(corr_pred - corr_gt) / np.linalg.norm(corr_gt)
+print(f"Mean squared correlation difference: {corr_diff:.3e}")
+print(f"Correlation consistency score: {r_corr:.3f}")
 
-# im_src_list = []
-# im_pred_list = []
-# cbar_src_list = []
-# cbar_pred_list = []
+st = source_term_plot[3]
+st_pred = pred_source_term_plot[3]
+smooth_st_pred = np.zeros_like(st_pred)
+adapt_st_pred = np.zeros_like(st_pred)
 
-# for i in range(5):
-#     im_src = axs[i, 0].imshow(source_term[0, i], origin='lower', cmap='coolwarm')
-#     im_pred = axs[i, 1].imshow(source_term_pred_cnn[0, i], origin='lower', cmap='coolwarm')
+for i in range(st.shape[0]):
+    smooth_st_pred[i] = gaussian_filter(st_pred[i], sigma=3)
+
+    v = st_pred[i]
+    w = np.clip((np.abs(v)-np.percentile(np.abs(v),75)) / (np.percentile(np.abs(v),90)-np.percentile(np.abs(v),75)+1e-12), 0, 1)
+    A, B = gaussian_filter(v, 0.0), gaussian_filter(v, 3.0)
+    adapt_st_pred[i] = (1-w)*A + w*B
+
+st_x = np.mean(st, axis=1)
+st_x_pred = np.mean(st_pred, axis=1)
+smooth_st_x_pred = np.mean(smooth_st_pred, axis=1)
+adapt_st_x_pred = np.mean(adapt_st_pred, axis=1)
+
+fst_x = np.fft.fft(st_x, axis=1)
+fst_x_pred = np.fft.fft(st_x_pred, axis=1)
+fst_x_smooth = np.fft.fft(smooth_st_x_pred, axis=1)
+fst_x_adapt = np.fft.fft(adapt_st_x_pred, axis=1)
+k_val = np.fft.fftfreq(st_x.shape[1], d=10 / st_x.shape[1])
+
+fst_x = np.fft.fftshift(fst_x, axes=1)
+fst_x_pred = np.fft.fftshift(fst_x_pred, axes=1)
+fst_x_smooth = np.fft.fftshift(fst_x_smooth, axes=1)
+fst_x_adapt = np.fft.fftshift(fst_x_adapt, axes=1)
+k_val = np.fft.fftshift(k_val)
+
+t_idxs = 7
+colors = plt.cm.plasma(np.linspace(1, 0, t_idxs))
+
+plt.figure(figsize=(10, 6))
+for t_idx in tqdm(np.linspace(0, fst_x.shape[0] - 1, t_idxs, dtype=int), desc="Plotting FFT along X"):
+    plt.plot(np.abs(k_val), np.abs(fst_x[t_idx]), color=colors[int((t_idx / fst_x.shape[0]) * t_idxs)], label=f'{5*t_idx/fst_x.shape[0]:.2} Myr')
+plt.xlabel(r'$k_x$')
+plt.xlim(0.0, np.max(np.abs(k_val)))
+plt.ylabel(r'FFT Coefficients')
+plt.legend()
+plt.title(rf'Energy Source Term FFT')
+plt.savefig(f"{save_path}/fft_x_energy.png", dpi=300)
+plt.clf()
+
+plt.figure(figsize=(10, 6))
+for t_idx in tqdm(np.linspace(0, fst_x_pred.shape[0] - 1, t_idxs, dtype=int), desc="Plotting Predicted FFT along X"):
+    plt.plot(np.abs(k_val), np.abs(fst_x_pred[t_idx]), color=colors[int((t_idx / fst_x_pred.shape[0]) * t_idxs)], label=f'{5*t_idx/fst_x_pred.shape[0]:.2} Myr')
+plt.xlabel(r'$k_x$')
+plt.xlim(0.0, np.max(np.abs(k_val)))
+plt.ylabel(r'FFT Coefficients')
+plt.legend()
+plt.title(rf'Predicted Energy Source Term FFT')
+plt.savefig(f"{save_path}/predicted_fft_x_energy.png", dpi=300)
+plt.clf()
+
+plt.figure(figsize=(10, 6))
+for t_idx in tqdm(np.linspace(0, fst_x_smooth.shape[0] - 1, t_idxs, dtype=int), desc="Plotting Smoothed Predicted FFT along X"):
+    plt.plot(np.abs(k_val), np.abs(fst_x_smooth[t_idx]), color=colors[int((t_idx / fst_x_smooth.shape[0]) * t_idxs)], label=f'{5*t_idx/fst_x_smooth.shape[0]:.2} Myr')
+plt.xlabel(r'$k_x$')
+plt.xlim(0.0, np.max(np.abs(k_val)))
+plt.ylabel(r'FFT Coefficients')
+plt.legend()
+plt.title(rf'Smoothed Predicted Energy Source Term FFT')
+plt.savefig(f"{save_path}/smoothed_predicted_fft_x_energy.png", dpi=300)
+plt.clf()
+
+plt.figure(figsize=(10, 6))
+for t_idx in tqdm(np.linspace(0, fst_x_adapt.shape[0] - 1, t_idxs, dtype=int), desc="Plotting Adaptively Smoothed Predicted FFT along X"):
+    plt.plot(np.abs(k_val), np.abs(fst_x_adapt[t_idx]), color=colors[int((t_idx / fst_x_adapt.shape[0]) * t_idxs)], label=f'{5*t_idx/fst_x_adapt.shape[0]:.2} Myr')
+plt.xlabel(r'$k_x$')
+plt.xlim(0.0, np.max(np.abs(k_val)))
+plt.ylabel(r'FFT Coefficients')
+plt.legend()
+plt.title(rf'Adaptively Smoothed Predicted Energy Source Term FFT')
+plt.savefig(f"{save_path}/adaptively_smoothed_predicted_fft_x_energy.png", dpi=300)
+plt.clf()
+
+ener_bins = np.linspace(np.min(cg['cg_eint']), np.max(cg['cg_eint']), 1000)
+bin_centers = 0.5 * (ener_bins[1:] + ener_bins[:-1])
+for i in range(3, 4, 1):
+    # flatten temp and source_term
+    E = cg["cg_eint"].ravel()
+    S = source_term_plot[i].ravel()
+    pS = pred_source_term_plot[i].ravel()
+
+    # digitize temps into bins
+    inds = np.digitize(E, ener_bins)
+
+    means = []
+    pred_means = []
+    stds = []
+    pred_stds = []
+    for b in range(1, len(ener_bins)):
+        mask = inds == b
+        if mask.sum() > 0:
+            means.append(S[mask].mean())
+            pred_means.append(pS[mask].mean())
+            stds.append(S[mask].std())
+            pred_stds.append(pS[mask].std())
+        else:
+            means.append(np.nan)
+            pred_means.append(np.nan)
+            stds.append(np.nan)
+            pred_stds.append(np.nan)
     
-#     axs[i, 0].set_title(f'True Channel {i}')
-#     axs[i, 0].set_xlabel(f'Source Int: {np.trapezoid(np.trapezoid(source_term[0, i], dx=dx, axis=1), dx=dy, axis=0):.2f}')
-#     axs[i, 1].set_title(f'Pred Channel {i}')
-#     axs[i, 1].set_xlabel(f'Source Int: {np.trapezoid(np.trapezoid(source_term_pred_cnn[0, i], dx=dx, axis=1), dx=dy, axis=0):.2f}')
+    means = np.array(means)
+    pred_means = np.array(pred_means)
+    stds = np.array(stds)
+    pred_stds = np.array(pred_stds)
 
-#     cbar_src = plt.colorbar(im_src, ax=axs[i, 0], fraction=0.046, pad=0.04)
-#     cbar_pred = plt.colorbar(im_pred, ax=axs[i, 1], fraction=0.046, pad=0.04)
+    # scatter plot
+    plt.figure(figsize=(6,5))
+    plt.scatter(E, S, s=1, alpha=1.0, c="tab:blue")
+    plt.scatter(E, pS, s=1, alpha=0.3, c="tab:orange")
+    plt.xscale("log")   
+    plt.xlabel("Internal Energy")
+    plt.ylabel("Source Term")
+    plt.title(f"Predicted Source Term vs IEN (channel {i})")
+    plt.tight_layout()
+    plt.savefig(save_path + "scatter_plot/" + f"epred_scatter_{i}.png", dpi=300)
+    plt.clf()
+
+temp_bins = np.logspace(5, 6, 1000)  
+bin_centers = 0.5 * (temp_bins[1:] + temp_bins[:-1])
+for i in range(source_term_plot.shape[0]):
+    # flatten temp and source_term
+    T = cg["cg_temp"].ravel()
+    S = source_term_plot[i].ravel()
+    pS = pred_source_term_plot[i].ravel()
+
+    # digitize temps into bins
+    inds = np.digitize(T, temp_bins)
+
+    means = []
+    pred_means = []
+    stds = []
+    pred_stds = []
+    for b in range(1, len(temp_bins)):
+        mask = inds == b
+        if mask.sum() > 0:
+            means.append(S[mask].mean())
+            pred_means.append(pS[mask].mean())
+            stds.append(S[mask].std())
+            pred_stds.append(pS[mask].std())
+        else:
+            means.append(np.nan)
+            pred_means.append(np.nan)
+            stds.append(np.nan)
+            pred_stds.append(np.nan)
     
-#     im_src_list.append(im_src)
-#     im_pred_list.append(im_pred)
-#     cbar_src_list.append(cbar_src)
-#     cbar_pred_list.append(cbar_pred)
+    means = np.array(means)
+    pred_means = np.array(pred_means)
+    stds = np.array(stds)
+    pred_stds = np.array(pred_stds)
 
-# def update_source(frame):
-#     for i in range(5):
-#         src = source_term[frame, i]
-#         pred = source_term_pred_cnn[frame, i]
+    std_val = np.vstack([bin_centers, means, stds]).T
+    np.save(std_save_path + f"std_{i}.npy", std_val)
 
-#         im_src_list[i].set_data(src)
-#         im_pred_list[i].set_data(pred)
+    # plot std vs temp
+    plt.figure(figsize=(6,5))
+    plt.plot(bin_centers, stds, linestyle='-', label='True', color='tab:blue')
+    plt.plot(bin_centers, pred_stds, linestyle='--', label='Predicted', color='tab:orange')
+    plt.xscale("log")
+    plt.xlabel("Temperature [K]")
+    plt.ylabel("Std(Source Term)")
+    plt.title(f"Std of Source Term vs Temperature (channel {i})")
+    plt.tight_layout()
+    plt.legend()
+    plt.savefig(save_path + "scatter_plot/" + f"std_{i}.png", dpi=300)
+    plt.clf()
 
-#         all_vals = np.concatenate([src.ravel(), pred.ravel()])
-#         mean = np.mean(all_vals)
-#         std = np.std(all_vals)
-#         vmin = mean - 5 * std
-#         vmax = mean + 5 * std
+    # scatter plot
+    plt.figure(figsize=(6,5))
+    plt.scatter(T, S, s=1, alpha=1.0, c="tab:blue")
+    plt.scatter(T, pS, s=1, alpha=0.3, c="tab:orange")
+    plt.xscale("log")   
+    plt.xlabel("Temperature [K]")
+    plt.ylabel("Source Term")
+    plt.title(f"Predicted Source Term vs Temperature (channel {i})")
+    plt.tight_layout()
+    plt.savefig(save_path + "scatter_plot/" + f"pred_scatter_{i}.png", dpi=300)
+    plt.clf()
 
-#         im_src_list[i].set_clim(vmin, vmax)
-#         im_pred_list[i].set_clim(vmin, vmax)
+    # Plot histograms (normalized as PDFs)
+    plt.figure(figsize=(6, 4))
+    plt.hist(S, bins=100, density=True, alpha=0.5,
+             color="tab:blue", label="True")
+    plt.hist(pS, bins=100, density=True, alpha=0.5,
+             color="tab:orange", label="Pred")
 
-#         cbar_src_list[i].update_normal(im_src_list[i])
-#         cbar_pred_list[i].update_normal(im_pred_list[i])
+    plt.title(f"PDF Channel {i}")
+    plt.xlabel("Source Term Value")
+    plt.ylabel("Normalized PDF")
+    plt.yscale('log')
+    plt.legend()
+    plt.tight_layout()
 
-#         axs[i, 1].set_title(f'Pred Channel {i}: R2 = {1 - np.sum((src - pred) ** 2) / np.sum((src - np.mean(src)) ** 2):.2f}')
-#         axs[i, 0].set_xlabel(f'Source Int: {np.trapezoid(np.trapezoid(src, dx=dx, axis=1), dx=dy, axis=0):.2f}')
-#         axs[i, 1].set_xlabel(f'Pred Int: {np.trapezoid(np.trapezoid(pred, dx=dx, axis=1), dx=dy, axis=0):.2f}')
+    plt.savefig(save_path + f"pdf_channel_{i}.png", dpi=300)
+    plt.clf()
 
-#     global_title.set_text(f'Timestep: {frame}')
-#     return im_src_list + im_pred_list
+n_channels = source_term_plot.shape[0]
+flattened = [source_term_plot[i].ravel() for i in range(n_channels)]
+data = np.vstack(flattened).T  
+fig = corner.corner(
+    data,
+    labels=[f"Channel {i}" for i in range(n_channels)],
+    show_titles=True,
+    title_fmt=".2e",
+    plot_datapoints=True,
+    plot_density=False,
+    color="tab:blue",
+    hist_bin_factor=1.2
+)
 
-# plt.tight_layout(rect=[0, 0, 1, 0.97]) 
-# global_title = fig.suptitle(f'Timestep: 0', fontsize=16, y=0.985) 
+pred_flattened = [pred_source_term_plot[i].ravel() for i in range(n_channels)]
+pred_data = np.vstack(pred_flattened).T  
+corner.corner(
+    pred_data,
+    fig=fig,                    
+    plot_datapoints=True,
+    plot_density=False,
+    color="tab:orange",
+    hist_bin_factor=1.2
+)
+plt.savefig(save_path + "corner_overlay.png", dpi=300)
+plt.clf()
 
-# ani_source = animation.FuncAnimation(
-#     fig, update_source,
-#     frames=source_term.shape[0],
-#     interval=100,
-#     blit=True
-# )
+dy = sim_data.total_length / cg_rho.shape[1]
+dx = sim_data.total_width / cg_rho.shape[2]
 
-# ani_source.save(save_path + "source_term_evolution.mp4", writer='ffmpeg')
-# plt.close()
-# print("Source term animation saved")
+rho_lim = np.zeros(high_res_rho.shape[0])
+ux_lim = np.zeros(high_res_rho.shape[0])
+uy_lim = np.zeros(high_res_rho.shape[0])
+en_lim = np.zeros(high_res_rho.shape[0])
+fmcl_lim = np.zeros(high_res_rho.shape[0])
+for i in range(high_res_rho.shape[0]):
+    rho_lim[i] = (np.abs(np.max(source_term[i][0])) + np.abs(np.min(source_term[i][0])))/2
+    ux_lim[i] = (np.abs(np.max(source_term[i][1])) + np.abs(np.min(source_term[i][1])))/2
+    uy_lim[i] = (np.abs(np.max(source_term[i][2])) + np.abs(np.min(source_term[i][2])))/2
+    en_lim[i] = (np.abs(np.max(source_term[i][3])) + np.abs(np.min(source_term[i][3])))/2
+    fmcl_lim[i] = (np.abs(np.max(source_term[i][4])) + np.abs(np.min(source_term[i][4])))/2
+time = sim_data.delta_time * np.arange(high_res_rho.shape[0])
+plt.plot(time, rho_lim, label='Density Source Term')
+plt.plot(time, ux_lim, label='X-Momentum Source Term')
+plt.plot(time, uy_lim, label='Y-Momentum Source Term')
+plt.plot(time, en_lim, label='Energy Source Term')
+plt.plot(time, fmcl_lim, label='FMCL Source Term')
+plt.xlabel('Time (Myr)')
+plt.xscale('log')
+plt.ylabel('Source Term Magnitude')
+plt.yscale('log')
+plt.legend()
+plt.savefig(save_path + "source_term_magnitude.png", dpi=300)
+plt.close()
+print("Source term magnitude plot saved")
+
+# fig, axs = plt.subplots(5, 2, figsize=(8, 15))
+fig, axs = plt.subplots(5, 2, figsize=(5, 15))
+
+for i in range(5):
+    src = source_term[0, i]
+    pred = source_term_pred_cnn[0, i]
+
+    # Compute mean and std for color scaling
+    all_vals = np.concatenate([src.ravel(), pred.ravel()])
+    mean = np.mean(all_vals)
+    std = np.std(all_vals)
+    vmin = mean - 5 * std
+    vmax = mean + 5 * std
+
+    # Plot source term
+    im_src = axs[i, 0].imshow(src, origin='lower', cmap='coolwarm', vmin=vmin, vmax=vmax)
+    axs[i, 0].set_title(f'True Channel {i}')
+    axs[i, 0].set_xlabel(f'Source Int: {np.trapezoid(np.trapezoid(src, dx=dx, axis=1), dx=dy, axis=0):.2f}')
+    plt.colorbar(im_src, ax=axs[i, 0], fraction=0.046, pad=0.04)
+
+    # Plot predicted source term
+    im_pred = axs[i, 1].imshow(pred, origin='lower', cmap='coolwarm', vmin=vmin, vmax=vmax)
+    axs[i, 1].set_title(f'Pred Channel {i}: R2 = {1 - np.sum((src - pred) ** 2) / np.sum((src - np.mean(src)) ** 2):.2f}')
+    axs[i, 1].set_xlabel(f'Pred Int: {np.trapezoid(np.trapezoid(pred, dx=dx, axis=1), dx=dy, axis=0):.2f}')
+    plt.colorbar(im_pred, ax=axs[i, 1], fraction=0.046, pad=0.04)
+
+fig.suptitle("Timestep: 0", fontsize=16, y=0.99)
+plt.tight_layout()
+plt.savefig(save_path + "source_term_snapshot_t0.png", dpi=300)
+plt.close(fig)
+print("Source term snapshot saved")
+
+# fig, axs = plt.subplots(5, 2, figsize=(8, 15))
+fig, axs = plt.subplots(5, 2, figsize=(5, 15))
+
+im_src_list = []
+im_pred_list = []
+cbar_src_list = []
+cbar_pred_list = []
+
+for i in range(5):
+    im_src = axs[i, 0].imshow(source_term[0, i], origin='lower', cmap='coolwarm')
+    im_pred = axs[i, 1].imshow(source_term_pred_cnn[0, i], origin='lower', cmap='coolwarm')
+    
+    axs[i, 0].set_title(f'True Channel {i}')
+    axs[i, 0].set_xlabel(f'Source Int: {np.trapezoid(np.trapezoid(source_term[0, i], dx=dx, axis=1), dx=dy, axis=0):.2f}')
+    axs[i, 1].set_title(f'Pred Channel {i}')
+    axs[i, 1].set_xlabel(f'Source Int: {np.trapezoid(np.trapezoid(source_term_pred_cnn[0, i], dx=dx, axis=1), dx=dy, axis=0):.2f}')
+
+    cbar_src = plt.colorbar(im_src, ax=axs[i, 0], fraction=0.046, pad=0.04)
+    cbar_pred = plt.colorbar(im_pred, ax=axs[i, 1], fraction=0.046, pad=0.04)
+    
+    im_src_list.append(im_src)
+    im_pred_list.append(im_pred)
+    cbar_src_list.append(cbar_src)
+    cbar_pred_list.append(cbar_pred)
+
+def update_source(frame):
+    for i in range(5):
+        src = source_term[frame, i]
+        pred = source_term_pred_cnn[frame, i]
+
+        im_src_list[i].set_data(src)
+        im_pred_list[i].set_data(pred)
+
+        all_vals = np.concatenate([src.ravel(), pred.ravel()])
+        mean = np.mean(all_vals)
+        std = np.std(all_vals)
+        vmin = mean - 5 * std
+        vmax = mean + 5 * std
+
+        im_src_list[i].set_clim(vmin, vmax)
+        im_pred_list[i].set_clim(vmin, vmax)
+
+        cbar_src_list[i].update_normal(im_src_list[i])
+        cbar_pred_list[i].update_normal(im_pred_list[i])
+
+        axs[i, 1].set_title(f'Pred Channel {i}: R2 = {1 - np.sum((src - pred) ** 2) / np.sum((src - np.mean(src)) ** 2):.2f}')
+        axs[i, 0].set_xlabel(f'Source Int: {np.trapezoid(np.trapezoid(src, dx=dx, axis=1), dx=dy, axis=0):.2f}')
+        axs[i, 1].set_xlabel(f'Pred Int: {np.trapezoid(np.trapezoid(pred, dx=dx, axis=1), dx=dy, axis=0):.2f}')
+
+    global_title.set_text(f'Timestep: {frame}')
+    return im_src_list + im_pred_list
+
+plt.tight_layout(rect=[0, 0, 1, 0.97]) 
+global_title = fig.suptitle(f'Timestep: 0', fontsize=16, y=0.985) 
+
+ani_source = animation.FuncAnimation(
+    fig, update_source,
+    frames=source_term.shape[0],
+    interval=100,
+    blit=True
+)
+
+ani_source.save(save_path + "source_term_evolution.mp4", writer='ffmpeg')
+plt.close()
+print("Source term animation saved")
 
 fig, axs = plt.subplots(10, 2, figsize=(5, 30))
 im_src_list = []

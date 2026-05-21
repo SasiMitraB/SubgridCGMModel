@@ -1,3 +1,5 @@
+# Python script for manually predicting the source term using different CNNs
+
 import numpy as np
 import torch
 import torch.nn as nn
@@ -173,7 +175,7 @@ class ConvNN(nn.Module):
         x = self.decoder(x)
         return x
 
-# CNN class for GMM PDF term prediction (outputs mixture weights, means, and sigmas for 3 components)
+# CNN class for GMM PDF term prediction 
 class GMM_CNN(nn.Module):
 
     def __init__(
@@ -350,7 +352,7 @@ def build_gmm_pdf(
 
     return pdf
 
-# ---------- Residual UNet backbone (deep + skip connections) ----------
+# Residual UNet 
 class ResBlock(nn.Module):
     def __init__(self, in_ch, out_ch, k=3, groups=1, p=0.0):
         super().__init__()

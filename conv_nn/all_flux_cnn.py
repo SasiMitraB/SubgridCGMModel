@@ -1,3 +1,5 @@
+# CNN to learn jointly the fluxes for all channels
+
 import numpy as np
 import matplotlib.pyplot as plt
 import torch

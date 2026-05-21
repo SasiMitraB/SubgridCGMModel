@@ -1,3 +1,5 @@
+# Plots standard deviations of the source terms
+
 import numpy as np
 import matplotlib.pyplot as plt
 import sys

@@ -1,3 +1,5 @@
+# CNN to learn individually the fluxes for all channels
+
 import numpy as np
 import matplotlib.pyplot as plt
 import torch
@@ -195,7 +197,7 @@ class ConvNN(nn.Module):
         x = self.decoder(x)
         return x
     
-# ---------- Residual UNet backbone (deep + skip connections) ----------
+# Residual UNet
 class ResBlock(nn.Module):
     def __init__(self, in_ch, out_ch, k=3, groups=1, p=0.0):
         super().__init__()
@@ -239,11 +241,7 @@ class Up(nn.Module):
         return self.res(x)
 
 class ResUNet(nn.Module):
-    """
-    Deep ResUNet:
-      - GroupNorm handles small batch sizes better than BatchNorm
-      - Residual blocks ease optimization for both small and large ranges
-    """
+
     def __init__(self, in_channels, out_channels, base=64, depth=4, dropout=0.1):
         super().__init__()
         chs = [base * (2 ** i) for i in range(depth)]
@@ -264,10 +262,7 @@ class ResUNet(nn.Module):
         return self.head(x)
     
 class MSEWithIntegral(nn.Module):
-    """
-    MSE + λ * (mean(pred) - mean(target))^2
-    Works for shapes [B,1,H,W] or [B,H,W] or [B,C,H,W].
-    """
+    
     def __init__(self, lam: float = 1.0):
         super().__init__()
         self.lam = lam
@@ -284,7 +279,7 @@ class MSEWithIntegral(nn.Module):
         mean_pen  = F.mse_loss(mean_pred, mean_targ, reduction='mean')
         return mse + self.lam * mean_pen
 
-# ---------- Scale-invariant / per-snapshot-normalized loss ----------
+# Scale-invariant / per-snapshot-normalized loss 
 def per_sample_normalized_mse(pred, target, eps=1e-6, reduction='mean'):
     """ Normalizes the error by each sample's target std so 'small-range' snapshots are weighted fairly vs 'large-range' ones. """
     # dims to reduce over (C,H,W)
@@ -294,23 +289,11 @@ def per_sample_normalized_mse(pred, target, eps=1e-6, reduction='mean'):
     loss = (diff ** 2).mean(dim=dims)
     return loss.mean() if reduction == 'mean' else loss
 
-# ---------- Regularized Huber Loss ----------
+# Regularized Huber Loss 
 def per_sample_normalized_huber(
     pred, target, delta=1.0, eps=1e-6, reduction='mean',
     lambda_reg=1e-3
 ):
-    """
-    Scale-invariant per-snapshot normalized Huber loss with optional
-    max-value regularization to prevent runaway predictions.
-
-    Args:
-        pred (Tensor): (N,C,H,W) predictions
-        target (Tensor): (N,C,H,W) ground truth
-        delta (float): Huber transition threshold
-        eps (float): numerical stability for std
-        reduction (str): 'mean' or 'none'
-        lambda_reg (float): weight for max-value regularization
-    """
     # dims to normalize over (C,H,W)
     dims = tuple(range(1, target.ndim))
     std = target.float().std(dim=dims, keepdim=True, unbiased=False).clamp_min(eps)
@@ -341,17 +324,14 @@ def per_sample_normalized_huber(
 
     return loss
 
-# ---------- Regularized Huber Loss with Hot-Phase Penalty ----------
+# Regularized Huber Loss with Hot-Phase Penalty 
 def per_sample_normalized_huber_hot(
     pred, target, input_tensor=None, temp_channel=1,
     delta=1.0, eps=1e-6, reduction='mean',
     lambda_reg=0.0, lambda_hot=1.0, # 1.0
     T_cut=1e5, T_width=1e4
 ):
-    """
-    Regularized Huber Loss with temperature-dependent hot-phase penalty.
-    Penalty ramps smoothly from ~0 at ~1e4 K to ~1 at ~1e6 K.
-    """
+
     dims = tuple(range(1, target.ndim))
     std = target.float().std(dim=dims, keepdim=True, unbiased=False).clamp_min(eps)
 
