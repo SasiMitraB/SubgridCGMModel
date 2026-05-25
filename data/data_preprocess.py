@@ -74,8 +74,8 @@ class simulation_data():
     down_sample: int = 8
     total_time: float = 5.0 # Myr
     delta_time: float = 0.01 # Myr
-    total_length: float = 80 # pc
-    total_width: float = 40 # pc
+    total_length: float = 40 # pc
+    total_width: float = 20 # pc
     resolution: tuple = (2048, 1024) 
     gamma: float = 5./3.
 
@@ -100,7 +100,7 @@ class simulation_data():
 
         cwd = os.getcwd()
         os.chdir(filepath)
-        num_snaps = 500 # len([f for f in os.listdir(filepath) if f.endswith('.bin')])//2
+        num_snaps = len([f for f in os.listdir(filepath) if f.endswith('.bin')])//2
 
         self.rho = np.zeros((num_snaps, self.resolution[0], self.resolution[1]))
         self.temp = np.zeros_like(self.rho)
@@ -136,7 +136,7 @@ class simulation_data():
 
         cwd = os.getcwd()
         os.chdir(filepath)
-        num_snaps = 500 # len([f for f in os.listdir(filepath) if f.endswith('.bin')])//2
+        num_snaps = len([f for f in os.listdir(filepath) if f.endswith('.bin')])//2
 
         self.cons_rho = np.zeros((num_snaps, self.resolution[0], self.resolution[1]))
         self.cons_momx = np.zeros_like(self.cons_rho)
