@@ -1006,12 +1006,12 @@ def source_func(rho, pres, ux, uy, ps, fmcl):
     temp_centers = 0.5 * (temp_bins[:-1] + temp_bins[1:])
     T = temp_centers[:, None, None]
     P = np.transpose(pres)[None, :, :]
-    T2 = np.transpose(temp)[None, :, :]
-    # n = P / (kb * T)
-    # cool = lambda_cool(T) * n**2
-    # cool_rate = np.sum(pdf * cool, axis=0)
-    n = P / (kb * T2)
-    cool_rate = lambda_cool(T2) * n**2
+    # T2 = np.transpose(temp)[None, :, :]
+    n = P / (kb * T)
+    cool = lambda_cool(T) * n**2
+    cool_rate = np.sum(pdf * cool, axis=0)
+    # n = P / (kb * T2)
+    # cool_rate = lambda_cool(T2) * n**2
     source_term[3] = - cool_rate
 
     # for channel in range(5):
