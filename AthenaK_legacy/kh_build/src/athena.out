@@ -7,16 +7,20 @@ Number of parallel ranks = 1
 
 Setup complete, executing task list(s)...
 
-elapsed=1.330416e-01 cycle=500 time=5.663267e+00 dt=1.029978e-02
-elapsed=1.398936e+00 cycle=600 time=6.662327e+00 dt=8.069271e-03
-elapsed=2.637986e+00 cycle=700 time=7.759043e+00 dt=1.202429e-02
-elapsed=3.884226e+00 cycle=800 time=9.060985e+00 dt=1.363315e-02
+elapsed=1.698028e-01 cycle=900 time=5.511924e+00 dt=6.195758e-03
+elapsed=3.919592e-01 cycle=1000 time=6.156794e+00 dt=6.790410e-03
+elapsed=6.239645e-01 cycle=1100 time=6.812229e+00 dt=6.723217e-03
+elapsed=8.146785e-01 cycle=1200 time=7.455520e+00 dt=5.886254e-03
+elapsed=1.027569e+00 cycle=1300 time=8.031144e+00 dt=4.365668e-03
+elapsed=1.177903e+00 cycle=1400 time=8.621166e+00 dt=5.332913e-03
+elapsed=1.441581e+00 cycle=1500 time=9.234296e+00 dt=6.804619e-03
+elapsed=1.754777e+00 cycle=1600 time=9.906701e+00 dt=6.702741e-03
 
 Terminating on time limit
-time=1.000000e+01 cycle=876
+time=1.000000e+01 cycle=1615
 tlim=1.000000e+01 nlim=-1
 
-MeshBlock-cycles = 870
-cpu time used  = 4.811056e+00
-zone-cycles/cpu_second = 1.157334e+04
+MeshBlock-cycles = 1582
+cpu time used  = 1.767892e+00
+zone-cycles/cpu_second = 5.727045e+04
 particle-updates/cpu_second = 0.000000e+00

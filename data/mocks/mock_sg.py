@@ -22,14 +22,14 @@ def divergence(f, dx, dy):
     return dFx_dx + dFy_dy
 
 resolution = (16, 8)
-file_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/sd_build/src/pc{resolution[0]}_{resolution[1]}/bin"
-save_path = f"mocks/sg/pc{resolution}/"
+file_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/sd_build/src/spc{resolution[0]}_{resolution[1]}/bin"
+save_path = f"mocks/sg/spc{resolution}/"
 os.makedirs(save_path, exist_ok=True)
 
 sim_data = simulation_data()
 sim_data.resolution = resolution
-sim_data.input_data(file_path, start=442)
-sim_data.input_cons_data(file_path, start=442)
+sim_data.input_data(file_path, start=501)
+sim_data.input_cons_data(file_path, start=501)
 
 rho = sim_data.rho
 pres = sim_data.pressure
@@ -50,10 +50,10 @@ lr_frac[temp < sim_data.T_cutoff] = 1.0
 frac = sim_data.frho
 
 lr_resolution = resolution
-lr_file_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/kh_build/src/c{lr_resolution[0]}_{lr_resolution[1]}/bin"
+lr_file_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/kh_build/src/sc{lr_resolution[0]}_{lr_resolution[1]}/bin"
 lr_sim_data = simulation_data()
 lr_sim_data.resolution = lr_resolution
-lr_sim_data.input_data(lr_file_path, start=442)
+lr_sim_data.input_data(lr_file_path, start=501)
 lr_rho = lr_sim_data.rho
 lr_temp = lr_sim_data.temp
 lr_pres = lr_sim_data.pressure
@@ -61,7 +61,7 @@ lr_ux = lr_sim_data.ux
 lr_uy = lr_sim_data.uy
 lr_ien = lr_sim_data.eint
 
-lr_sim_data.input_cons_data(lr_file_path, start=442)
+lr_sim_data.input_cons_data(lr_file_path, start=501)
 lr_cons_rho = lr_sim_data.cons_rho
 lr_cons_momx = lr_sim_data.cons_momx
 lr_cons_momy = lr_sim_data.cons_momy
@@ -72,14 +72,14 @@ lr_fmcl = (lr_temp < 1e5).astype(float)
 
 hr_resolution = (512, 256)
 hr_downsample = 32
-hr_file_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/kh_build/src/c{hr_resolution[0]}_{hr_resolution[1]}/bin"
+hr_file_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/kh_build/src/sc{hr_resolution[0]}_{hr_resolution[1]}/bin"
 hr_sim_data = simulation_data()
 hr_sim_data.resolution = hr_resolution
 hr_sim_data.down_sample = hr_downsample
 # hr_sim_data.input_data(hr_file_path)
 # hr_rho = hr_sim_data.rho
 # hr_temp = hr_sim_data.temp
-hr_folder_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/datafiles/c{hr_resolution}_{hr_downsample}"
+hr_folder_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/datafiles/sc{hr_resolution}_{hr_downsample}"
 hr_rho = np.load(f"{hr_folder_path}/rho.npy")
 hr_temp = np.load(f"{hr_folder_path}/temp.npy")
 hr_pres = np.load(f"{hr_folder_path}/pressure.npy")
