@@ -71,7 +71,7 @@ def lambda_cool(temp):
 class simulation_data():
 
     T_cutoff: float = 1e5 # K
-    down_sample: int = 8
+    down_sample: int = 32
     total_time: float = 5.0 # Myr
     delta_time: float = 0.01 # Myr
     total_length: float = 20 # pc
