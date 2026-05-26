@@ -1014,11 +1014,11 @@ def source_func(rho, pres, ux, uy, ps, fmcl):
     # cool_rate = lambda_cool(T2) * n**2
     source_term[3] = - cool_rate
 
-    # for channel in range(5):
-    #     v = source_term[channel]
-    #     w = np.clip((np.abs(v)-np.percentile(np.abs(v),25)) / (np.percentile(np.abs(v),50)-np.percentile(np.abs(v),25)+1e-12), 0, 1)
-    #     A, B = gaussian_filter(v, 0.0), gaussian_filter(v, 15.0)
-    #     source_term[channel] = (1 - w) * A + w * B
+    for channel in range(3, 4, 1):
+        v = source_term[channel]
+        w = np.clip((np.abs(v)-np.percentile(np.abs(v),75)) / (np.percentile(np.abs(v),90)-np.percentile(np.abs(v),75)+1e-12), 0, 1)
+        A, B = gaussian_filter(v, 0.0), gaussian_filter(v, 3.0)
+        source_term[channel] = (1 - w) * A + w * B
 
     final_term = np.transpose(source_term, axes=(0, 2, 1))
     return final_term.reshape(5, -1)
