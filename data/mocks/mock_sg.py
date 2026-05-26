@@ -739,7 +739,7 @@ def update(frame):
 
 anim = FuncAnimation(fig, update, frames=temp.shape[0], interval=150, blit=True)
 plt.tight_layout()
-anim.save(save_path + "temperature_pdf_evolution.mp4", writer="ffmpeg")
+anim.save(save_path + "temperature_pdf_evolution.gif", writer="ffmpeg")
 plt.close(fig)
 print("Temperature PDF evolution animation saved")
 
@@ -802,7 +802,7 @@ def update(frame):
 
 ani = animation.FuncAnimation(fig, update, frames=nt, interval=100, blit=False)
 
-ani.save(save_path + "fourier_spectrum_hr_sg_lr.mp4", writer="ffmpeg")
+ani.save(save_path + "fourier_spectrum_hr_sg_lr.gif", writer="ffmpeg")
 plt.close(fig)
 print("Fourier spectrum evolution (HR, SG, LR) saved")
 
