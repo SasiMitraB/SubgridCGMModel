@@ -76,7 +76,7 @@ class simulation_data():
     delta_time: float = 0.01 # Myr
     total_length: float = 40 # pc
     total_width: float = 20 # pc
-    resolution: tuple = (2048, 1024) 
+    resolution: tuple = (512, 256) 
     gamma: float = 5./3.
 
     def __init__(self: "simulation_data") -> None:

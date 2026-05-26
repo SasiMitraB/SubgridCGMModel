@@ -376,8 +376,8 @@ lr_div_mass = np.zeros_like(lr_mass_x)
 lr_div_momx = np.zeros_like(lr_mass_x)
 lr_div_momy = np.zeros_like(lr_mass_x)
 
-dy = 20 / resolution[0]
-dx = 10 / resolution[1]
+dy = sim_data.total_length / resolution[0]
+dx = sim_data.total_width / resolution[1]
 
 for i in range(nt):
     cg_hr_div_mass[i] = divergence([cg_hr_mass_x[i], cg_hr_mass_y[i]], dx, dy)
@@ -406,8 +406,8 @@ plt.close(fig)
 print("divergence_fluxes_mean_std.png saved")
 
 def compute_cold_mass(rho_arr, temp_arr, nx, ny):
-    dx_pc = 20 / nx
-    dy_pc = 10 / ny
+    dx_pc = sim_data.total_width / nx
+    dy_pc = sim_data.total_length / ny
     area = dx_pc * dy_pc
     thr = 1e5
     res = []
@@ -417,8 +417,8 @@ def compute_cold_mass(rho_arr, temp_arr, nx, ny):
     return np.array(res)
 
 def compute_fmcl_mass_sg(rho_arr, fmcl_arr, nx, ny):
-    dx_pc = 20 / nx
-    dy_pc = 10 / ny
+    dx_pc = sim_data.total_width / nx
+    dy_pc = sim_data.total_length / ny
     area = dx_pc * dy_pc
     res = []
     for t in range(rho_arr.shape[0]):
