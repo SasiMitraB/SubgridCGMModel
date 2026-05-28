@@ -940,87 +940,327 @@ class ResUNet(nn.Module):
 #     final_term = np.transpose(source_term, axes=(0, 2, 1))
 #     return final_term.reshape(5, -1)
 
-# Source terms for PDF predictions
+# # Source terms for PDF predictions (lognormal)
 
-input_mean = np.load(f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/conv_nn/log_model_saves/cnn_{resolution}_{downsample}_input_mean.npy")
-input_std = np.load(f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/conv_nn/log_model_saves/cnn_{resolution}_{downsample}_input_std.npy")
+# input_mean = np.load(f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/conv_nn/log_model_saves/cnn_{resolution}_{downsample}_input_mean.npy")
+# input_std = np.load(f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/conv_nn/log_model_saves/cnn_{resolution}_{downsample}_input_std.npy")
+
+# def source_func(rho, pres, ux, uy, ps, fmcl):
+        
+#     global resolution, downsample, cnn_model, input_mean, input_std, output_mean, output_std, device, total_length, total_width
+#     temp = (np.array(pres) * 1.59916e-14 / np.array(rho)) * (1. / 1.381e-16)
+#     fields = ['rho', 'temp', 'ux', 'uy', 'ps']
+#     shape = (resolution[0] // downsample, resolution[1] // downsample)
+#     cg = {f'cg_{field}': np.zeros(shape) for field in fields}
+#     for field in fields:
+#         cg[f'cg_{field}'] = np.transpose(np.array((locals()[field])))
+
+#     input_tensors = [torch.from_numpy(cg[f'cg_{f}']).unsqueeze(0).float() for f in fields]
+#     input_tensor = torch.cat(input_tensors, dim=0)
+#     input_tensor = input_tensor.unsqueeze(0)
+#     input_tensor = (input_tensor - input_mean) / input_std
+#     input_tensor = input_tensor.to(device)
+
+#     source_term = np.zeros((5, shape[0], shape[1]))
+
+#     model_path = f'/ptmp/mpa/dipda/subgrid/SubgridCGMModel/conv_nn/log_model_saves/cnn_{resolution}_{downsample}.pth'
+#     cnn_model = GMM_CNN(
+#         in_channels,
+#         layer_size1,
+#         layer_size2,
+#         layer_size3,
+#         kernel_size
+#     ).to(device)
+#     cnn_model.load_state_dict(torch.load(model_path, map_location=device))
+#     cnn_model.eval()
+
+#     with torch.no_grad():
+
+#         weights, mu, sigma = cnn_model(
+#             input_tensor
+#         )
+
+#         pdf = build_gmm_pdf(
+#             weights,
+#             mu,
+#             sigma,
+#             logT_centers
+#         )
+
+#         pdf = pdf[0].cpu().numpy()
+
+#     pdf /= (pdf.sum(axis=0, keepdims=True) + 1e-12)
+    
+#     if rho.shape[1] > rho.shape[0]:
+#         dy = total_length/rho.shape[1]
+#         dx = total_width/rho.shape[0]
+#     else:
+#         dy = total_length/rho.shape[0]
+#         dx = total_width/rho.shape[1]
+    
+#     # energy source term
+#     mu = 0.62
+#     kb = 1.380649e-16
+#     nb = out_channels
+#     temp_bins = np.logspace(3, 7, nb + 1)
+#     temp_centers = 0.5 * (temp_bins[:-1] + temp_bins[1:])
+#     T = temp_centers[:, None, None]
+#     P = np.transpose(pres)[None, :, :]
+#     # T2 = np.transpose(temp)[None, :, :]
+#     n = P / (kb * T)
+#     cool = lambda_cool(T) * n**2
+#     cool_rate = np.sum(pdf * cool, axis=0)
+#     # n = P / (kb * T2)
+#     # cool_rate = lambda_cool(T2) * n**2
+#     source_term[3] = - cool_rate
+
+#     for channel in range(3, 4, 1):
+
+#         v = source_term[channel]
+#         w = np.clip((np.abs(v)-np.percentile(np.abs(v),75)) / (np.percentile(np.abs(v),90)-np.percentile(np.abs(v),75)+1e-12), 0, 1)
+#         A, B = gaussian_filter(v, 0.0), gaussian_filter(v, kernel_size/3)
+#         source_term[channel] = (1 - w) * A + w * B
+
+#     final_term = np.transpose(source_term, axes=(0, 2, 1))
+#     return final_term.reshape(5, -1)
+
+# Source terms for PDF predictions (discrete)
+
+input_mean = np.load(
+    f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/conv_nn/pdf_model_saves/cnn_{resolution}_{downsample}_input_mean.npy"
+)
+
+input_std = np.load(
+    f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/conv_nn/pdf_model_saves/cnn_{resolution}_{downsample}_input_std.npy"
+)
+
 
 def source_func(rho, pres, ux, uy, ps, fmcl):
-        
-    global resolution, downsample, cnn_model, input_mean, input_std, output_mean, output_std, device, total_length, total_width
-    temp = (np.array(pres) * 1.59916e-14 / np.array(rho)) * (1. / 1.381e-16)
-    fields = ['rho', 'temp', 'ux', 'uy', 'ps']
-    shape = (resolution[0] // downsample, resolution[1] // downsample)
-    cg = {f'cg_{field}': np.zeros(shape) for field in fields}
-    for field in fields:
-        cg[f'cg_{field}'] = np.transpose(np.array((locals()[field])))
 
-    input_tensors = [torch.from_numpy(cg[f'cg_{f}']).unsqueeze(0).float() for f in fields]
+    global resolution, downsample
+    global cnn_model
+    global input_mean, input_std
+    global device
+    global total_length, total_width
+
+    # ------------------------------------------------------------
+    # Temperature
+    # ------------------------------------------------------------
+
+    temp = (
+        np.array(pres) * 1.59916e-14 / np.array(rho)
+    ) * (1. / 1.381e-16)
+
+    # ------------------------------------------------------------
+    # Build input fields
+    # ------------------------------------------------------------
+
+    fields = ['rho', 'temp', 'ux', 'uy', 'ps']
+
+    shape = (
+        resolution[0] // downsample,
+        resolution[1] // downsample
+    )
+
+    cg = {
+        f'cg_{field}': np.zeros(shape)
+        for field in fields
+    }
+
+    for field in fields:
+        cg[f'cg_{field}'] = np.transpose(
+            np.array(locals()[field])
+        )
+
+    # ------------------------------------------------------------
+    # Build input tensor
+    # ------------------------------------------------------------
+
+    input_tensors = [
+        torch.from_numpy(
+            cg[f'cg_{f}']
+        ).unsqueeze(0).float()
+        for f in fields
+    ]
+
     input_tensor = torch.cat(input_tensors, dim=0)
+
+    # (1, C, nx, ny)
     input_tensor = input_tensor.unsqueeze(0)
-    input_tensor = (input_tensor - input_mean) / input_std
+
+    # ------------------------------------------------------------
+    # Normalize
+    # ------------------------------------------------------------
+
+    input_mean_torch = torch.tensor(
+        input_mean,
+        dtype=torch.float32
+    )
+
+    input_std_torch = torch.tensor(
+        input_std,
+        dtype=torch.float32
+    )
+
+    input_tensor = (
+        input_tensor - input_mean_torch
+    ) / input_std_torch
+
     input_tensor = input_tensor.to(device)
 
-    source_term = np.zeros((5, shape[0], shape[1]))
+    # ------------------------------------------------------------
+    # Allocate source term
+    # ------------------------------------------------------------
 
-    model_path = f'/ptmp/mpa/dipda/subgrid/SubgridCGMModel/conv_nn/log_model_saves/cnn_{resolution}_{downsample}.pth'
-    cnn_model = GMM_CNN(
+    source_term = np.zeros(
+        (5, shape[0], shape[1])
+    )
+
+    # ------------------------------------------------------------
+    # Load model
+    # ------------------------------------------------------------
+
+    model_path = (
+        f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/"
+        f"conv_nn/pdf_model_saves/"
+        f"cnn_{resolution}_{downsample}.pth"
+    )
+
+    cnn_model = ConvNN(
         in_channels,
         layer_size1,
         layer_size2,
         layer_size3,
+        out_channels,
         kernel_size
     ).to(device)
-    cnn_model.load_state_dict(torch.load(model_path, map_location=device))
+
+    cnn_model.load_state_dict(
+        torch.load(
+            model_path,
+            map_location=device
+        )
+    )
+
     cnn_model.eval()
+
+    # ------------------------------------------------------------
+    # Predict PDF
+    # ------------------------------------------------------------
 
     with torch.no_grad():
 
-        weights, mu, sigma = cnn_model(
-            input_tensor
-        )
+        logits = cnn_model(input_tensor)
 
-        pdf = build_gmm_pdf(
-            weights,
-            mu,
-            sigma,
-            logT_centers
+        # (1, bins, nx, ny)
+        pdf = torch.softmax(
+            logits,
+            dim=1
         )
 
         pdf = pdf[0].cpu().numpy()
 
-    pdf /= (pdf.sum(axis=0, keepdims=True) + 1e-12)
-    
-    if rho.shape[1] > rho.shape[0]:
-        dy = total_length/rho.shape[1]
-        dx = total_width/rho.shape[0]
-    else:
-        dy = total_length/rho.shape[0]
-        dx = total_width/rho.shape[1]
-    
-    # energy source term
-    mu = 0.62
-    kb = 1.380649e-16
-    nb = out_channels
-    temp_bins = np.logspace(3, 7, nb + 1)
-    temp_centers = 0.5 * (temp_bins[:-1] + temp_bins[1:])
-    T = temp_centers[:, None, None]
-    P = np.transpose(pres)[None, :, :]
-    # T2 = np.transpose(temp)[None, :, :]
-    n = P / (kb * T)
-    cool = lambda_cool(T) * n**2
-    cool_rate = np.sum(pdf * cool, axis=0)
-    # n = P / (kb * T2)
-    # cool_rate = lambda_cool(T2) * n**2
-    source_term[3] = - cool_rate
+    # ------------------------------------------------------------
+    # Ensure normalization
+    # ------------------------------------------------------------
 
-    for channel in range(3, 4, 1):
+    pdf /= (
+        pdf.sum(axis=0, keepdims=True)
+        + 1e-12
+    )
+
+    # ------------------------------------------------------------
+    # Cell sizes
+    # ------------------------------------------------------------
+
+    if rho.shape[1] > rho.shape[0]:
+
+        dy = total_length / rho.shape[1]
+        dx = total_width  / rho.shape[0]
+
+    else:
+
+        dy = total_length / rho.shape[0]
+        dx = total_width  / rho.shape[1]
+
+    # ------------------------------------------------------------
+    # Cooling source term
+    # ------------------------------------------------------------
+
+    kb = 1.380649e-16
+
+    nb = out_channels
+
+    temp_bins = np.logspace(
+        3,
+        7,
+        nb + 1
+    )
+
+    temp_centers = 0.5 * (
+        temp_bins[:-1]
+        + temp_bins[1:]
+    )
+
+    T = temp_centers[:, None, None]
+
+    P = np.transpose(pres)[None, :, :]
+
+    n = P / (kb * T)
+
+    cool = lambda_cool(T) * n**2
+
+    cool_rate = np.sum(
+        pdf * cool,
+        axis=0
+    )
+
+    # energy source term
+    source_term[3] = -cool_rate
+
+    # ------------------------------------------------------------
+    # Adaptive smoothing
+    # ------------------------------------------------------------
+
+    for channel in range(3, 4):
 
         v = source_term[channel]
-        w = np.clip((np.abs(v)-np.percentile(np.abs(v),75)) / (np.percentile(np.abs(v),90)-np.percentile(np.abs(v),75)+1e-12), 0, 1)
-        A, B = gaussian_filter(v, 0.0), gaussian_filter(v, kernel_size/3)
-        source_term[channel] = (1 - w) * A + w * B
 
-    final_term = np.transpose(source_term, axes=(0, 2, 1))
+        w = np.clip(
+            (
+                np.abs(v)
+                - np.percentile(np.abs(v), 75)
+            )
+            /
+            (
+                np.percentile(np.abs(v), 90)
+                - np.percentile(np.abs(v), 75)
+                + 1e-12
+            ),
+            0,
+            1
+        )
+
+        A = gaussian_filter(v, 0.0)
+
+        B = gaussian_filter(
+            v,
+            kernel_size / 3
+        )
+
+        source_term[channel] = (
+            (1 - w) * A
+            + w * B
+        )
+
+    # ------------------------------------------------------------
+    # Return shape
+    # ------------------------------------------------------------
+
+    final_term = np.transpose(
+        source_term,
+        axes=(0, 2, 1)
+    )
+
     return final_term.reshape(5, -1)
 
