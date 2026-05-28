@@ -21,6 +21,59 @@ def divergence(f, dx, dy):
     dFy_dy = np.gradient(f[1], dy, dx)[0]
     return dFx_dx + dFy_dy
 
+def lambda_cool(temp):
+    """
+    Cooling function ISMCoolFn translated from AthenaK C++.
+    Works on scalars or numpy arrays (any shape).
+    Returns Λ(T) in erg cm^3 / s.
+    """
+    logt = np.log10(temp)
+
+    lhd = np.array([
+        -22.5977, -21.9689, -21.5972, -21.4615, -21.4789, -21.5497, -21.6211, -21.6595,
+        -21.6426, -21.5688, -21.4771, -21.3755, -21.2693, -21.1644, -21.0658, -20.9778,
+        -20.8986, -20.8281, -20.7700, -20.7223, -20.6888, -20.6739, -20.6815, -20.7051,
+        -20.7229, -20.7208, -20.7058, -20.6896, -20.6797, -20.6749, -20.6709, -20.6748,
+        -20.7089, -20.8031, -20.9647, -21.1482, -21.2932, -21.3767, -21.4129, -21.4291,
+        -21.4538, -21.5055, -21.5740, -21.6300, -21.6615, -21.6766, -21.6886, -21.7073,
+        -21.7304, -21.7491, -21.7607, -21.7701, -21.7877, -21.8243, -21.8875, -21.9738,
+        -22.0671, -22.1537, -22.2265, -22.2821, -22.3213, -22.3462, -22.3587, -22.3622,
+        -22.3590, -22.3512, -22.3420, -22.3342, -22.3312, -22.3346, -22.3445, -22.3595,
+        -22.3780, -22.4007, -22.4289, -22.4625, -22.4995, -22.5353, -22.5659, -22.5895,
+        -22.6059, -22.6161, -22.6208, -22.6213, -22.6184, -22.6126, -22.6045, -22.5945,
+        -22.5831, -22.5707, -22.5573, -22.5434, -22.5287, -22.5140, -22.4992, -22.4844,
+        -22.4695, -22.4543, -22.4392, -22.4237, -22.4087, -22.3928
+    ])
+
+    lam = np.zeros_like(temp, dtype=float)
+
+    # turn off cooling below 1e4 K
+    mask_off = logt <= 4.0
+    lam[mask_off] = 0.0
+
+    # KI02 regime (4.0 < logT <= 4.2)
+    mask_ki = (logt > 4.0) & (logt <= 4.2)
+    if np.any(mask_ki):
+        lam[mask_ki] = (2.0e-19*np.exp(-1.184e5/(temp[mask_ki] + 1.0e3)) +
+                        2.8e-28*np.sqrt(temp[mask_ki])*np.exp(-92.0/temp[mask_ki]))
+
+    # CGOLS fit (logT > 8.15)
+    mask_hi = logt > 8.15
+    lam[mask_hi] = 10.0**(0.45*logt[mask_hi] - 26.065)
+
+    # SPEX interpolation (4.2 < logT <= 8.15)
+    mask_mid = (logt > 4.2) & (logt <= 8.15)
+    if np.any(mask_mid):
+        ipps = (25.0*logt[mask_mid] - 103).astype(int)
+        # Clamp to [0,100] like C++
+        ipps = np.clip(ipps, 0, 100)
+        x0 = 4.12 + 0.04*ipps
+        dx = logt[mask_mid] - x0
+        logcool = (lhd[ipps+1]*dx - lhd[ipps]*(dx - 0.04)) * 25.0
+        lam[mask_mid] = 10.0**logcool
+
+    return lam
+
 resolution = (16, 8)
 file_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/sd_build/src/spc{resolution[0]}_{resolution[1]}/bin"
 save_path = f"mocks/sg/spc{resolution}/"
@@ -744,25 +797,48 @@ cons_titles = [
 # print("Temperature PDF evolution animation saved")
 
 # ============================================================
-# Mean temperature PDF ±1σ across all timesteps
+# Mean temperature PDFs ±1σ across all timesteps
+# Volume / Mass / Emissivity weighted
 # ============================================================
 
 Tmin = 1.1e4
 Tmax = 0.9e6
 
-bins = np.logspace(np.log10(Tmin), np.log10(Tmax), 150)
+bins = np.logspace(np.log10(Tmin), np.log10(Tmax), 50)
 bin_centers = 0.5 * (bins[:-1] + bins[1:])
 
-def compute_pdf_stats(temp_arr):
+gamma = 1.6667
+
+# ------------------------------------------------------------
+# Generic weighted PDF function
+# ------------------------------------------------------------
+
+def compute_weighted_pdf_stats(temp_arr, weight_arr):
+
     pdfs = []
 
     for t in range(temp_arr.shape[0]):
+
         vals = temp_arr[t].ravel()
+        weights = weight_arr[t].ravel()
 
-        mask = (vals >= Tmin) & (vals <= Tmax)
+        mask = (
+            (vals >= Tmin) &
+            (vals <= Tmax) &
+            np.isfinite(vals) &
+            np.isfinite(weights)
+        )
+
         vals = vals[mask]
+        weights = weights[mask]
 
-        hist, _ = np.histogram(vals, bins=bins, density=True)
+        hist, _ = np.histogram(
+            vals,
+            bins=bins,
+            weights=weights,
+            density=True
+        )
+
         pdfs.append(hist)
 
     pdfs = np.array(pdfs)
@@ -773,57 +849,108 @@ def compute_pdf_stats(temp_arr):
     return mean_pdf, std_pdf
 
 
-hr_pdf_mean, hr_pdf_std = compute_pdf_stats(cg_hr_temp)
-sg_pdf_mean, sg_pdf_std = compute_pdf_stats(temp)
-lr_pdf_mean, lr_pdf_std = compute_pdf_stats(lr_temp)
+# ------------------------------------------------------------
+# Weight definitions
+# ------------------------------------------------------------
 
-fig, ax = plt.subplots(figsize=(7, 5))
+# Volume weighting
+w_hr_vol = np.ones_like(cg_hr_temp)
+w_sg_vol = np.ones_like(temp)
+w_lr_vol = np.ones_like(lr_temp)
 
-ax.set_xscale("log")
-ax.set_yscale("log")
+# Mass weighting
+w_hr_mass = cg_hr_rho
+w_sg_mass = rho
+w_lr_mass = lr_rho
 
-# HR
-ax.plot(bin_centers, hr_pdf_mean, lw=2, label="HR")
-ax.fill_between(
-    bin_centers,
-    np.clip(hr_pdf_mean - hr_pdf_std, 1e-30, None),
-    hr_pdf_mean + hr_pdf_std,
-    alpha=0.25
-)
+# Emissivity weighting (~ rho^2 sqrt(T))
+# Simple bremsstrahlung-like scaling
+w_hr_emis = cg_hr_rho**2 * lambda_cool(cg_hr_temp)
+w_sg_emis = rho**2       * lambda_cool(temp)
+w_lr_emis = lr_rho**2    * lambda_cool(lr_temp)
 
-# SG
-ax.plot(bin_centers, sg_pdf_mean, lw=2, label="SG")
-ax.fill_between(
-    bin_centers,
-    np.clip(sg_pdf_mean - sg_pdf_std, 1e-30, None),
-    sg_pdf_mean + sg_pdf_std,
-    alpha=0.25
-)
 
-# LR
-ax.plot(bin_centers, lr_pdf_mean, lw=2, label="LR")
-ax.fill_between(
-    bin_centers,
-    np.clip(lr_pdf_mean - lr_pdf_std, 1e-30, None),
-    lr_pdf_mean + lr_pdf_std,
-    alpha=0.25
-)
+# ------------------------------------------------------------
+# Compute PDFs
+# ------------------------------------------------------------
 
-ax.set_xlabel("Temperature [K]")
-ax.set_ylabel("Volume-weighted PDF")
-ax.set_title("Temperature PDF Mean ± 1σ Across Timesteps")
+pdf_sets = {
+    "Volume Weighted": (
+        compute_weighted_pdf_stats(cg_hr_temp, w_hr_vol),
+        compute_weighted_pdf_stats(temp,      w_sg_vol),
+        compute_weighted_pdf_stats(lr_temp,   w_lr_vol)
+    ),
 
-ax.set_xlim(Tmin, Tmax)
-ax.set_ylim(1e-8, 1e-2)
+    "Mass Weighted": (
+        compute_weighted_pdf_stats(cg_hr_temp, w_hr_mass),
+        compute_weighted_pdf_stats(temp,       w_sg_mass),
+        compute_weighted_pdf_stats(lr_temp,    w_lr_mass)
+    ),
 
-ax.grid(True, which="both", ls="--", alpha=0.5)
-ax.legend()
+    "Emissivity Weighted": (
+        compute_weighted_pdf_stats(cg_hr_temp, w_hr_emis),
+        compute_weighted_pdf_stats(temp,       w_sg_emis),
+        compute_weighted_pdf_stats(lr_temp,    w_lr_emis)
+    )
+}
+
+
+# ------------------------------------------------------------
+# Plot
+# ------------------------------------------------------------
+
+fig, axs = plt.subplots(3, 1, figsize=(7, 14))
+
+for ax, (title, pdf_data) in zip(axs, pdf_sets.items()):
+
+    (hr_mean, hr_std), (sg_mean, sg_std), (lr_mean, lr_std) = pdf_data
+
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+
+    # HR
+    ax.plot(bin_centers, hr_mean, lw=2, label="HR")
+    ax.fill_between(
+        bin_centers,
+        np.clip(hr_mean - hr_std, 1e-30, None),
+        hr_mean + hr_std,
+        alpha=0.25
+    )
+
+    # SG
+    ax.plot(bin_centers, sg_mean, lw=2, label="SG")
+    ax.fill_between(
+        bin_centers,
+        np.clip(sg_mean - sg_std, 1e-30, None),
+        sg_mean + sg_std,
+        alpha=0.25
+    )
+
+    # LR
+    ax.plot(bin_centers, lr_mean, lw=2, label="LR")
+    ax.fill_between(
+        bin_centers,
+        np.clip(lr_mean - lr_std, 1e-30, None),
+        lr_mean + lr_std,
+        alpha=0.25
+    )
+
+    ax.set_xlim(Tmin, Tmax)
+    ax.set_ylim(1e-8, 1e-2)
+
+    ax.set_title(f"{title} Temperature PDF")
+    ax.set_xlabel("Temperature [K]")
+    ax.set_ylabel("PDF")
+
+    ax.grid(True, which="both", ls="--", alpha=0.5)
+    ax.legend()
 
 plt.tight_layout()
-plt.savefig(save_path + "temperature_pdf_mean_std.png", dpi=200)
+plt.savefig(save_path + "temperature_pdfs_all_weightings.png", dpi=200)
 plt.close(fig)
 
-print("temperature_pdf_mean_std.png saved")
+print("temperature_pdfs_all_weightings.png saved")
+
 
 # # --- data arrays (nt, ny, nx) ---
 # nt, ny_hr, nx_hr = cg_hr_rho.shape
