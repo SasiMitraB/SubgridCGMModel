@@ -1004,6 +1004,102 @@ plt.close(fig)
 
 print("temperature_pdfs_all_weightings.png saved")
 
+# ============================================================
+# <n^2 Lambda(T)> profile vs y
+# Averaged over x and time
+# HR uses FULL-resolution fields
+# ============================================================
+
+# ------------------------------------------------------------
+# Compute emissivity fields
+# epsilon ~ rho^2 * Lambda(T)
+# ------------------------------------------------------------
+
+emis_hr = hr_rho**2 * lambda_cool(hr_temp)
+emis_sg = rho**2    * lambda_cool(temp)
+emis_lr = lr_rho**2 * lambda_cool(lr_temp)
+
+
+# ------------------------------------------------------------
+# Average along x and time
+# ------------------------------------------------------------
+
+# shape: (time, y, x)
+
+# Average over x
+emis_hr_xavg = np.mean(emis_hr, axis=2)
+emis_sg_xavg = np.mean(emis_sg, axis=2)
+emis_lr_xavg = np.mean(emis_lr, axis=2)
+
+# Average over time
+emis_hr_mean = np.mean(emis_hr_xavg, axis=0)
+emis_hr_std  = np.std(emis_hr_xavg, axis=0)
+
+emis_sg_mean = np.mean(emis_sg_xavg, axis=0)
+emis_sg_std  = np.std(emis_sg_xavg, axis=0)
+
+emis_lr_mean = np.mean(emis_lr_xavg, axis=0)
+emis_lr_std  = np.std(emis_lr_xavg, axis=0)
+
+
+# ------------------------------------------------------------
+# y coordinates
+# ------------------------------------------------------------
+
+y_hr = np.linspace(0, sim_data.total_length, hr_rho.shape[1])
+y_sg = np.linspace(0, sim_data.total_length, rho.shape[1])
+y_lr = np.linspace(0, sim_data.total_length, lr_rho.shape[1])
+
+
+# ------------------------------------------------------------
+# Plot
+# ------------------------------------------------------------
+
+fig, ax = plt.subplots(figsize=(7, 5))
+
+ax.set_yscale("log")
+
+# HR
+ax.plot(y_hr, emis_hr_mean, lw=2, label="HR")
+ax.fill_between(
+    y_hr,
+    np.clip(emis_hr_mean - emis_hr_std, 1e-30, None),
+    emis_hr_mean + emis_hr_std,
+    alpha=0.25
+)
+
+# SG
+ax.plot(y_sg, emis_sg_mean, lw=2, label="SG")
+ax.fill_between(
+    y_sg,
+    np.clip(emis_sg_mean - emis_sg_std, 1e-30, None),
+    emis_sg_mean + emis_sg_std,
+    alpha=0.25
+)
+
+# LR
+ax.plot(y_lr, emis_lr_mean, lw=2, label="LR")
+ax.fill_between(
+    y_lr,
+    np.clip(emis_lr_mean - emis_lr_std, 1e-30, None),
+    emis_lr_mean + emis_lr_std,
+    alpha=0.25
+)
+
+ax.set_xlabel("y")
+ax.set_ylabel(r"$\langle n^2 \Lambda(T) \rangle$")
+
+ax.set_title(r"Mean Emissivity Profile vs $y$")
+
+ax.grid(True, ls="--", alpha=0.5)
+ax.legend()
+
+plt.tight_layout()
+plt.savefig(save_path + "emissivity_profile_vs_y.png", dpi=200)
+plt.close(fig)
+
+print("emissivity_profile_vs_y.png saved")
+
 # # --- data arrays (nt, ny, nx) ---
 # nt, ny_hr, nx_hr = cg_hr_rho.shape
 # ny_sg, nx_sg = rho.shape[1], rho.shape[2]
