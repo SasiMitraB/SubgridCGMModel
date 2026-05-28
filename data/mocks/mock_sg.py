@@ -462,7 +462,7 @@ def compute_cold_mass(rho_arr, temp_arr, nx, ny):
     dx_pc = sim_data.total_width / nx
     dy_pc = sim_data.total_length / ny
     area = dx_pc * dy_pc
-    thr = 1e5
+    thr = np.power(10, 4.5)  
     res = []
     for t in range(rho_arr.shape[0]):
         mask = temp_arr[t] < thr
