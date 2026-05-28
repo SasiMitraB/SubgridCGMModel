@@ -1052,6 +1052,16 @@ y_lr = np.linspace(0, sim_data.total_length, lr_rho.shape[1])
 
 
 # ------------------------------------------------------------
+# Integrated emissivity profiles
+# Integral over y
+# ------------------------------------------------------------
+
+int_hr = np.trapz(emis_hr_mean, y_hr)
+int_sg = np.trapz(emis_sg_mean, y_sg)
+int_lr = np.trapz(emis_lr_mean, y_lr)
+
+
+# ------------------------------------------------------------
 # Plot
 # ------------------------------------------------------------
 
@@ -1060,7 +1070,13 @@ fig, ax = plt.subplots(figsize=(7, 5))
 ax.set_yscale("log")
 
 # HR
-ax.plot(y_hr, emis_hr_mean, lw=2, label="HR")
+ax.plot(
+    y_hr,
+    emis_hr_mean,
+    lw=2,
+    label=rf"HR ($\int dy = {int_hr:.2e}$)"
+)
+
 ax.fill_between(
     y_hr,
     np.clip(emis_hr_mean - emis_hr_std, 1e-30, None),
@@ -1069,7 +1085,13 @@ ax.fill_between(
 )
 
 # SG
-ax.plot(y_sg, emis_sg_mean, lw=2, label="SG")
+ax.plot(
+    y_sg,
+    emis_sg_mean,
+    lw=2,
+    label=rf"SG ($\int dy = {int_sg:.2e}$)"
+)
+
 ax.fill_between(
     y_sg,
     np.clip(emis_sg_mean - emis_sg_std, 1e-30, None),
@@ -1078,7 +1100,13 @@ ax.fill_between(
 )
 
 # LR
-ax.plot(y_lr, emis_lr_mean, lw=2, label="LR")
+ax.plot(
+    y_lr,
+    emis_lr_mean,
+    lw=2,
+    label=rf"LR ($\int dy = {int_lr:.2e}$)"
+)
+
 ax.fill_between(
     y_lr,
     np.clip(emis_lr_mean - emis_lr_std, 1e-30, None),
