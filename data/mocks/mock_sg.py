@@ -1074,7 +1074,7 @@ ax.plot(
     y_hr,
     emis_hr_mean,
     lw=2,
-    label=rf"HR (Sig_c = {int_hr:.2e}$)"
+    label=rf"HR (Sig_c = {int_hr:.2e})"
 )
 
 ax.fill_between(
@@ -1089,7 +1089,7 @@ ax.plot(
     y_sg,
     emis_sg_mean,
     lw=2,
-    label=rf"SG (Sig_c = {int_sg:.2e}$)"
+    label=rf"SG (Sig_c = {int_sg:.2e})"
 )
 
 ax.fill_between(
@@ -1104,7 +1104,7 @@ ax.plot(
     y_lr,
     emis_lr_mean,
     lw=2,
-    label=rf"LR (Sig_c = {int_lr:.2e}$)"
+    label=rf"LR (Sig_c = {int_lr:.2e})"
 )
 
 ax.fill_between(
