@@ -75,8 +75,8 @@ def lambda_cool(temp):
     return lam
 
 resolution = (16, 8)
-file_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/sd_build/src/spcc{resolution[0]}_{resolution[1]}/bin"
-save_path = f"mocks/sg/spcc{resolution}/"
+file_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/sd_build/src/spcp{resolution[0]}_{resolution[1]}/bin"
+save_path = f"mocks/sg/spcp{resolution}/"
 os.makedirs(save_path, exist_ok=True)
 
 sim_data = simulation_data()
