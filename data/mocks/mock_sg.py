@@ -799,68 +799,11 @@ cons_titles = [
 # ============================================================
 # Mean temperature PDFs ±1σ across all timesteps
 # Volume / Mass / Emissivity weighted
-# ============================================================
-
-Tmin = 10**4.5
-Tmax = 10**5.5
-
-bins = np.logspace(np.log10(Tmin), np.log10(Tmax), 50)
-bin_centers = 0.5 * (bins[:-1] + bins[1:])
-
-gamma = 1.6667
-
-# ------------------------------------------------------------
-# Generic weighted PDF function
-# ------------------------------------------------------------
-
-def compute_weighted_pdf_stats(temp_arr, weight_arr):
-
-    pdfs = []
-
-    for t in range(temp_arr.shape[0]):
-
-        vals = temp_arr[t].ravel()
-        weights = weight_arr[t].ravel()
-
-        mask = (
-            (vals >= Tmin) &
-            (vals <= Tmax) &
-            np.isfinite(vals) &
-            np.isfinite(weights)
-        )
-
-        vals = vals[mask]
-        weights = weights[mask]
-
-        hist, _ = np.histogram(
-            vals,
-            bins=bins,
-            weights=weights,
-            density=True
-        )
-
-        pdfs.append(hist)
-
-    pdfs = np.array(pdfs)
-
-    mean_pdf = np.mean(pdfs, axis=0)
-    std_pdf  = np.std(pdfs, axis=0)
-
-    return mean_pdf, std_pdf
-
-
-# ------------------------------------------------------------
-# Weight definitions
-# ------------------------------------------------------------
-
-# ============================================================
-# Mean temperature PDFs ±1σ across all timesteps
-# Volume / Mass / Emissivity weighted
 # HR uses FULL-resolution fields
 # ============================================================
 
-Tmin = 10**4.5
-Tmax = 10**5.5
+Tmin = 1.1e4
+Tmax = 0.9e6
 
 bins = np.logspace(np.log10(Tmin), np.log10(Tmax), 50)
 bin_centers = 0.5 * (bins[:-1] + bins[1:])
