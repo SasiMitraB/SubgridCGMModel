@@ -801,8 +801,8 @@ cons_titles = [
 # Volume / Mass / Emissivity weighted
 # ============================================================
 
-Tmin = 1.1e4
-Tmax = 0.9e6
+Tmin = 10**4.5
+Tmax = 10**5.5
 
 bins = np.logspace(np.log10(Tmin), np.log10(Tmax), 50)
 bin_centers = 0.5 * (bins[:-1] + bins[1:])
