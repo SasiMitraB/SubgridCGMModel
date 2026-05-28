@@ -1089,6 +1089,8 @@ ax.fill_between(
 ax.set_xlabel("y")
 ax.set_ylabel(r"$\langle n^2 \Lambda(T) \rangle$")
 
+ax.set_ylim(2e-28, 1e-26)
+
 ax.set_title(r"Mean Emissivity Profile vs $y$")
 
 ax.grid(True, ls="--", alpha=0.5)
