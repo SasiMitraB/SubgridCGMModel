@@ -853,21 +853,94 @@ def compute_weighted_pdf_stats(temp_arr, weight_arr):
 # Weight definitions
 # ------------------------------------------------------------
 
+# ============================================================
+# Mean temperature PDFs ±1σ across all timesteps
+# Volume / Mass / Emissivity weighted
+# HR uses FULL-resolution fields
+# ============================================================
+
+Tmin = 1.1e4
+Tmax = 0.9e6
+
+bins = np.logspace(np.log10(Tmin), np.log10(Tmax), 50)
+bin_centers = 0.5 * (bins[:-1] + bins[1:])
+
+
+# ------------------------------------------------------------
+# Generic weighted PDF function
+# ------------------------------------------------------------
+
+def compute_weighted_pdf_stats(temp_arr, weight_arr):
+
+    pdfs = []
+
+    for t in range(temp_arr.shape[0]):
+
+        vals = temp_arr[t].ravel()
+        weights = weight_arr[t].ravel()
+
+        mask = (
+            (vals >= Tmin) &
+            (vals <= Tmax) &
+            np.isfinite(vals) &
+            np.isfinite(weights) &
+            (weights > 0)
+        )
+
+        vals = vals[mask]
+        weights = weights[mask]
+
+        hist, _ = np.histogram(
+            vals,
+            bins=bins,
+            weights=weights,
+            density=True
+        )
+
+        pdfs.append(hist)
+
+    pdfs = np.array(pdfs)
+
+    mean_pdf = np.mean(pdfs, axis=0)
+    std_pdf  = np.std(pdfs, axis=0)
+
+    return mean_pdf, std_pdf
+
+
+# ------------------------------------------------------------
+# Weight definitions
+# ------------------------------------------------------------
+
+# =========================
+# HR uses FULL resolution
+# =========================
+
 # Volume weighting
-w_hr_vol = np.ones_like(cg_hr_temp)
-w_sg_vol = np.ones_like(temp)
-w_lr_vol = np.ones_like(lr_temp)
+w_hr_vol = np.ones_like(hr_temp)
 
 # Mass weighting
-w_hr_mass = cg_hr_rho
-w_sg_mass = rho
-w_lr_mass = lr_rho
+w_hr_mass = hr_rho
 
-# Emissivity weighting (~ rho^2 sqrt(T))
-# Simple bremsstrahlung-like scaling
-w_hr_emis = cg_hr_rho**2 * lambda_cool(cg_hr_temp)
-w_sg_emis = rho**2       * lambda_cool(temp)
-w_lr_emis = lr_rho**2    * lambda_cool(lr_temp)
+# Emissivity weighting
+w_hr_emis = hr_rho**2 * lambda_cool(hr_temp)
+
+
+# =========================
+# SG
+# =========================
+
+w_sg_vol  = np.ones_like(temp)
+w_sg_mass = rho
+w_sg_emis = rho**2 * lambda_cool(temp)
+
+
+# =========================
+# LR
+# =========================
+
+w_lr_vol  = np.ones_like(lr_temp)
+w_lr_mass = lr_rho
+w_lr_emis = lr_rho**2 * lambda_cool(lr_temp)
 
 
 # ------------------------------------------------------------
@@ -875,22 +948,59 @@ w_lr_emis = lr_rho**2    * lambda_cool(lr_temp)
 # ------------------------------------------------------------
 
 pdf_sets = {
+
     "Volume Weighted": (
-        compute_weighted_pdf_stats(cg_hr_temp, w_hr_vol),
-        compute_weighted_pdf_stats(temp,      w_sg_vol),
-        compute_weighted_pdf_stats(lr_temp,   w_lr_vol)
+
+        compute_weighted_pdf_stats(
+            hr_temp,
+            w_hr_vol
+        ),
+
+        compute_weighted_pdf_stats(
+            temp,
+            w_sg_vol
+        ),
+
+        compute_weighted_pdf_stats(
+            lr_temp,
+            w_lr_vol
+        )
     ),
 
     "Mass Weighted": (
-        compute_weighted_pdf_stats(cg_hr_temp, w_hr_mass),
-        compute_weighted_pdf_stats(temp,       w_sg_mass),
-        compute_weighted_pdf_stats(lr_temp,    w_lr_mass)
+
+        compute_weighted_pdf_stats(
+            hr_temp,
+            w_hr_mass
+        ),
+
+        compute_weighted_pdf_stats(
+            temp,
+            w_sg_mass
+        ),
+
+        compute_weighted_pdf_stats(
+            lr_temp,
+            w_lr_mass
+        )
     ),
 
     "Emissivity Weighted": (
-        compute_weighted_pdf_stats(cg_hr_temp, w_hr_emis),
-        compute_weighted_pdf_stats(temp,       w_sg_emis),
-        compute_weighted_pdf_stats(lr_temp,    w_lr_emis)
+
+        compute_weighted_pdf_stats(
+            hr_temp,
+            w_hr_emis
+        ),
+
+        compute_weighted_pdf_stats(
+            temp,
+            w_sg_emis
+        ),
+
+        compute_weighted_pdf_stats(
+            lr_temp,
+            w_lr_emis
+        )
     )
 }
 
@@ -950,7 +1060,6 @@ plt.savefig(save_path + "temperature_pdfs_all_weightings.png", dpi=200)
 plt.close(fig)
 
 print("temperature_pdfs_all_weightings.png saved")
-
 
 # # --- data arrays (nt, ny, nx) ---
 # nt, ny_hr, nx_hr = cg_hr_rho.shape
