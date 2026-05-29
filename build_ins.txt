@@ -1,0 +1,45 @@
+# Text file for instructions on building and running Athena K
+
+1) HR Simulations:
+
+--- Building the Athena executable:
+
+cmake -S .. -B . \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DKokkos_ENABLE_OPENMP=OFF \
+  -DKokkos_ENABLE_CUDA=OFF \
+  -DPROBLEM=kh_radiative_cooling
+
+cmake --build . -j$(nproc)
+
+--- Copy the .athinput file
+
+--- Running the simulation:
+
+./athena -i (input_file).athinput -d (folder_name)/
+./athena -i (input_file).athinput -d (folder_name)/ -r (old_folder_name)/rst/(restart_file).rst
+
+2) CNN Modules Required:
+
+python -m pip install numpy scipy matplotlib h5py tqdm torch scikit-image
+
+3) SG Simulations:
+
+python -m pip install pybind11
+
+--- Building the Athena executable:
+
+cmake -S .. -B . \
+  -DCMAKE_BUILD_TYPE=Release \
+  -DKokkos_ENABLE_OPENMP=OFF \
+  -DKokkos_ENABLE_CUDA=OFF \
+  -DPROBLEM=subgrid
+
+cmake --build . -j$(nproc)
+
+--- Copy the .athinput file
+
+--- Running the simulation:
+
+./athena -i (input_file).athinput -d (folder_name)/
+./athena -i (input_file).athinput -d (folder_name)/ -r (old_folder_name)/rst/(restart_file).rst
