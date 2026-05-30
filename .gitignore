@@ -15,6 +15,9 @@ data/files/
 data/data_saves/
 outputs/data_cache/
 **/*.bin
+*.npy
+*.rst
+*.hst
 
 # ── Archived Builds & Predecessor Work ────────────────────────────────────────
 # All predecessor's builds, catalogs, and large build artifacts are archived here.
