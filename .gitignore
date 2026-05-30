@@ -26,6 +26,13 @@ athenak/build/
 athenak/test_build/
 athenak/test_dir/
 
+# ── Local build outputs (keep inputs/scripts) ─────────────────────────────────
+builds/**
+!builds/**/
+!builds/**/*.athinput
+!builds/**/*.sh
+!builds/**/*.py
+
 # ── Core dumps ─────────────────────────────────────────────────────────────────
 core
 core.*
@@ -33,3 +40,4 @@ core.*
 
 # ── OS ────────────────────────────────────────────────────────────────────────
 .DS_Store
+._*
