@@ -1,11 +1,35 @@
-data/files/
-data/data_saves
-feedforward_nn/data_saves/
-conv_nn/data_saves/
-**/*.bin
+# ── Python ────────────────────────────────────────────────────────────────────
+__pycache__/
 **/__pycache__/
 **/*.py[cod]
+*.pyo
+.Python
+venv/
+.venv/
+*.egg-info/
+dist/
+build/
+
+# ── Data & Cache ───────────────────────────────────────────────────────────────
+data/files/
+data/data_saves/
+outputs/data_cache/
+**/*.bin
+
+# ── Archived Builds & Predecessor Work ────────────────────────────────────────
+# All predecessor's builds, catalogs, and large build artifacts are archived here.
+# This directory is safe to ignore or backup separately. See archived_builds/INDEX.md
+archived_builds/
+
+# ── AthenaK build directories (new builds created in athenak/ during development) ──
+athenak/build/
+athenak/test_build/
+athenak/test_dir/
+
+# ── Core dumps ─────────────────────────────────────────────────────────────────
 core
 core.*
 *.core
-AthenaK_legacy/datafiles/
+
+# ── OS ────────────────────────────────────────────────────────────────────────
+.DS_Store
