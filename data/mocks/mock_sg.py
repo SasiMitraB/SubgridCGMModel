@@ -7,10 +7,9 @@ import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
-import data_preprocess
+
 from data_preprocess import simulation_data
-from feedforward_nn.fnn import snapshot_pred as fnn_snapshot_pred
-from conv_nn.cnn import snapshot_pred as conv_snapshot_pred
+
 from matplotlib.colors import LogNorm
 import matplotlib.animation as animation
 from matplotlib.animation import FuncAnimation
@@ -75,8 +74,8 @@ def lambda_cool(temp):
     return lam
 
 resolution = (16, 8)
-file_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/sd_build/src/spcp{resolution[0]}_{resolution[1]}/bin"
-save_path = f"mocks/sg/spcp{resolution}/"
+file_path = f"/Volumes/PortableSSD/Projects/SubgridCGMModel/simulation_outputs/subgrid_model/bin"
+save_path = os.path.join(os.environ.get("SG_MOCKS_DIR", "mocks/sg"), f"sc{resolution}") + "/"
 os.makedirs(save_path, exist_ok=True)
 
 sim_data = simulation_data()
@@ -103,48 +102,48 @@ lr_frac[temp < sim_data.T_cutoff] = 1.0
 frac = sim_data.frho
 
 lr_resolution = resolution
-lr_file_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/kh_build/src/sc{lr_resolution[0]}_{lr_resolution[1]}/bin"
+lr_file_path = f"/Volumes/PortableSSD/Projects/SubgridCGMModel/simulation_outputs/lr_build/bin"
 lr_sim_data = simulation_data()
 lr_sim_data.resolution = lr_resolution
 lr_sim_data.input_data(lr_file_path, start=501)
-lr_rho = lr_sim_data.rho
-lr_temp = lr_sim_data.temp
-lr_pres = lr_sim_data.pressure
-lr_ux = lr_sim_data.ux
-lr_uy = lr_sim_data.uy
-lr_ien = lr_sim_data.eint
+lr_rho = lr_sim_data.rho[:rho.shape[0]]
+lr_temp = lr_sim_data.temp[:rho.shape[0]]
+lr_pres = lr_sim_data.pressure[:rho.shape[0]]
+lr_ux = lr_sim_data.ux[:rho.shape[0]]
+lr_uy = lr_sim_data.uy[:rho.shape[0]]
+lr_ien = lr_sim_data.eint[:rho.shape[0]]
 
 lr_sim_data.input_cons_data(lr_file_path, start=501)
-lr_cons_rho = lr_sim_data.cons_rho
-lr_cons_momx = lr_sim_data.cons_momx
-lr_cons_momy = lr_sim_data.cons_momy
-lr_cons_ener = lr_sim_data.cons_ener
-lr_cons_ps = lr_sim_data.cons_ps
+lr_cons_rho = lr_sim_data.cons_rho[:rho.shape[0]]
+lr_cons_momx = lr_sim_data.cons_momx[:rho.shape[0]]
+lr_cons_momy = lr_sim_data.cons_momy[:rho.shape[0]]
+lr_cons_ener = lr_sim_data.cons_ener[:rho.shape[0]]
+lr_cons_ps = lr_sim_data.cons_ps[:rho.shape[0]]
 
 lr_fmcl = (lr_temp < 1e5).astype(float)
 
 hr_resolution = (512, 256)
 hr_downsample = 32
-hr_file_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/kh_build/src/sc{hr_resolution[0]}_{hr_resolution[1]}/bin"
+hr_file_path = f"/Volumes/PortableSSD/Projects/SubgridCGMModel/simulation_outputs/hr_build"
 hr_sim_data = simulation_data()
 hr_sim_data.resolution = hr_resolution
 hr_sim_data.down_sample = hr_downsample
 # hr_sim_data.input_data(hr_file_path)
 # hr_rho = hr_sim_data.rho
 # hr_temp = hr_sim_data.temp
-hr_folder_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/datafiles/sc{hr_resolution}_{hr_downsample}"
-hr_rho = np.load(f"{hr_folder_path}/rho.npy")
-hr_temp = np.load(f"{hr_folder_path}/temp.npy")
-hr_pres = np.load(f"{hr_folder_path}/pressure.npy")
-hr_ux = np.load(f"{hr_folder_path}/ux.npy")
-hr_uy = np.load(f"{hr_folder_path}/uy.npy")
-hr_ien = np.load(f"{hr_folder_path}/eint.npy")
+hr_folder_path = f"/Volumes/PortableSSD/Projects/SubgridCGMModel/simulation_outputs/hr_build/cache/sc(512, 256)_32"
+hr_rho = np.load(f"{hr_folder_path}/rho.npy")[:rho.shape[0]]
+hr_temp = np.load(f"{hr_folder_path}/temp.npy")[:rho.shape[0]]
+hr_pres = np.load(f"{hr_folder_path}/pressure.npy")[:rho.shape[0]]
+hr_ux = np.load(f"{hr_folder_path}/ux.npy")[:rho.shape[0]]
+hr_uy = np.load(f"{hr_folder_path}/uy.npy")[:rho.shape[0]]
+hr_ien = np.load(f"{hr_folder_path}/eint.npy")[:rho.shape[0]]
 
-hr_cons_rho = np.load(f"{hr_folder_path}/cons_rho.npy")
-hr_cons_momx = np.load(f"{hr_folder_path}/cons_mx.npy")
-hr_cons_momy = np.load(f"{hr_folder_path}/cons_my.npy")
-hr_cons_ener = np.load(f"{hr_folder_path}/cons_ener.npy")
-hr_cons_ps = np.load(f"{hr_folder_path}/cons_ps.npy")
+hr_cons_rho = np.load(f"{hr_folder_path}/cons_rho.npy")[:rho.shape[0]]
+hr_cons_momx = np.load(f"{hr_folder_path}/cons_mx.npy")[:rho.shape[0]]
+hr_cons_momy = np.load(f"{hr_folder_path}/cons_my.npy")[:rho.shape[0]]
+hr_cons_ener = np.load(f"{hr_folder_path}/cons_ener.npy")[:rho.shape[0]]
+hr_cons_ps = np.load(f"{hr_folder_path}/cons_ps.npy")[:rho.shape[0]]
 
 cg_hr_rho = np.zeros((hr_rho.shape[0], hr_rho.shape[1] // hr_downsample, hr_rho.shape[2] // hr_downsample))
 cg_hr_temp = np.zeros((hr_rho.shape[0], hr_rho.shape[1] // hr_downsample, hr_rho.shape[2] // hr_downsample))
@@ -432,7 +431,7 @@ lr_div_momy = np.zeros_like(lr_mass_x)
 dy = sim_data.total_length / resolution[0]
 dx = sim_data.total_width / resolution[1]
 
-for i in range(nt):
+for i in tqdm(range(nt), desc="Divergence Fluxes"):
     cg_hr_div_mass[i] = divergence([cg_hr_mass_x[i], cg_hr_mass_y[i]], dx, dy)
     cg_hr_div_momx[i] = divergence([cg_hr_T_xx[i],   cg_hr_T_xy[i]],   dx, dy)
     cg_hr_div_momy[i] = divergence([cg_hr_T_xy[i],   cg_hr_T_yy[i]],   dx, dy)
@@ -483,6 +482,12 @@ mass_sg = compute_cold_mass(rho,        temp,       resolution[0],   resolution[
 mass_lr = compute_cold_mass(lr_rho,     lr_temp,    lr_resolution[0], lr_resolution[1])
 
 fmcl_sg = compute_fmcl_mass_sg(rho, fmcl, resolution[0], resolution[1])
+
+# Truncate SG/LR arrays to the same number of timesteps as HR (nt)
+# HR data only spans `nt` frames while SG/LR may have more.
+mass_sg  = mass_sg[:nt]
+mass_lr  = mass_lr[:nt]
+fmcl_sg  = fmcl_sg[:nt]
 
 t = np.arange(len(mass_hr))
 
@@ -616,11 +621,11 @@ print("Saved snapshot of all fields")
 #     return updated
 
 # ani_all = animation.FuncAnimation(
-#     fig, update_all, frames=rho.shape[0], interval=100, blit=False
+#     fig, update_all, frames=nt, interval=100, blit=False
 # )
 
 # plt.tight_layout()
-# ani_all.save(save_path + "all_fields_evolution.gif", writer="ffmpeg")
+# ani_all.save(save_path + "all_fields_evolution.mp4", writer="ffmpeg")
 # plt.close(fig)
 # print("Saved updated animation with correct dynamic colorbars")
 
@@ -660,141 +665,159 @@ cons_titles = [
     "fmcl"
 ]
 
-# fig, axs = plt.subplots(6, 3, figsize=(8, 20))
-# ims = []
-# cbs = []
+fig, axs = plt.subplots(6, 3, figsize=(8, 20))
+ims = []
+cbs = []
 
-# for i in range(6):
-#     im0 = axs[i, 0].imshow(cons_fields_hr[i][0], origin='lower', cmap='plasma')
-#     cb0 = plt.colorbar(im0, ax=axs[i, 0], fraction=0.035, pad=0.02)
+for i in range(6):
+    im0 = axs[i, 0].imshow(cons_fields_hr[i][0], origin='lower', cmap='plasma')
+    cb0 = plt.colorbar(im0, ax=axs[i, 0], fraction=0.035, pad=0.02)
 
-#     im1 = axs[i, 1].imshow(cons_fields_sg[i][0], origin='lower', cmap='plasma')
-#     cb1 = plt.colorbar(im1, ax=axs[i, 1], fraction=0.035, pad=0.02)
+    im1 = axs[i, 1].imshow(cons_fields_sg[i][0], origin='lower', cmap='plasma')
+    cb1 = plt.colorbar(im1, ax=axs[i, 1], fraction=0.035, pad=0.02)
 
-#     im2 = axs[i, 2].imshow(cons_fields_lr[i][0], origin='lower', cmap='plasma')
-#     cb2 = plt.colorbar(im2, ax=axs[i, 2], fraction=0.035, pad=0.02)
+    im2 = axs[i, 2].imshow(cons_fields_lr[i][0], origin='lower', cmap='plasma')
+    cb2 = plt.colorbar(im2, ax=axs[i, 2], fraction=0.035, pad=0.02)
 
-#     axs[i, 0].set_title(f"HR {cons_titles[i]}")
-#     axs[i, 1].set_title(f"SG {cons_titles[i]}")
-#     axs[i, 2].set_title(f"LR {cons_titles[i]}")
+    axs[i, 0].set_title(f"HR {cons_titles[i]}")
+    axs[i, 1].set_title(f"SG {cons_titles[i]}")
+    axs[i, 2].set_title(f"LR {cons_titles[i]}")
 
-#     ims.append([im0, im1, im2])
-#     cbs.append([cb0, cb1, cb2])
-
-
-# def update_cons(frame):
-#     updated = []
-
-#     for i in range(6):
-#         f_hr = cons_fields_hr[i][frame]
-#         f_sg = cons_fields_sg[i][frame]
-#         f_lr = cons_fields_lr[i][frame]
-
-#         arr = np.concatenate([f_hr.flatten(), f_sg.flatten(), f_lr.flatten()])
-#         vmin = arr[arr > 0].min() if np.any(arr > 0) else arr.min()
-#         vmax = arr.max()
-
-#         use_log = (i == 0 or i == 3) and vmin > 0    
-#         norm = LogNorm(vmin=vmin, vmax=vmax) if use_log else None
-
-#         if norm:
-#             ims[i][0].set_norm(norm)
-#             ims[i][1].set_norm(norm)
-#             ims[i][2].set_norm(norm)
-#         else:
-#             ims[i][0].set_clim(vmin, vmax)
-#             ims[i][1].set_clim(vmin, vmax)
-#             ims[i][2].set_clim(vmin, vmax)
-
-#         ims[i][0].set_data(f_hr)
-#         ims[i][1].set_data(f_sg)
-#         ims[i][2].set_data(f_lr)
-
-#         for cb in cbs[i]:
-#             cb.update_normal(ims[i][0])
-
-#         updated.extend(ims[i])
-
-#     for ax in axs.flat:
-#         ax.set_xlabel(f"Timestep: {frame}")
-
-#     return updated
+    ims.append([im0, im1, im2])
+    cbs.append([cb0, cb1, cb2])
 
 
-# ani_cons = animation.FuncAnimation(
-#     fig,
-#     update_cons,
-#     frames=cons_rho.shape[0],
-#     interval=100,
-#     blit=False
-# )
+def update_cons(frame):
+    updated = []
 
-# plt.tight_layout()
-# ani_cons.save(save_path + "cons_fields_evolution.gif", writer="ffmpeg")
-# plt.close(fig)
+    for i in range(6):
+        f_hr = cons_fields_hr[i][frame]
+        f_sg = cons_fields_sg[i][frame]
+        f_lr = cons_fields_lr[i][frame]
 
-# print("Saved conserved-field animation with dynamic colorbars")
+        arr = np.concatenate([f_hr.flatten(), f_sg.flatten(), f_lr.flatten()])
+        vmin = arr[arr > 0].min() if np.any(arr > 0) else arr.min()
+        vmax = arr.max()
 
-# fig, axs = plt.subplots(1, 3, figsize=(10, 5))
+        use_log = (i == 0 or i == 3) and vmin > 0    
+        norm = LogNorm(vmin=vmin, vmax=vmax) if use_log else None
 
-# im_hr_rho = axs[0].imshow(cg_hr_rho[0], origin='lower', cmap='plasma', norm=LogNorm())
-# axs[0].set_title(rf'HR (${hr_resolution[0]} \times {hr_resolution[1]}$) Density')
-# plt.colorbar(im_hr_rho, ax=axs[0], fraction=0.046, pad=0.04)
+        if norm:
+            ims[i][0].set_norm(norm)
+            ims[i][1].set_norm(norm)
+            ims[i][2].set_norm(norm)
+        else:
+            ims[i][0].set_clim(vmin, vmax)
+            ims[i][1].set_clim(vmin, vmax)
+            ims[i][2].set_clim(vmin, vmax)
 
-# im_rho = axs[1].imshow(rho[0], origin='lower', cmap='plasma', norm=LogNorm())
-# axs[1].set_title(rf'SG (${resolution[0]} \times {resolution[1]}$) Density (sigma=3)')
-# plt.colorbar(im_rho, ax=axs[1], fraction=0.046, pad=0.04)
+        ims[i][0].set_data(f_hr)
+        ims[i][1].set_data(f_sg)
+        ims[i][2].set_data(f_lr)
 
-# im_lr_rho = axs[2].imshow(lr_rho[0], origin='lower', cmap='plasma', norm=LogNorm())
-# axs[2].set_title(rf'LR (${lr_resolution[0]} \times {lr_resolution[1]}$) Density')
-# plt.colorbar(im_lr_rho, ax=axs[2], fraction=0.046, pad=0.04)
+        for cb in cbs[i]:
+            cb.update_normal(ims[i][0])
 
-# def update_rho(frame):
-#     im_hr_rho.set_data(cg_hr_rho[frame])
-#     im_rho.set_data(rho[frame])
-#     im_lr_rho.set_data(lr_rho[frame])
-#     for ax in axs.flat:
-#         ax.set_xlabel(f'Timestep: {frame}')
-#     return [im_rho, im_hr_rho, im_lr_rho]
+        updated.extend(ims[i])
 
-# ani_rho = animation.FuncAnimation(fig, update_rho, frames=rho.shape[0], interval=100, blit=True)
-# ani_rho.save(save_path + "density_evolution.gif", writer='ffmpeg')
-# plt.close(fig)
-# print("Density evolution animation saved")
+    for ax in axs.flat:
+        ax.set_xlabel(f"Timestep: {frame}")
 
-# bins = np.logspace(4, 6, 200)
-# window = 10
+    return updated
 
-# fig, ax = plt.subplots(figsize=(6, 5))
-# ax.set_xscale('log')
-# ax.set_yscale('log')
-# ax.set_xlabel("Temperature [K]")
-# ax.set_ylabel("PDF (volume-weighted, time-avg 10 steps)")
-# ax.set_ylim(1e-7, 1e-3)
-# ax.set_xlim(bins[0], bins[-1])
 
-# (line_hr,) = ax.plot([], [], lw=2.0, label="HR")
-# (line_lr,) = ax.plot([], [], lw=2.0, label="LR")
-# (line_sg,) = ax.plot([], [], lw=2.0, label="SG")
-# ax.legend()
+ani_cons = animation.FuncAnimation(
+    fig,
+    update_cons,
+    frames=nt,
+    interval=100,
+    blit=False
+)
 
-# def update(frame):
-#     ax.set_title(f"Time step {frame+1}")
-#     end = min(frame + window, temp.shape[0])
-#     h_hr, _ = np.histogram(cg_hr_temp[frame:end].ravel(), bins=bins, density=True)
-#     h_lr, _ = np.histogram(lr_temp[frame:end].ravel(), bins=bins, density=True)
-#     h_sg, _ = np.histogram(temp[frame:end].ravel(), bins=bins, density=True)
-#     line_hr.set_data(bins[:-1], h_hr)
-#     line_lr.set_data(bins[:-1], h_lr)
-#     line_sg.set_data(bins[:-1], h_sg)
-#     return line_hr, line_lr, line_sg
-#     # return [line_sg]
+plt.tight_layout()
+print("Saving conserved-field animation...")
+with tqdm(total=nt, desc="Conserved Fields") as pbar:
+    ani_cons.save(
+        save_path + "cons_fields_evolution.mp4",
+        writer="ffmpeg",
+        progress_callback=lambda i, n: pbar.update(1)
+    )
+plt.close(fig)
 
-# anim = FuncAnimation(fig, update, frames=temp.shape[0], interval=150, blit=True)
-# plt.tight_layout()
-# anim.save(save_path + "temperature_pdf_evolution.gif", writer="ffmpeg")
-# plt.close(fig)
-# print("Temperature PDF evolution animation saved")
+print("Saved conserved-field animation with dynamic colorbars")
+
+fig, axs = plt.subplots(1, 3, figsize=(10, 5))
+
+im_hr_rho = axs[0].imshow(cg_hr_rho[0], origin='lower', cmap='plasma', norm=LogNorm())
+axs[0].set_title(rf'HR (${hr_resolution[0]} \times {hr_resolution[1]}$) Density')
+plt.colorbar(im_hr_rho, ax=axs[0], fraction=0.046, pad=0.04)
+
+im_rho = axs[1].imshow(rho[0], origin='lower', cmap='plasma', norm=LogNorm())
+axs[1].set_title(rf'SG (${resolution[0]} \times {resolution[1]}$) Density (sigma=3)')
+plt.colorbar(im_rho, ax=axs[1], fraction=0.046, pad=0.04)
+
+im_lr_rho = axs[2].imshow(lr_rho[0], origin='lower', cmap='plasma', norm=LogNorm())
+axs[2].set_title(rf'LR (${lr_resolution[0]} \times {lr_resolution[1]}$) Density')
+plt.colorbar(im_lr_rho, ax=axs[2], fraction=0.046, pad=0.04)
+
+def update_rho(frame):
+    im_hr_rho.set_data(cg_hr_rho[frame])
+    im_rho.set_data(rho[frame])
+    im_lr_rho.set_data(lr_rho[frame])
+    for ax in axs.flat:
+        ax.set_xlabel(f'Timestep: {frame}')
+    return [im_rho, im_hr_rho, im_lr_rho]
+
+ani_rho = animation.FuncAnimation(fig, update_rho, frames=nt, interval=100, blit=True)
+print("Saving density evolution animation...")
+with tqdm(total=nt, desc="Density Evolution") as pbar:
+    ani_rho.save(
+        save_path + "density_evolution.mp4",
+        writer='ffmpeg',
+        progress_callback=lambda i, n: pbar.update(1)
+    )
+plt.close(fig)
+print("Density evolution animation saved")
+
+bins = np.logspace(4, 6, 200)
+window = 10
+
+fig, ax = plt.subplots(figsize=(6, 5))
+ax.set_xscale('log')
+ax.set_yscale('log')
+ax.set_xlabel("Temperature [K]")
+ax.set_ylabel("PDF (volume-weighted, time-avg 10 steps)")
+ax.set_ylim(1e-7, 1e-3)
+ax.set_xlim(bins[0], bins[-1])
+
+(line_hr,) = ax.plot([], [], lw=2.0, label="HR")
+(line_lr,) = ax.plot([], [], lw=2.0, label="LR")
+(line_sg,) = ax.plot([], [], lw=2.0, label="SG")
+ax.legend()
+
+def update(frame):
+    ax.set_title(f"Time step {frame+1}")
+    end = min(frame + window, temp.shape[0])
+    h_hr, _ = np.histogram(cg_hr_temp[frame:end].ravel(), bins=bins, density=True)
+    h_lr, _ = np.histogram(lr_temp[frame:end].ravel(), bins=bins, density=True)
+    h_sg, _ = np.histogram(temp[frame:end].ravel(), bins=bins, density=True)
+    line_hr.set_data(bins[:-1], h_hr)
+    line_lr.set_data(bins[:-1], h_lr)
+    line_sg.set_data(bins[:-1], h_sg)
+    return line_hr, line_lr, line_sg
+    # return [line_sg]
+
+anim = FuncAnimation(fig, update, frames=nt, interval=150, blit=True)
+plt.tight_layout()
+print("Saving temperature PDF evolution animation...")
+with tqdm(total=nt, desc="Temp PDF Evolution") as pbar:
+    anim.save(
+        save_path + "temperature_pdf_evolution.mp4",
+        writer="ffmpeg",
+        progress_callback=lambda i, n: pbar.update(1)
+    )
+plt.close(fig)
+print("Temperature PDF evolution animation saved")
 
 # ============================================================
 # Mean temperature PDFs ±1σ across all timesteps
@@ -1056,9 +1079,9 @@ y_lr = np.linspace(0, sim_data.total_length, lr_rho.shape[1])
 # Integral over y
 # ------------------------------------------------------------
 
-int_hr = np.trapz(emis_hr_mean, y_hr)
-int_sg = np.trapz(emis_sg_mean, y_sg)
-int_lr = np.trapz(emis_lr_mean, y_lr)
+int_hr = np.trapezoid(emis_hr_mean, y_hr)
+int_sg = np.trapezoid(emis_sg_mean, y_sg)
+int_lr = np.trapezoid(emis_lr_mean, y_lr)
 
 
 # ------------------------------------------------------------
@@ -1189,7 +1212,7 @@ print("emissivity_profile_vs_y.png saved")
 
 # ani = animation.FuncAnimation(fig, update, frames=nt, interval=100, blit=False)
 
-# ani.save(save_path + "fourier_spectrum_hr_sg_lr.gif", writer="ffmpeg")
+# ani.save(save_path + "fourier_spectrum_hr_sg_lr.mp4", writer="ffmpeg")
 # plt.close(fig)
 # print("Fourier spectrum evolution (HR, SG, LR) saved")
 
@@ -1212,8 +1235,8 @@ ycut_lr = lr_rho.shape[1] // 7
 
 # --- integrate mass over region
 mass_hr = np.sum(cg_hr_rho[:, :ycut_hr, :], axis=(1, 2)) * cell_area_hr
-mass_sg = np.sum(rho[:,    :ycut_sg, :], axis=(1, 2)) * cell_area_sg
-mass_lr = np.sum(lr_rho[:, :ycut_lr, :], axis=(1, 2)) * cell_area_lr
+mass_sg = np.sum(rho[:len(mass_hr),    :ycut_sg, :], axis=(1, 2)) * cell_area_sg
+mass_lr = np.sum(lr_rho[:len(mass_hr), :ycut_lr, :], axis=(1, 2)) * cell_area_lr
 
 # --- plot vs time
 fig, ax = plt.subplots(figsize=(6, 5))
@@ -1232,4 +1255,3 @@ plt.tight_layout()
 plt.savefig(save_path + "gas_mass_evolution.png", dpi=200)
 plt.close(fig)
 print("Gas mass evolution plot saved")
-

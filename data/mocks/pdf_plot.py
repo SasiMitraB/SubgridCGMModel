@@ -3,11 +3,13 @@
 import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
+import matplotlib.colors as colors
+from tqdm import tqdm
 import sys
 import os
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
-from conv_nn.pdf_cnn import snapshot_pred
+from models.conv_nn.pdf_cnn import snapshot_pred
 
 # =========================
 # IMPORT YOUR CLASS
@@ -80,13 +82,20 @@ resolution = (512, 256)
 downsample = 32
 bins = 40
 
-folder_path = f"/ptmp/mpa/dipda/subgrid/SubgridCGMModel/AthenaK_legacy/datafiles/c{resolution}_128"
+# Define PDF bins and log temperature centers for background color calculations
+temp_bins = np.logspace(3.0, 7.0, bins + 1)
+log_temp_centers = 0.5 * (np.log10(temp_bins[:-1]) + np.log10(temp_bins[1:]))
+cmap = plt.get_cmap("inferno")
+norm = colors.Normalize(vmin=3.0, vmax=7.0)
 
-os.makedirs("mocks/pdf", exist_ok=True)
+folder_path = f"/Volumes/PortableSSD/Projects/SubgridCGMModel/simulation_outputs/hr_build/cache/sc(512, 256)_32"
 
-gif_path = "mocks/pdf/pdf_animation.gif"
-first_frame_path = "mocks/pdf/pdf_snapshot_t0.png"
-temp_frame_path = "mocks/pdf/temp_snapshot_t0.png"
+PDF_MOCKS_DIR = os.environ.get("PDF_MOCKS_DIR", "mocks/pdf")
+os.makedirs(PDF_MOCKS_DIR, exist_ok=True)
+
+mp4_path = os.path.join(PDF_MOCKS_DIR, "pdf_animation.mp4")
+first_frame_path = os.path.join(PDF_MOCKS_DIR, "pdf_snapshot_t0.png")
+temp_frame_path = os.path.join(PDF_MOCKS_DIR, "temp_snapshot_t0.png")
 
 
 # =========================
@@ -118,7 +127,7 @@ temp_pdf = sim_data.calc_pixel_pdf(bins=bins)
 temp_pdf /= (temp_pdf.sum(axis=1, keepdims=True) + 1e-12)
 
 conv_temp_pdf = np.zeros_like(temp_pdf)
-for i in range(temp_pdf.shape[0]):
+for i in tqdm(range(temp_pdf.shape[0]), desc="Predicting CNN temperature PDFs"):
     conv_temp_pdf[i] = snapshot_pred(sim_data.rho[i], sim_data.temp[i], sim_data.pressure[i], \
                                         sim_data.ux[i], sim_data.uy[i], sim_data.eint[i], sim_data.ps[i],
                                         downsample, (sim_data.resolution[0], sim_data.resolution[1]))
@@ -137,7 +146,7 @@ print("Computing coarse-grained temperature...")
 cg_rho = np.zeros((nt, nx, ny))
 cg_temp = np.zeros((nt, nx, ny))
 
-for t in range(nt):
+for t in tqdm(range(nt), desc="Coarse-graining temperature & density"):
     cg_rho[t] = sim_data.coarse_grain(sim_data.rho[t])
     cg_temp[t] = sim_data.coarse_grain(sim_data.temp[t])
 
@@ -161,6 +170,7 @@ for i in range(nx):
         # square borders
         for spine in ax.spines.values():
             spine.set_visible(True)
+            spine.set_color("grey")
             spine.set_linewidth(0.3)
 
         ax.set_xticks([])
@@ -200,6 +210,7 @@ def init():
     for i in range(nx):
         for j in range(ny):
             lines[i][j].set_data([], [])
+            pdf_axes[i, j].set_facecolor("black")
     return sum(lines, [])
 
 
@@ -217,9 +228,21 @@ def update(frame):
             ii = nx - 1 - i
 
             y = pdf[:, ii, j]
+            
+            # Compute expectation value of log10 temperature
+            exp_val = np.sum(y * log_temp_centers)
+            
             y = y / (y.max() + 1e-8)
 
             lines[i][j].set_data(x, y)
+            
+            # Set background color of subplot based on expectation value
+            bg_color = cmap(norm(exp_val))
+            pdf_axes[i, j].set_facecolor(bg_color)
+            
+            # Determine dynamic contrasting line color (luminance-based)
+            lum = 0.299 * bg_color[0] + 0.587 * bg_color[1] + 0.114 * bg_color[2]
+            lines[i][j].set_color("white" if lum < 0.5 else "black")
 
     # update temp (log scale CG)
     log_temp = np.log10(cg_temp[frame] + 1e-8)
@@ -250,11 +273,11 @@ anim = animation.FuncAnimation(
     blit=False
 )
 
-print("Saving GIF...")
+print("Saving MP4...")
+with tqdm(total=nt, desc="Saving MP4") as pbar:
+    anim.save(mp4_path, writer="ffmpeg", fps=10, progress_callback=lambda i, n: pbar.update(1))
 
-anim.save(gif_path, writer="pillow", fps=10)
-
-print(f"Saved animation → {gif_path}")
+print(f"Saved animation → {mp4_path}")
 
 plt.close()
 
@@ -278,7 +301,7 @@ temp_centers = 0.5 * (temp_bins[:-1] + temp_bins[1:])  # (bins,)
 # =========================
 true_cool = np.zeros((nt, nx, ny))
 
-for t in range(nt):
+for t in tqdm(range(nt), desc="Computing true cooling rates"):
     rho = sim_data.rho[t]
     temp = sim_data.temp[t]
 
@@ -294,7 +317,7 @@ for t in range(nt):
 # =========================
 cg_pressure = np.zeros((nt, nx, ny))
 
-for t in range(nt):
+for t in tqdm(range(nt), desc="Coarse-graining pressure"):
     cg_pressure[t] = sim_data.coarse_grain(sim_data.pressure[t])
 
 
@@ -305,7 +328,7 @@ cnn_cool = np.zeros((nt, nx, ny))
 
 T = temp_centers[:, None, None]   # (bins,1,1)
 
-for t in range(nt):
+for t in tqdm(range(nt), desc="Computing CNN cooling rates"):
 
     pdf = conv_temp_pdf[t]  # (bins,nx,ny)
     P = cg_pressure[t][None, :, :]  # (1,nx,ny)
@@ -324,7 +347,7 @@ print("Cooling computation done.")
 # =========================
 cg_temp = np.zeros((nt, nx, ny))
 
-for t in range(nt):
+for t in tqdm(range(nt), desc="Coarse-graining temperature (global scatter)"):
     cg_temp[t] = sim_data.coarse_grain(sim_data.temp[t])
 
 # =========================
@@ -390,21 +413,77 @@ cbar = plt.colorbar(sc)
 cbar.set_label("Temperature (K)")
 
 plt.tight_layout()
-plt.savefig("mocks/pdf/cooling_scatter_global.png", dpi=300)
+plt.savefig(os.path.join(PDF_MOCKS_DIR, "pdf_cooling_scatter_global.png"), dpi=300)
 plt.show()
 
 print("Saved global scatter plot.")
+
+# ============================================================
+# PDF DISTRIBUTION PLOT
+# ============================================================
+
+print("Creating PDF distribution plot...")
+
+plt.figure(figsize=(7, 5))
+
+# Log-spaced bins
+bins_hist = np.logspace(
+    np.log10(min(true_vals.min(), pred_vals.min())),
+    np.log10(max(true_vals.max(), pred_vals.max())),
+    100
+)
+
+# True distribution
+plt.hist(
+    true_vals,
+    bins=bins_hist,
+    density=True,
+    histtype='step',
+    linewidth=2,
+    label='True Cooling'
+)
+
+# Predicted distribution
+plt.hist(
+    pred_vals,
+    bins=bins_hist,
+    density=True,
+    histtype='step',
+    linewidth=2,
+    label='Predicted Cooling'
+)
+
+plt.xscale("log")
+plt.yscale("log")
+
+plt.xlim(1e-2, 1e3)
+
+plt.xlabel("Cooling")
+plt.ylabel("PDF")
+plt.title("Cooling PDF Distribution")
+
+plt.legend()
+
+plt.tight_layout()
+plt.savefig(os.path.join(PDF_MOCKS_DIR, "pdf_cooling_pdf_global.png"), dpi=300)
+plt.show()
+
+print("Saved PDF distribution plot.")
 
 # =========================
 # TRUE vs PRED PDF ANIMATION
 # =========================
 print("Creating TRUE vs PRED PDF comparison animation...")
 
-gif_path_compare = "mocks/pdf/pdf_compare_animation.gif"
-snapshot_compare_path = "mocks/pdf/pdf_compare_t0.png"
+mp4_path_compare = os.path.join(PDF_MOCKS_DIR, "pdf_compare_animation.mp4")
+snapshot_compare_path = os.path.join(PDF_MOCKS_DIR, "pdf_compare_t0.png")
 
 fig2 = plt.figure(figsize=(ny*4.0, nx*1.8))
-gs2 = fig2.add_gridspec(1, 2, width_ratios=[1, 1])
+gs2 = fig2.add_gridspec(1, 2, width_ratios=[1, 1], top=0.90)
+
+# Add section titles for True vs Predicted groups
+fig2.text(0.25, 0.92, "TRUE PDFs (Simulation)", fontsize=36, ha="center", va="center", weight="bold")
+fig2.text(0.75, 0.92, "PREDICTED PDFs (CNN Model)", fontsize=36, ha="center", va="center", weight="bold")
 
 # ---- LEFT (TRUE) ----
 true_axes = np.empty((nx, ny), dtype=object)
@@ -417,10 +496,12 @@ for i in range(nx):
 
         for spine in ax.spines.values():
             spine.set_visible(True)
+            spine.set_color("grey")
             spine.set_linewidth(0.3)
 
         ax.set_xticks([])
         ax.set_yticks([])
+
 
 # ---- RIGHT (PRED) ----
 pred_axes = np.empty((nx, ny), dtype=object)
@@ -433,6 +514,7 @@ for i in range(nx):
 
         for spine in ax.spines.values():
             spine.set_visible(True)
+            spine.set_color("grey")
             spine.set_linewidth(0.3)
 
         ax.set_xticks([])
@@ -503,6 +585,8 @@ def init_compare():
             pred_lines[i][j].set_data([], [])
             true_texts[i][j].set_text("")
             pred_texts[i][j].set_text("")
+            true_axes[i, j].set_facecolor("black")
+            pred_axes[i, j].set_facecolor("black")
     return sum(true_lines, []) + sum(pred_lines, [])
 
 
@@ -522,11 +606,32 @@ def update_compare(frame):
             y_true = true_pdf[:, ii, j]
             y_pred = pred_pdf[:, ii, j]
 
+            # Expectation values before scaling for plotting
+            exp_val_true = np.sum(y_true * log_temp_centers)
+            exp_val_pred = np.sum(y_pred * log_temp_centers)
+
             y_true /= (y_true.max() + 1e-8)
             y_pred /= (y_pred.max() + 1e-8)
 
             true_lines[i][j].set_data(x, y_true)
             pred_lines[i][j].set_data(x, y_pred)
+
+            # Set background color of subplot based on expectation value
+            bg_true = cmap(norm(exp_val_true))
+            bg_pred = cmap(norm(exp_val_pred))
+            true_axes[i, j].set_facecolor(bg_true)
+            pred_axes[i, j].set_facecolor(bg_pred)
+
+            # Determine dynamic contrasting line and text color
+            lum_true = 0.299 * bg_true[0] + 0.587 * bg_true[1] + 0.114 * bg_true[2]
+            true_color = "white" if lum_true < 0.5 else "black"
+            true_lines[i][j].set_color(true_color)
+            true_texts[i][j].set_color(true_color)
+
+            lum_pred = 0.299 * bg_pred[0] + 0.587 * bg_pred[1] + 0.114 * bg_pred[2]
+            pred_color = "white" if lum_pred < 0.5 else "black"
+            pred_lines[i][j].set_color(pred_color)
+            pred_texts[i][j].set_color(pred_color)
 
             # ---- cooling values ----
             tc = true_cool[frame, ii, j]
@@ -535,7 +640,7 @@ def update_compare(frame):
             true_texts[i][j].set_text(f"{tc:.1e}")
             pred_texts[i][j].set_text(f"{pc:.1e}")
 
-    fig2.suptitle(f"True vs Predicted PDFs | t = {frame}", fontsize=48)
+    fig2.suptitle(f"True vs Predicted PDFs | t = {frame}", fontsize=48, y=0.96)
 
     if frame == 0:
         fig2.savefig(snapshot_compare_path, dpi=300)
@@ -560,10 +665,10 @@ anim2 = animation.FuncAnimation(
     blit=False
 )
 
-print("Saving comparison GIF...")
+print("Saving comparison MP4...")
+with tqdm(total=nt, desc="Saving comparison MP4") as pbar:
+    anim2.save(mp4_path_compare, writer="ffmpeg", fps=10, progress_callback=lambda i, n: pbar.update(1))
 
-anim2.save(gif_path_compare, writer="pillow", fps=10)
-
-print(f"Saved comparison animation → {gif_path_compare}")
+print(f"Saved comparison animation → {mp4_path_compare}")
 
 plt.close(fig2)

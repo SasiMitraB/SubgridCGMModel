@@ -11,8 +11,8 @@ import sys
 import os
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), '../../data')))
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), '../..'))
-MODEL_SAVE_DIR = os.path.join(PROJECT_ROOT, 'outputs', 'model_saves')
-LOSS_PLOT_DIR = os.path.join(PROJECT_ROOT, 'outputs', 'loss_plots')
+MODEL_SAVE_DIR = os.environ.get("MODEL_SAVES_DIR", os.path.join(PROJECT_ROOT, 'outputs', 'model_saves', 'pdf_model_saves'))
+LOSS_PLOT_DIR = os.environ.get("LOSS_PLOTS_DIR", os.path.join(PROJECT_ROOT, 'outputs', 'loss_plots', 'pdf_loss_plots'))
 os.makedirs(MODEL_SAVE_DIR, exist_ok=True)
 os.makedirs(LOSS_PLOT_DIR, exist_ok=True)
 # TODO: Set these to your local simulation data directories
@@ -223,10 +223,10 @@ def snapshot_pred(
     # Normalize input (IMPORTANT)
     # -------------------------
     input_mean = np.load(
-        os.path.join(MODEL_SAVE_DIR, "pdf_model_saves", f"cnn_{resolution}_{downsample}_input_mean.npy")
+        os.path.join(MODEL_SAVE_DIR, f"cnn_{resolution}_{downsample}_input_mean.npy")
     )
     input_std = np.load(
-        os.path.join(MODEL_SAVE_DIR, "pdf_model_saves", f"cnn_{resolution}_{downsample}_input_std.npy")
+        os.path.join(MODEL_SAVE_DIR, f"cnn_{resolution}_{downsample}_input_std.npy")
     )
 
     input_tensor = (input_tensor - input_mean) / input_std
@@ -235,7 +235,7 @@ def snapshot_pred(
     # -------------------------
     # Load model
     # -------------------------
-    model_path = os.path.join(MODEL_SAVE_DIR, "pdf_model_saves", f"cnn_{resolution}_{downsample}.pth")
+    model_path = os.path.join(MODEL_SAVE_DIR, f"cnn_{resolution}_{downsample}.pth")
 
     cnn_model = ConvNN(
         in_channels, layer_size1, layer_size2,
@@ -406,6 +406,7 @@ if __name__ == "__main__":
 
     input_tensor = input_tensor.to(device)
     output_tensor = output_tensor.to(device)
+    rho_tensor = input_tensor[:,0:1]
 
     # Numerical stability for PDFs
     output_tensor = torch.clamp(output_tensor, min=1e-12)
@@ -417,14 +418,14 @@ if __name__ == "__main__":
     input_std = input_tensor.std(dim=(0,2,3), keepdim=True)
     input_std[input_std == 0] = 1.0
 
-    np.save(os.path.join(MODEL_SAVE_DIR, "pdf_model_saves", f"cnn_{resolution}_{downsample}_input_mean.npy"),
+    np.save(os.path.join(MODEL_SAVE_DIR, f"cnn_{resolution}_{downsample}_input_mean.npy"),
             input_mean.cpu().numpy())
-    np.save(os.path.join(MODEL_SAVE_DIR, "pdf_model_saves", f"cnn_{resolution}_{downsample}_input_std.npy"),
+    np.save(os.path.join(MODEL_SAVE_DIR, f"cnn_{resolution}_{downsample}_input_std.npy"),
             input_std.cpu().numpy())
 
     input_tensor_norm = (input_tensor - input_mean) / input_std
 
-    dataset = TensorDataset(input_tensor_norm, output_tensor)
+    dataset = TensorDataset(input_tensor_norm, output_tensor, rho_tensor)
 
     num_samples = len(dataset)
     print("Number of samples:", num_samples)
@@ -451,7 +452,7 @@ if __name__ == "__main__":
 
         cnn_model.train()
 
-        for inputs, labels in train_loader:
+        for inputs, labels, rho in train_loader:
 
             outputs = cnn_model(inputs)
 
@@ -472,7 +473,7 @@ if __name__ == "__main__":
             val_loss_total = 0
 
             # Train evaluation
-            for x_batch, y_batch in train_loader:
+            for x_batch, y_batch, rho in train_loader:
 
                 preds = cnn_model(x_batch)
                 log_preds = torch.log_softmax(preds, dim=1)
@@ -483,7 +484,7 @@ if __name__ == "__main__":
             train_loss = train_loss_total / len(train_loader)
 
             # Validation evaluation
-            for x_batch, y_batch in validation_loader:
+            for x_batch, y_batch, rho in validation_loader:
 
                 preds = cnn_model(x_batch)
                 log_preds = torch.log_softmax(preds, dim=1)
@@ -528,7 +529,7 @@ if __name__ == "__main__":
 
         test_loss_total = 0
 
-        for x_batch, y_batch in test_loader:
+        for x_batch, y_batch, rho in test_loader:
 
             preds = cnn_model(x_batch)
 
@@ -544,7 +545,7 @@ if __name__ == "__main__":
     # Save model
     torch.save(
         cnn_model.state_dict(),
-        os.path.join(MODEL_SAVE_DIR, "pdf_model_saves", f"cnn_{resolution}_{downsample}.pth")
+        os.path.join(MODEL_SAVE_DIR, f"cnn_{resolution}_{downsample}.pth")
     )
 
     # Plot loss
@@ -567,7 +568,7 @@ if __name__ == "__main__":
     plt.tight_layout()
 
     plt.savefig(
-        os.path.join(LOSS_PLOT_DIR, "pdf_loss_plots", f"cnn_{resolution}_{downsample}_loss.jpg"),
+        os.path.join(LOSS_PLOT_DIR, f"cnn_{resolution}_{downsample}_loss.jpg"),
         dpi=500
     )
 
