@@ -1,4 +1,26 @@
 # CNN to learn the PDF using discrete bins
+# Physical Intuition of what's going on here
+
+# Fine simulation                    Coarse simulation
+# ┌──────────────┐                  ┌──────────┐
+# │ T varies at  │   coarse-grain   │ 1 T per  │
+# │ pixel level  │ ──────────────►  │ cell     │
+# │ → rich PDF   │                  │ → lost   │
+# └──────────────┘                  └──────────┘
+#                                          │
+#                             CNN predicts │
+#                                          ▼
+#                                   ┌──────────┐
+#                                   │ PDF(T)   │
+#                                   │ 40 bins  │
+#                                   └────┬─────┘
+#                                        │
+#                      ρ² × Σ p(Tᵢ)Λ(Tᵢ) │
+#                                        ▼
+#                                   ┌──────────┐
+#                                   │ Emissivity│
+#                                   │ (cooling) │
+#                                   └──────────┘
 
 import numpy as np
 import matplotlib.pyplot as plt
@@ -23,7 +45,11 @@ from data_preprocess import simulation_data
 
 np.random.seed(10)
 # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-device = torch.device('cpu')
+#device = torch.device('cpu')
+#print("Using CPU")
+device = torch.device("mps")
+print("Using Apple MPS GPU")
+
 
 resolution = (512, 256)  
 downsample = 32
@@ -108,6 +134,7 @@ log_lambda -= log_lambda.min()
 log_lambda /= (log_lambda.max() + 1e-30)
 
 lambda_weights = torch.tensor(log_lambda, dtype=torch.float32)
+lambda_tensor = torch.tensor(lambda_vals, dtype=torch.float32)
 
 def nn_data(resolution: tuple, downsample: int) -> tuple:
     """ A function to load the data and return the inputs and outputs for the Conv neural network."""
@@ -217,20 +244,23 @@ def snapshot_pred(
     ]
 
     input_tensor = torch.cat(input_tensors, dim=0)   # (C, nx, ny)
-    input_tensor = input_tensor.unsqueeze(0)         # (1, C, nx, ny)
+    input_tensor = input_tensor.unsqueeze(0).to(device)         # (1, C, nx, ny)
+
 
     # -------------------------
     # Normalize input (IMPORTANT)
     # -------------------------
-    input_mean = np.load(
+    # Load and convert directly to tensors on the MPS device
+    input_mean = torch.tensor(np.load(
         os.path.join(MODEL_SAVE_DIR, f"cnn_{resolution}_{downsample}_input_mean.npy")
-    )
-    input_std = np.load(
+    ), dtype=torch.float32).to(device)
+    
+    input_std = torch.tensor(np.load(
         os.path.join(MODEL_SAVE_DIR, f"cnn_{resolution}_{downsample}_input_std.npy")
-    )
+    ), dtype=torch.float32).to(device)
 
+    # Now both are MPS tensors, this math works seamlessly
     input_tensor = (input_tensor - input_mean) / input_std
-    input_tensor = input_tensor.to(device)
 
     # -------------------------
     # Load model
@@ -259,7 +289,24 @@ def snapshot_pred(
     return pdf
 
 class ConvNN(nn.Module):
+    """
+    CNN Model for PDF prediction
 
+    Architecture:
+    Input: (B, 5, 16, 8)
+             │
+        ┌────▼────────┐
+        │   Encoder   │  3× Conv2d + BN + ReLU (+ Dropout in first 2)
+        │ 5→32→64→128 │
+        └────┬────────┘
+             │
+        ┌────▼─────────┐
+        │   Decoder    │  3× Conv2d + BN + ReLU, final 1×1 conv
+        │ 128→64→32→40 │
+        └────┬─────────┘
+             │
+    Output: (B, 40, 16, 8)  ← logits (unnormalized)
+    """
     def __init__(self, in_channels, layer_size1, layer_size2, layer_size3, out_channels, kernel_size):
 
         super().__init__()
@@ -378,19 +425,155 @@ class KLWithLeakageLoss(nn.Module):
 
         return kl_loss + self.alpha * leakage_loss
         
+
+
+# Introducing Emissivity into the loss function
+# Function to Define the Emissivity
+
+
+def emissivity_from_pdf(
+    pdf,
+    rho,
+    lambda_tensor
+):
+    """
+    pdf : (B,bins,nx,ny)
+    rho : (B,1,nx,ny)
+    """
+
+    cooling = lambda_tensor.to(pdf.device)
+
+    cooling = cooling.view(
+        1,
+        -1,
+        1,
+        1
+    )
+
+    mean_lambda = torch.sum(
+        pdf * cooling,
+        dim=1,
+        keepdim=True
+    )
+
+    emiss = rho**2 * mean_lambda
+
+    return emiss
+
+
+class PDFEmissivityLoss(nn.Module):
+
+    def __init__(
+        self,
+        alpha_emiss=1.0,
+        alpha_profile=1.0
+    ):
+        super().__init__()
+
+        self.alpha_emiss = alpha_emiss
+        self.alpha_profile = alpha_profile
+
+        self.kl = nn.KLDivLoss(
+            reduction="batchmean"
+        )
+
+    def forward(
+        self,
+        logits,
+        true_pdf,
+        rho
+    ):
+
+        # ---------------------------------
+        # logits -> pdf
+        # ---------------------------------
+
+        pred_pdf = torch.softmax(
+            logits,
+            dim=1
+        )
+
+        # ---------------------------------
+        # PDF KL loss
+        # ---------------------------------
+
+        pdf_loss = self.kl(
+            torch.log(pred_pdf + 1e-12),
+            true_pdf
+        )
+
+        # ---------------------------------
+        # emissivity maps
+        # ---------------------------------
+
+        emiss_pred = emissivity_from_pdf(
+            pred_pdf,
+            rho,
+            lambda_tensor
+        )
+
+        emiss_true = emissivity_from_pdf(
+            true_pdf,
+            rho,
+            lambda_tensor
+        )
+
+        max_emiss_pred = torch.amax(
+            emiss_pred,
+            dim=(2,3)
+        )
+
+        max_emiss_true = torch.amax(
+            emiss_true,
+            dim=(2,3)
+        )
+
+        emiss_loss = F.mse_loss(
+            torch.log10(max_emiss_pred + 1e-30),
+            torch.log10(max_emiss_true + 1e-30)
+        )
+
+        # ---------------------------------
+        # x-averaged emissivity profile
+        # ---------------------------------
+
+        profile_pred = torch.mean(
+            emiss_pred,
+            dim=3
+        )
+
+        profile_true = torch.mean(
+            emiss_true,
+            dim=3
+        )
+
+        profile_loss = F.mse_loss(
+            torch.log10(profile_pred + 1e-30),
+            torch.log10(profile_true + 1e-30)
+        )
+
+        total_loss = (
+            pdf_loss
+            + self.alpha_emiss * emiss_loss
+            + self.alpha_profile * profile_loss
+        )
+
+        return total_loss
+
 if __name__ == "__main__":
 
     file_path = DATA_PATH
 
     print("Training all fluxes model")
 
-    torch.cuda.empty_cache()
+    #torch.cuda.empty_cache()
 
     # Initialize model
     cnn_model = ConvNN(in_channels, layer_size1, layer_size2, layer_size3,
                        out_channels, kernel_size).to(device)
 
-    criterion = nn.KLDivLoss(reduction="batchmean")
+    criterion = PDFEmissivityLoss(alpha_emiss=10.0, alpha_profile=10.0)
+    # criterion = nn.KLDivLoss(reduction="batchmean")
     # criterion = KLWithLeakageLoss()
     # criterion = WassersteinLoss()
 
@@ -406,7 +589,6 @@ if __name__ == "__main__":
 
     input_tensor = input_tensor.to(device)
     output_tensor = output_tensor.to(device)
-    rho_tensor = input_tensor[:,0:1]
 
     # Numerical stability for PDFs
     output_tensor = torch.clamp(output_tensor, min=1e-12)
@@ -425,7 +607,8 @@ if __name__ == "__main__":
 
     input_tensor_norm = (input_tensor - input_mean) / input_std
 
-    dataset = TensorDataset(input_tensor_norm, output_tensor, rho_tensor)
+    # Removed rho_tensor; we will extract it from inputs on the fly
+    dataset = TensorDataset(input_tensor_norm, output_tensor)
 
     num_samples = len(dataset)
     print("Number of samples:", num_samples)
@@ -452,14 +635,15 @@ if __name__ == "__main__":
 
         cnn_model.train()
 
-        for inputs, labels, rho in train_loader:
+        for inputs, labels in train_loader:
 
             outputs = cnn_model(inputs)
 
-            log_probs = torch.log_softmax(outputs, dim=1)
+            # Extract density (rho) on the fly from the first channel of the inputs
+            rho = inputs[:, 0:1]
 
-            loss = criterion(log_probs, labels)
-            # loss = criterion(outputs, labels)
+            # Pass raw outputs (logits) and rho to the new loss function
+            loss = criterion(outputs, labels, rho)
 
             optimizer.zero_grad()
             loss.backward()
@@ -473,24 +657,22 @@ if __name__ == "__main__":
             val_loss_total = 0
 
             # Train evaluation
-            for x_batch, y_batch, rho in train_loader:
+            for x_batch, y_batch in train_loader:
 
                 preds = cnn_model(x_batch)
-                log_preds = torch.log_softmax(preds, dim=1)
+                rho = x_batch[:, 0:1]
 
-                train_loss_total += criterion(log_preds, y_batch).item()
-                # train_loss_total += criterion(preds, y_batch).item()
+                train_loss_total += criterion(preds, y_batch, rho).item()
 
             train_loss = train_loss_total / len(train_loader)
 
             # Validation evaluation
-            for x_batch, y_batch, rho in validation_loader:
+            for x_batch, y_batch in validation_loader:
 
                 preds = cnn_model(x_batch)
-                log_preds = torch.log_softmax(preds, dim=1)
+                rho = x_batch[:, 0:1]
 
-                val_loss_total += criterion(log_preds, y_batch).item()
-                # val_loss_total += criterion(preds, y_batch).item()
+                val_loss_total += criterion(preds, y_batch, rho).item()
 
             val_loss = val_loss_total / len(validation_loader)
 
@@ -529,14 +711,12 @@ if __name__ == "__main__":
 
         test_loss_total = 0
 
-        for x_batch, y_batch, rho in test_loader:
+        for x_batch, y_batch in test_loader:
 
             preds = cnn_model(x_batch)
+            rho = x_batch[:, 0:1]
 
-            log_preds = torch.log_softmax(preds, dim=1)
-
-            test_loss_total += criterion(log_preds, y_batch).item()
-            # test_loss_total += criterion(preds, y_batch).item()
+            test_loss_total += criterion(preds, y_batch, rho).item()
 
         test_loss = test_loss_total / len(test_loader)
 
@@ -560,7 +740,9 @@ if __name__ == "__main__":
 
     plt.xlabel("Epochs")
     # plt.ylabel("KL Divergence")
-    plt.ylabel("Wasserstein Loss")
+    # plt.ylabel("Wasserstein Loss")
+    # plt.ylabel("KL Divergence")
+    plt.ylabel("PDF + Emissivity Loss")
     plt.title("Training Loss")
 
     plt.legend()
