@@ -26,6 +26,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import torch
 torch.cuda.empty_cache()
+# pyrefly: ignore [missing-import]
 import torch.nn as nn
 import torch.nn.functional as F
 from torch.utils.data import DataLoader, TensorDataset, Subset
@@ -51,8 +52,8 @@ device = torch.device("mps")
 print("Using Apple MPS GPU")
 
 
-resolution = (512, 256)  
-downsample = 32
+resolution = (1024, 512)  
+downsample = 64
 in_channels = 5
 out_channels = 40
 layer_size1 = 32
@@ -67,7 +68,7 @@ weight_decay = 1e-3
 dropout_rate = 0.3
 
 T_edges = np.logspace(3.0, 7.0, out_channels + 1)
-T_centers = 0.5 * (T_edges[:-1] + T_edges[1:])
+T_centers = np.sqrt(T_edges[:-1] * T_edges[1:])
 
 logT_centers = torch.log10(torch.tensor(T_centers, dtype=torch.float32))
 
@@ -281,12 +282,41 @@ def snapshot_pred(
     with torch.no_grad():
 
         logits = cnn_model(input_tensor)   # (1, bins, nx, ny)
-
-        pdf = torch.softmax(logits, dim=1)   # convert to PDF
+        pdf = cnn_model.pdf_activation(logits)
 
         pdf = pdf[0].cpu().numpy()  # (bins, nx, ny)
 
     return pdf
+
+class Sparsemax(nn.Module):
+    def forward(self, logits):
+        dim = 1
+        
+        # Numerical stability (shift by max)
+        logits_shifted = logits - logits.max(dim=dim, keepdim=True)[0]
+        
+        # Sort descending
+        z_sorted, _ = torch.sort(logits_shifted, descending=True, dim=dim)
+        
+        d = logits.shape[dim]
+        range_val = torch.arange(1, d + 1, device=logits.device, dtype=logits.dtype)
+        range_val = range_val.view(1, d, 1, 1) # Broadcast over (B, bins, H, W)
+        
+        # Cumulative sum
+        cumsum = torch.cumsum(z_sorted, dim=dim)
+        
+        # Determine the support (which bins get to be > 0)
+        support = z_sorted - (cumsum - 1) / range_val > 0
+        
+        # Find the threshold k
+        k = support.sum(dim=dim, keepdim=True).float()
+        
+        # Calculate tau (the threshold value)
+        cumsum_k = cumsum.gather(dim, (k - 1).long().clamp(min=0))
+        tau = (cumsum_k - 1) / k
+        
+        # Output: anything below tau becomes exactly 0.0
+        return torch.clamp(logits_shifted - tau, min=0.0)
 
 class ConvNN(nn.Module):
     """
@@ -305,7 +335,7 @@ class ConvNN(nn.Module):
         │ 128→64→32→40 │
         └────┬─────────┘
              │
-    Output: (B, 40, 16, 8)  ← logits (unnormalized)
+    Output: (B, 40, 16, 8)  ← PDF (normalized using Sparsemax)
     """
     def __init__(self, in_channels, layer_size1, layer_size2, layer_size3, out_channels, kernel_size):
 
@@ -340,26 +370,27 @@ class ConvNN(nn.Module):
             nn.Conv2d(layer_size1, out_channels, kernel_size=1),
         )
 
+        self.pdf_activation = Sparsemax()
+
     def forward(self, x):
         x = self.encoder(x)
-        x = self.decoder(x)
-        return x
+        logits = self.decoder(x)
+        return logits
 
 class WassersteinLoss(nn.Module):
     def __init__(self):
         super().__init__()
+        self.sparsemax = Sparsemax()
 
     def forward(self, logits, target):
         """
-        logits: (B, bins, nx, ny)
+        logits: (B, bins, nx, ny) — raw logits from model
         target: (B, bins, nx, ny) — must be normalized PDF
         """
-
-        # Convert logits → probabilities
-        pred = torch.softmax(logits, dim=1)
+        pred_pdf = self.sparsemax(logits)
 
         # Compute CDF along bin axis
-        cdf_pred = torch.cumsum(pred, dim=1)
+        cdf_pred = torch.cumsum(pred_pdf, dim=1)
         cdf_target = torch.cumsum(target, dim=1)
 
         # Wasserstein-1 distance
@@ -372,15 +403,16 @@ class KLWithLeakageLoss(nn.Module):
         super().__init__()
         self.kl = nn.KLDivLoss(reduction="batchmean")
         self.alpha = alpha
+        self.sparsemax = Sparsemax()
 
         # store logT info
         self.logT_centers = logT_centers
         self.logT0 = np.log10(T0)
         self.width = width
 
-    def forward(self, log_probs, target):
-        # KL loss
-        # kl_loss = self.kl(log_probs, target)
+    def forward(self, logits, target):
+        pred_pdf = self.sparsemax(logits)
+        log_probs = torch.log(pred_pdf + 1e-12)
 
         # expand weights
         weights = lambda_weights.to(target.device)[None, :, None, None]
@@ -390,9 +422,6 @@ class KLWithLeakageLoss(nn.Module):
         weighted_kl = kl_elementwise * weights
 
         kl_loss = torch.mean(weighted_kl)
-
-        # Convert to probabilities
-        pred = torch.exp(log_probs)
 
         # Peak bin index from TRUE PDF
         peak_idx = torch.argmax(target, dim=1)  # (B, nx, ny)
@@ -406,7 +435,7 @@ class KLWithLeakageLoss(nn.Module):
         )
 
         # Predicted mass at peak
-        peak_prob = torch.gather(pred, 1, peak_idx.unsqueeze(1)).squeeze(1)
+        peak_prob = torch.gather(pred_pdf, 1, peak_idx.unsqueeze(1)).squeeze(1)
 
         # True peak value
         true_peak = torch.max(target, dim=1).values  # (B, nx, ny)
@@ -476,85 +505,40 @@ class PDFEmissivityLoss(nn.Module):
         self.kl = nn.KLDivLoss(
             reduction="batchmean"
         )
+        self.sparsemax = Sparsemax()
 
-    def forward(
-        self,
-        logits,
-        true_pdf,
-        rho
-    ):
+    def forward(self, logits, true_pdf, rho):
 
-        # ---------------------------------
-        # logits -> pdf
-        # ---------------------------------
+        pred_pdf = self.sparsemax(logits)
 
-        pred_pdf = torch.softmax(
-            logits,
-            dim=1
+        # --- PDF loss (unchanged) ---
+        pdf_loss = self.kl(torch.log(pred_pdf + 1e-12), true_pdf)
+
+        # --- Emissivity maps: shape (B, 1, nx, ny) ---
+        emiss_pred = emissivity_from_pdf(pred_pdf, rho, lambda_tensor)
+        emiss_true  = emissivity_from_pdf(true_pdf,    rho, lambda_tensor)
+
+        # BEFORE: collapsed to a single scalar per batch via max()
+        # max_emiss_pred = torch.amax(emiss_pred, dim=(2,3))  ← discards spatial info
+        
+        # AFTER: keep all spatial cells, compute MSE across every (b, i, j)
+        emiss_loss_pixelwise = F.mse_loss(
+            torch.log10(emiss_pred + 1e-30),
+            torch.log10(emiss_true  + 1e-30)
         )
+        # F.mse_loss with default reduction='mean' averages over B*1*nx*ny automatically
 
-        # ---------------------------------
-        # PDF KL loss
-        # ---------------------------------
-
-        pdf_loss = self.kl(
-            torch.log(pred_pdf + 1e-12),
-            true_pdf
-        )
-
-        # ---------------------------------
-        # emissivity maps
-        # ---------------------------------
-
-        emiss_pred = emissivity_from_pdf(
-            pred_pdf,
-            rho,
-            lambda_tensor
-        )
-
-        emiss_true = emissivity_from_pdf(
-            true_pdf,
-            rho,
-            lambda_tensor
-        )
-
-        max_emiss_pred = torch.amax(
-            emiss_pred,
-            dim=(2,3)
-        )
-
-        max_emiss_true = torch.amax(
-            emiss_true,
-            dim=(2,3)
-        )
-
-        emiss_loss = F.mse_loss(
-            torch.log10(max_emiss_pred + 1e-30),
-            torch.log10(max_emiss_true + 1e-30)
-        )
-
-        # ---------------------------------
-        # x-averaged emissivity profile
-        # ---------------------------------
-
-        profile_pred = torch.mean(
-            emiss_pred,
-            dim=3
-        )
-
-        profile_true = torch.mean(
-            emiss_true,
-            dim=3
-        )
-
+        # Keep profile loss if you want — it's cheap and constrains large-scale structure
+        profile_pred = emiss_pred.mean(dim=3)   # (B, 1, nx)
+        profile_true  = emiss_true.mean(dim=3)
         profile_loss = F.mse_loss(
             torch.log10(profile_pred + 1e-30),
-            torch.log10(profile_true + 1e-30)
+            torch.log10(profile_true  + 1e-30)
         )
 
         total_loss = (
             pdf_loss
-            + self.alpha_emiss * emiss_loss
+            + self.alpha_emiss   * emiss_loss_pixelwise
             + self.alpha_profile * profile_loss
         )
 
@@ -647,6 +631,7 @@ if __name__ == "__main__":
 
             optimizer.zero_grad()
             loss.backward()
+            torch.nn.utils.clip_grad_norm_(cnn_model.parameters(), max_norm=1.0)
             optimizer.step()
 
         cnn_model.eval()

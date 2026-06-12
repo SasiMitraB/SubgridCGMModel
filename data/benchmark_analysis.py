@@ -58,7 +58,7 @@ IN_CHANNELS = 5
 OUT_BINS    = 40   # number of PDF bins
 
 T_EDGES   = np.logspace(3.0, 7.0, OUT_BINS + 1)
-T_CENTERS = 0.5 * (T_EDGES[:-1] + T_EDGES[1:])
+T_CENTERS = np.sqrt(T_EDGES[:-1] * T_EDGES[1:])
 
 # --- cooling function (duplicated here for self-containedness) ---
 def lambda_cool(temp):
@@ -852,7 +852,7 @@ def plot_source_terms(sim):
 
     temp_flat = cg_temp.ravel()
     temp_bins = np.logspace(4, 6.5, 100)
-    bin_centers = 0.5 * (temp_bins[:-1] + temp_bins[1:])
+    bin_centers = np.sqrt(temp_bins[:-1] * temp_bins[1:])
 
     for ch, (ax, label) in enumerate(zip(axs, channel_labels)):
         S = source_term[:, ch].ravel()

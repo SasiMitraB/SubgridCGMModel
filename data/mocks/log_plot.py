@@ -292,7 +292,7 @@ mu = 0.62
 kb = 1.380649e-16
 
 # ---- IMPORTANT: match your PDF bins ----
-temp_centers = 0.5 * (temp_bins[:-1] + temp_bins[1:])  # (bins,)
+temp_centers = np.sqrt(temp_bins[:-1] * temp_bins[1:])  # (bins,)
 
 # =========================
 # TRUE COOLING (fine → coarse)

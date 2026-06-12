@@ -60,7 +60,7 @@ total_length: float = 20
 total_width: float = 10
 gamma: float = 5.0 / 3.0
 T_edges = np.logspace(3.0, 7.0, out_channels + 1)
-T_centers = 0.5 * (T_edges[:-1] + T_edges[1:])
+T_centers = np.sqrt(T_edges[:-1] * T_edges[1:])
 logT_centers = torch.log10(torch.tensor(T_centers, dtype=torch.float32))
 
 def divergence(f, dx, dy):
@@ -963,12 +963,7 @@ def source_func(rho, pres, ux, uy, ps, fmcl):
     with torch.no_grad():
 
         logits = cnn_model(input_tensor)
-
-        # (1, bins, nx, ny)
-        pdf = torch.softmax(
-            logits,
-            dim=1
-        )
+        pdf = cnn_model.pdf_activation(logits)
 
         pdf = pdf[0].cpu().numpy()
 
@@ -1009,9 +1004,9 @@ def source_func(rho, pres, ux, uy, ps, fmcl):
         nb + 1
     )
 
-    temp_centers = 0.5 * (
+    temp_centers = np.sqrt(
         temp_bins[:-1]
-        + temp_bins[1:]
+        * temp_bins[1:]
     )
 
     T = temp_centers[:, None, None]

@@ -829,7 +829,7 @@ Tmin = 1.1e4
 Tmax = 0.9e6
 
 bins = np.logspace(np.log10(Tmin), np.log10(Tmax), 50)
-bin_centers = 0.5 * (bins[:-1] + bins[1:])
+bin_centers = np.sqrt(bins[:-1] * bins[1:])
 
 
 # ------------------------------------------------------------

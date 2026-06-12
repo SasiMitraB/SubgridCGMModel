@@ -41,7 +41,7 @@ weight_decay = 1e-3
 dropout_rate = 0.3
 
 T_edges = np.logspace(3.0, 7.0, out_channels + 1)
-T_centers = 0.5 * (T_edges[:-1] + T_edges[1:])
+T_centers = np.sqrt(T_edges[:-1] * T_edges[1:])
 
 logT_centers = torch.log10(torch.tensor(T_centers, dtype=torch.float32))
 
