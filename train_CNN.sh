@@ -12,3 +12,7 @@ echo "Python script took $((duration / 60))m $((duration % 60))s to run."
 
 
 dot_clean -m /Volumes/PortableSSD/Projects/SubgridCGMModel
+
+python3 data/mocks/pdf_plot.py
+
+dot_clean -m /Volumes/PortableSSD/Projects/SubgridCGMModel

@@ -288,35 +288,36 @@ def snapshot_pred(
 
     return pdf
 
-class Sparsemax(nn.Module):
+class ThresholdedSoftmax(nn.Module):
+    """
+    Thresholded-softmax Gate for PDF bins.
+
+    Steps:
+      1. Apply softmax along the bin axis (dim=1) to get a proper
+         probability distribution.
+      2. Zero out any bin whose softmax probability is below `threshold`
+         (hard sparsity — below 1e-3 by default the bin is treated as
+         empty and sent to exactly 0).
+      3. Re-normalize the surviving bins so they still sum to 1.
+
+    This preserves the PDF constraint (non-negative, sums to 1) while
+    suppressing near-zero bins cleanly, without the gradient issues of
+    a pure sparsemax projection.
+    """
+    def __init__(self, threshold=1e-3, eps=1e-12):
+        super().__init__()
+        self.threshold = threshold
+        self.eps = eps
+
     def forward(self, logits):
-        dim = 1
-        
-        # Numerical stability (shift by max)
-        logits_shifted = logits - logits.max(dim=dim, keepdim=True)[0]
-        
-        # Sort descending
-        z_sorted, _ = torch.sort(logits_shifted, descending=True, dim=dim)
-        
-        d = logits.shape[dim]
-        range_val = torch.arange(1, d + 1, device=logits.device, dtype=logits.dtype)
-        range_val = range_val.view(1, d, 1, 1) # Broadcast over (B, bins, H, W)
-        
-        # Cumulative sum
-        cumsum = torch.cumsum(z_sorted, dim=dim)
-        
-        # Determine the support (which bins get to be > 0)
-        support = z_sorted - (cumsum - 1) / range_val > 0
-        
-        # Find the threshold k
-        k = support.sum(dim=dim, keepdim=True).float()
-        
-        # Calculate tau (the threshold value)
-        cumsum_k = cumsum.gather(dim, (k - 1).long().clamp(min=0))
-        tau = (cumsum_k - 1) / k
-        
-        # Output: anything below tau becomes exactly 0.0
-        return torch.clamp(logits_shifted - tau, min=0.0)
+        # Step 1: standard softmax over bin dimension
+        p = F.softmax(logits, dim=1)          # (B, bins, nx, ny), sums to 1
+
+        # Step 2: threshold — bins below `threshold` become exactly 0
+        p = p * (p >= self.threshold).float()
+
+        # Step 3: re-normalize so survivors still sum to 1
+        return p / (p.sum(dim=1, keepdim=True) + self.eps)
 
 class ConvNN(nn.Module):
     """
@@ -370,7 +371,7 @@ class ConvNN(nn.Module):
             nn.Conv2d(layer_size1, out_channels, kernel_size=1),
         )
 
-        self.pdf_activation = Sparsemax()
+        self.pdf_activation = ThresholdedSoftmax()
 
     def forward(self, x):
         x = self.encoder(x)
@@ -380,14 +381,14 @@ class ConvNN(nn.Module):
 class WassersteinLoss(nn.Module):
     def __init__(self):
         super().__init__()
-        self.sparsemax = Sparsemax()
+        self.activation = ThresholdedSoftmax()
 
     def forward(self, logits, target):
         """
         logits: (B, bins, nx, ny) — raw logits from model
         target: (B, bins, nx, ny) — must be normalized PDF
         """
-        pred_pdf = self.sparsemax(logits)
+        pred_pdf = self.activation(logits)
 
         # Compute CDF along bin axis
         cdf_pred = torch.cumsum(pred_pdf, dim=1)
@@ -403,7 +404,7 @@ class KLWithLeakageLoss(nn.Module):
         super().__init__()
         self.kl = nn.KLDivLoss(reduction="batchmean")
         self.alpha = alpha
-        self.sparsemax = Sparsemax()
+        self.activation = ThresholdedSoftmax()
 
         # store logT info
         self.logT_centers = logT_centers
@@ -411,7 +412,7 @@ class KLWithLeakageLoss(nn.Module):
         self.width = width
 
     def forward(self, logits, target):
-        pred_pdf = self.sparsemax(logits)
+        pred_pdf = self.activation(logits)
         log_probs = torch.log(pred_pdf + 1e-12)
 
         # expand weights
@@ -505,11 +506,11 @@ class PDFEmissivityLoss(nn.Module):
         self.kl = nn.KLDivLoss(
             reduction="batchmean"
         )
-        self.sparsemax = Sparsemax()
+        self.activation = ThresholdedSoftmax()
 
     def forward(self, logits, true_pdf, rho):
 
-        pred_pdf = self.sparsemax(logits)
+        pred_pdf = self.activation(logits)
 
         # --- PDF loss (unchanged) ---
         pdf_loss = self.kl(torch.log(pred_pdf + 1e-12), true_pdf)
@@ -591,8 +592,10 @@ if __name__ == "__main__":
 
     input_tensor_norm = (input_tensor - input_mean) / input_std
 
-    # Removed rho_tensor; we will extract it from inputs on the fly
-    dataset = TensorDataset(input_tensor_norm, output_tensor)
+    # Store raw (un-normalized) rho as a third tensor so the emissivity
+    # loss always receives the physical density, not the z-scored one.
+    rho_tensor = input_tensor[:, 0:1]   # (N, 1, nx, ny), un-normalized
+    dataset = TensorDataset(input_tensor_norm, output_tensor, rho_tensor)
 
     num_samples = len(dataset)
     print("Number of samples:", num_samples)
@@ -619,13 +622,11 @@ if __name__ == "__main__":
 
         cnn_model.train()
 
-        for inputs, labels in train_loader:
+        for inputs, labels, rho in train_loader:
 
             outputs = cnn_model(inputs)
 
-            # Extract density (rho) on the fly from the first channel of the inputs
-            rho = inputs[:, 0:1]
-
+            # rho is the un-normalized physical density from the dataset
             # Pass raw outputs (logits) and rho to the new loss function
             loss = criterion(outputs, labels, rho)
 
@@ -642,22 +643,20 @@ if __name__ == "__main__":
             val_loss_total = 0
 
             # Train evaluation
-            for x_batch, y_batch in train_loader:
+            for x_batch, y_batch, rho_batch in train_loader:
 
                 preds = cnn_model(x_batch)
-                rho = x_batch[:, 0:1]
 
-                train_loss_total += criterion(preds, y_batch, rho).item()
+                train_loss_total += criterion(preds, y_batch, rho_batch).item()
 
             train_loss = train_loss_total / len(train_loader)
 
             # Validation evaluation
-            for x_batch, y_batch in validation_loader:
+            for x_batch, y_batch, rho_batch in validation_loader:
 
                 preds = cnn_model(x_batch)
-                rho = x_batch[:, 0:1]
 
-                val_loss_total += criterion(preds, y_batch, rho).item()
+                val_loss_total += criterion(preds, y_batch, rho_batch).item()
 
             val_loss = val_loss_total / len(validation_loader)
 
@@ -696,12 +695,11 @@ if __name__ == "__main__":
 
         test_loss_total = 0
 
-        for x_batch, y_batch in test_loader:
+        for x_batch, y_batch, rho_batch in test_loader:
 
             preds = cnn_model(x_batch)
-            rho = x_batch[:, 0:1]
 
-            test_loss_total += criterion(preds, y_batch, rho).item()
+            test_loss_total += criterion(preds, y_batch, rho_batch).item()
 
         test_loss = test_loss_total / len(test_loader)
 

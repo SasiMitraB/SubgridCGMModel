@@ -77,7 +77,9 @@ cold_frac = 0.50000000
 <units>
 length_cgs  = 3.08568e+18  
 mass_cgs    = 4.91417e+31   
-time_cgs    = 3.15576e+13             
+time_cgs    = 3.15576e+13          
+mu = 0.62
+# This is because we're in plasma and things need to be ionized.    
 
 # Units :-
 # length = 1 pc = 3.08568e+18 cm

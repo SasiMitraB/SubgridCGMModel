@@ -220,6 +220,17 @@ def print_metrics(true, pred, label):
     Only pixels where both true and pred are positive are included.
     """
     mask     = (true > 0) & (pred > 0)
+    num_pixels = mask.sum()
+
+    print(f"\n--- {label} ---")
+    print(f"  Pixels used : {num_pixels} / {true.size}")
+
+    if num_pixels < 2:
+        print("  Log-Bias    : N/A (insufficient positive pixels)")
+        print("  Log-RMSE    : N/A (insufficient positive pixels)")
+        print("  Correlation : N/A (insufficient positive pixels)")
+        return
+
     log_true = np.log10(true[mask])
     log_pred = np.log10(pred[mask])
 
@@ -227,8 +238,6 @@ def print_metrics(true, pred, label):
     rmse = np.sqrt(np.mean((log_pred - log_true)**2))
     corr, _ = pearsonr(log_true, log_pred)
 
-    print(f"\n--- {label} ---")
-    print(f"  Pixels used : {mask.sum()} / {true.size}")
     print(f"  Log-Bias    : {bias:+.3f} dex")
     print(f"  Log-RMSE    :  {rmse:.3f} dex")
     print(f"  Correlation :  {corr:.4f}")
