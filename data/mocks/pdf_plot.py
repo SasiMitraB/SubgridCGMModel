@@ -11,7 +11,7 @@ import os
 import torch
 sys.path.append(os.path.join(os.path.dirname(__file__), '..'))
 sys.path.append(os.path.join(os.path.dirname(__file__), '../..'))
-from models.conv_nn.pdf_cnn import snapshot_pred
+from models.conv_nn.pdf_cnn import snapshot_pred, snapshot_pred_with_gate
 
 
 
@@ -32,6 +32,7 @@ RUN_COOLING_SCATTER = True
 RUN_COOLING_HISTOGRAM = True
 RUN_PDF_COMPARE_ANIMATION = True
 RUN_COOLING_COMPARE_ANIMATION = True
+RUN_FOURWAY_COMPARE_ANIMATION = True
 
 # =========================
 # SETTINGS
@@ -298,14 +299,19 @@ temp_pdf /= (temp_pdf.sum(axis=1, keepdims=True) + 1e-12)
 nt, nb, nx, ny = temp_pdf.shape
 print(f"Shape: nt={nt}, bins={nb}, nx={nx}, ny={ny}")
 
-# ─── Predict CNN temperature PDFs ───
+# ─── Predict CNN temperature PDFs, gate, and vorticity ───
 conv_temp_pdf = np.zeros_like(temp_pdf)
+cnn_gate_maps    = np.zeros((nt, nx, ny))   # gate ∈ (0, 1) per cell
+cnn_vort_maps    = np.zeros((nt, nx, ny))   # |ω| per cell
 for i in tqdm(range(temp_pdf.shape[0]), desc="Predicting CNN temperature PDFs"):
-    conv_temp_pdf[i] = snapshot_pred(
+    pdf_i, gate_i, vort_i = snapshot_pred_with_gate(
         sim_data.rho[i], sim_data.temp[i], sim_data.pressure[i],
         sim_data.ux[i], sim_data.uy[i], sim_data.eint[i], sim_data.ps[i],
         downsample, resolution
     )
+    conv_temp_pdf[i] = pdf_i
+    cnn_gate_maps[i] = gate_i
+    cnn_vort_maps[i] = vort_i
 conv_temp_pdf /= (conv_temp_pdf.sum(axis=1, keepdims=True) + 1e-12)
 
 
@@ -982,3 +988,139 @@ if RUN_COOLING_COMPARE_ANIMATION:
 
     print(f"Saved cooling comparison animation → {mp4_path_cooling_compare}")
     plt.close(fig3)
+
+
+# ============================================================
+# FOUR-WAY COMPARISON ANIMATION
+# Panels: True Cooling | Predicted Cooling | Vorticity | Gate
+# ============================================================
+if RUN_FOURWAY_COMPARE_ANIMATION:
+    print("Creating four-way comparison animation (cooling / vorticity / gate)...")
+
+    mp4_path_fourway    = os.path.join(PDF_MOCKS_DIR, "pdf_fourway_compare_animation.mp4")
+    snapshot_fourway_path = os.path.join(PDF_MOCKS_DIR, "pdf_fourway_compare_t0.png")
+
+    # ---- Shared colormap + norm for cooling panels ----
+    all_pos_cool4 = np.concatenate([true_cool[true_cool > 0], cnn_cool[cnn_cool > 0]])
+    if len(all_pos_cool4) > 0:
+        cool4_vmin = max(np.percentile(all_pos_cool4, 1), 1e-10)
+        cool4_vmax = np.percentile(all_pos_cool4, 99)
+    else:
+        cool4_vmin, cool4_vmax = 1e-28, 1e-18
+    norm_cool4 = colors.LogNorm(vmin=cool4_vmin, vmax=cool4_vmax)
+    cmap_cool4 = plt.get_cmap("magma")
+
+    # ---- Vorticity: symmetric linear norm across all timesteps ----
+    vort_abs_max = np.percentile(np.abs(cnn_vort_maps), 99)
+    vort_abs_max = max(vort_abs_max, 1e-30)
+    norm_vort = colors.Normalize(vmin=-vort_abs_max, vmax=vort_abs_max)
+    cmap_vort = plt.get_cmap("RdBu_r")
+
+    # ---- Gate: always in [0, 1] ----
+    norm_gate = colors.Normalize(vmin=0.0, vmax=1.0)
+    cmap_gate = plt.get_cmap("viridis")
+
+    # ---- Build figure: 4 image panels + 4 colorbars ----
+    fig4 = plt.figure(figsize=(22, 6))
+    fig4.patch.set_facecolor("#0d0d0d")
+
+    # gridspec: 4 image cols + 4 narrow cbar cols
+    gs4 = fig4.add_gridspec(
+        1, 8,
+        width_ratios=[1, 0.05, 1, 0.05, 1, 0.05, 1, 0.05],
+        top=0.82, bottom=0.12, left=0.05, right=0.97,
+        wspace=0.05
+    )
+
+    panel_specs = [
+        (gs4[0], gs4[1],  "True Cooling",       cmap_cool4, norm_cool4,
+         "Cooling Rate\n(erg / cm³ / s)"),
+        (gs4[2], gs4[3],  "Predicted Cooling",  cmap_cool4, norm_cool4,
+         "Cooling Rate\n(erg / cm³ / s)"),
+        (gs4[4], gs4[5],  "Vorticity ω",        cmap_vort,  norm_vort,
+         "Vorticity (code units)"),
+        (gs4[6], gs4[7],  "Gate g(x,y)",        cmap_gate,  norm_gate,
+         "Gate value ∈ (0, 1)"),
+    ]
+
+    axes4, ims4, cbars4 = [], [], []
+    for img_spec, cbar_spec, title, cmap_p, norm_p, cbar_lbl in panel_specs:
+        ax = fig4.add_subplot(img_spec)
+        ax.set_facecolor("#0d0d0d")
+        ax.tick_params(colors="white", labelsize=8)
+        for spine in ax.spines.values():
+            spine.set_edgecolor("#333333")
+        ax.set_title(title, fontsize=13, color="white", pad=6, fontweight="bold")
+        axes4.append(ax)
+
+        cax = fig4.add_subplot(cbar_spec)
+        axes4.append(cax)  # store for reference
+
+        sm = plt.cm.ScalarMappable(cmap=cmap_p, norm=norm_p)
+        sm.set_array([])
+        cb = fig4.colorbar(sm, cax=cax)
+        cb.set_label(cbar_lbl, fontsize=9, color="white")
+        cb.ax.tick_params(colors="white", labelsize=7)
+        cbars4.append(cb)
+
+    # Unpack only the image axes (indices 0, 2, 4, 6)
+    ax_tc, _, ax_pc, _, ax_vt, _, ax_gt, _ = [fig4.axes[k] for k in range(8)]
+
+    def _clip_cool(arr, frame):
+        return np.clip(arr[frame], cool4_vmin, None)
+
+    # Initial imshow frames
+    im_tc4 = ax_tc.imshow(_clip_cool(true_cool,  0), origin="lower",
+                           cmap=cmap_cool4, norm=norm_cool4)
+    im_pc4 = ax_pc.imshow(_clip_cool(cnn_cool,   0), origin="lower",
+                           cmap=cmap_cool4, norm=norm_cool4)
+    im_vt4 = ax_vt.imshow(cnn_vort_maps[0],         origin="lower",
+                           cmap=cmap_vort,  norm=norm_vort)
+    im_gt4 = ax_gt.imshow(cnn_gate_maps[0],          origin="lower",
+                           cmap=cmap_gate,  norm=norm_gate)
+
+    for ax in [ax_tc, ax_pc, ax_vt, ax_gt]:
+        ax.set_xlabel("Y (cells)", fontsize=9, color="white")
+        ax.set_ylabel("X (cells)", fontsize=9, color="white")
+
+    title4 = fig4.suptitle(
+        "True Cooling | Predicted Cooling | Vorticity | Gate   —   t = 0",
+        fontsize=15, color="white", y=0.97, fontweight="bold"
+    )
+
+    def init_fourway():
+        im_tc4.set_data(_clip_cool(true_cool, 0))
+        im_pc4.set_data(_clip_cool(cnn_cool,  0))
+        im_vt4.set_data(cnn_vort_maps[0])
+        im_gt4.set_data(cnn_gate_maps[0])
+        return [im_tc4, im_pc4, im_vt4, im_gt4]
+
+    def update_fourway(frame):
+        im_tc4.set_data(_clip_cool(true_cool, frame))
+        im_pc4.set_data(_clip_cool(cnn_cool,  frame))
+        im_vt4.set_data(cnn_vort_maps[frame])
+        im_gt4.set_data(cnn_gate_maps[frame])
+        title4.set_text(
+            f"True Cooling | Predicted Cooling | Vorticity | Gate   —   t = {frame}"
+        )
+        if frame == 0:
+            fig4.savefig(snapshot_fourway_path, dpi=300,
+                         facecolor=fig4.get_facecolor())
+            print(f"Saved four-way snapshot → {snapshot_fourway_path}")
+        return [im_tc4, im_pc4, im_vt4, im_gt4]
+
+    anim4 = animation.FuncAnimation(
+        fig4,
+        update_fourway,
+        frames=nt,
+        init_func=init_fourway,
+        blit=False
+    )
+
+    print("Saving four-way comparison MP4...")
+    with tqdm(total=nt, desc="Saving four-way MP4") as pbar:
+        anim4.save(mp4_path_fourway, writer="ffmpeg", fps=10,
+                   progress_callback=lambda i, n: pbar.update(1))
+
+    print(f"Saved four-way comparison animation → {mp4_path_fourway}")
+    plt.close(fig4)

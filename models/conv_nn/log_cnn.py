@@ -510,7 +510,6 @@ def build_gmm_pdf(
 class KLWithLeakageLoss(nn.Module):
     def __init__(self, alpha=0, T0=1e6, width=0.1):
         super().__init__()
-        self.kl = nn.KLDivLoss(reduction="batchmean")
         self.alpha = alpha
 
         # store logT info
@@ -529,7 +528,10 @@ class KLWithLeakageLoss(nn.Module):
         kl_elementwise = target * (torch.log(target + 1e-12) - log_probs)
         weighted_kl = kl_elementwise * weights
 
-        kl_loss = torch.mean(weighted_kl)
+        # Step 1: calculate the KLdivergence loss per pixel
+        kl_per_pixel = torch.sum(weighted_kl, dim=1)
+        # Step 2: calculate the mean across all the pixels
+        kl_loss = torch.mean(kl_per_pixel)
 
         # Convert to probabilities
         pred = torch.exp(log_probs)

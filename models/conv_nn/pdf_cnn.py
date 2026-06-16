@@ -59,6 +59,7 @@ out_channels = 40
 layer_size1 = 32
 layer_size2 = 64
 layer_size3 = 128
+layer_size4 = 256
 kernel_size = 5
 num_epochs = 1000
 print_every = 50
@@ -270,7 +271,7 @@ def snapshot_pred(
 
     cnn_model = ConvNN(
         in_channels, layer_size1, layer_size2,
-        layer_size3, out_channels, kernel_size
+        layer_size3, layer_size4, out_channels, kernel_size
     ).to(device)
 
     cnn_model.load_state_dict(torch.load(model_path, map_location=device))
@@ -281,12 +282,91 @@ def snapshot_pred(
     # -------------------------
     with torch.no_grad():
 
-        logits = cnn_model(input_tensor)   # (1, bins, nx, ny)
-        pdf = cnn_model.pdf_activation(logits)
+        pdf = cnn_model.predict_pdf(input_tensor)   # (1, bins, nx, ny)
 
         pdf = pdf[0].cpu().numpy()  # (bins, nx, ny)
 
     return pdf
+
+
+def snapshot_pred_with_gate(
+    rho: np.ndarray,
+    temp: np.ndarray,
+    pressure: np.ndarray,
+    ux: np.ndarray,
+    uy: np.ndarray,
+    eint: np.ndarray,
+    ps: np.ndarray,
+    downsample: int,
+    resolution: np.ndarray
+) -> tuple:
+    """
+    Predict pixel temperature PDFs, gate values, and vorticity magnitude for a
+    given snapshot.
+
+    Returns
+    -------
+    pdf          : np.ndarray, shape (bins, nx, ny)  — predicted PDF
+    gate         : np.ndarray, shape (nx, ny)         — gate ∈ (0, 1)
+    vorticity_mag: np.ndarray, shape (nx, ny)         — |ω| from VorticityLayer
+    """
+
+    sim_data = simulation_data()
+    sim_data.down_sample = downsample
+    sim_data.resolution = resolution
+
+    shape = (resolution[0] // downsample, resolution[1] // downsample)
+
+    fields = ['rho', 'temp', 'ux', 'uy', 'ps']
+    cg = {f'cg_{field}': np.zeros(shape) for field in fields}
+
+    for field in fields:
+        if field in ['rho', 'temp', 'ux', 'uy', 'ps']:
+            cg[f'cg_{field}'] = sim_data.coarse_grain(locals()[field])
+
+    input_tensors = [
+        torch.from_numpy(cg[f'cg_{f}']).unsqueeze(0).float()
+        for f in fields
+    ]
+
+    input_tensor = torch.cat(input_tensors, dim=0)   # (C, nx, ny)
+    input_tensor = input_tensor.unsqueeze(0).to(device)  # (1, C, nx, ny)
+
+    input_mean = torch.tensor(np.load(
+        os.path.join(MODEL_SAVE_DIR, f"cnn_{resolution}_{downsample}_input_mean.npy")
+    ), dtype=torch.float32).to(device)
+
+    input_std = torch.tensor(np.load(
+        os.path.join(MODEL_SAVE_DIR, f"cnn_{resolution}_{downsample}_input_std.npy")
+    ), dtype=torch.float32).to(device)
+
+    input_tensor = (input_tensor - input_mean) / input_std
+
+    model_path = os.path.join(MODEL_SAVE_DIR, f"cnn_{resolution}_{downsample}.pth")
+
+    cnn_model = ConvNN(
+        in_channels, layer_size1, layer_size2,
+        layer_size3,layer_size4, out_channels, kernel_size
+    ).to(device)
+
+    cnn_model.load_state_dict(torch.load(model_path, map_location=device))
+    cnn_model.eval()
+
+    with torch.no_grad():
+        # Run the full forward pass to get logits + gate
+        x_with_vort = cnn_model.vorticity(input_tensor)         # (1, C+1, H, W)
+        vort_mag = x_with_vort[:, -1:, :, :].abs()              # (1, 1, H, W)
+        gate_raw = cnn_model.gate_branch(vort_mag)               # (1, 1, H, W)
+        features = cnn_model.encoder(x_with_vort)
+        logits = cnn_model.decoder(features)
+        pdf_tensor = cnn_model.pdf_activation(logits, gate_raw)  # (1, bins, H, W)
+
+        pdf          = pdf_tensor[0].cpu().numpy()               # (bins, nx, ny)
+        gate         = gate_raw[0, 0].cpu().numpy()              # (nx, ny)
+        vorticity_mag = vort_mag[0, 0].cpu().numpy()             # (nx, ny)
+
+    return pdf, gate, vorticity_mag
+
 
 class ThresholdedSoftmax(nn.Module):
     """
@@ -304,7 +384,7 @@ class ThresholdedSoftmax(nn.Module):
     suppressing near-zero bins cleanly, without the gradient issues of
     a pure sparsemax projection.
     """
-    def __init__(self, threshold=1e-3, eps=1e-12):
+    def __init__(self, threshold=1e-4, eps=1e-12):
         super().__init__()
         self.threshold = threshold
         self.eps = eps
@@ -319,32 +399,150 @@ class ThresholdedSoftmax(nn.Module):
         # Step 3: re-normalize so survivors still sum to 1
         return p / (p.sum(dim=1, keepdim=True) + self.eps)
 
+
+class VorticityGate(nn.Module):
+    """
+    Learns a spatial gate g(x,y) ∈ [0,1] from vorticity magnitude.
+
+    g ≈ 0 → single-phase cell (PDF collapses to peak bin delta)
+    g ≈ 1 → mixing cell (full broad PDF is allowed)
+    """
+    def __init__(self, kernel_size=5):
+        super().__init__()
+        padding = kernel_size // 2
+        self.gate_net = nn.Sequential(
+            nn.Conv2d(1, 8, kernel_size, padding=padding),
+            nn.ReLU(),
+            nn.Conv2d(8, 1, kernel_size=1),
+            nn.Sigmoid(),   # output ∈ (0, 1)
+        )
+
+    def forward(self, vorticity_mag):
+        # vorticity_mag: (B, 1, H, W)
+        return self.gate_net(vorticity_mag)   # (B, 1, H, W)
+
+
+class GatedThresholdedSoftmax(nn.Module):
+    """
+    Vorticity-gated PDF activation.
+
+    When gate ≈ 0: PDF collapses to a near-delta function at the argmax bin
+                   (single-phase cell — no sub-grid mixing).
+    When gate ≈ 1: PDF is the full ThresholdedSoftmax output
+                   (highly mixed cell).
+
+    Interpolation:
+        gated = gate * p_thresh + (1 - gate) * delta_peak
+    followed by renormalization so the output always sums to 1.
+    """
+    def __init__(self, threshold=1e-4, eps=1e-12):
+        super().__init__()
+        self.threshold = threshold
+        self.eps = eps
+
+    def forward(self, logits, gate):
+        # gate: (B, 1, H, W), broadcast over bin dim
+        p = F.softmax(logits, dim=1)            # (B, bins, H, W)
+        p = p * (p >= self.threshold).float()
+        p = p / (p.sum(dim=1, keepdim=True) + self.eps)
+
+        # Build delta function at argmax bin
+        peak_idx = torch.argmax(p, dim=1, keepdim=True)   # (B, 1, H, W)
+        delta = torch.zeros_like(p).scatter_(1, peak_idx, 1.0)
+
+        # Interpolate: gate=0 → delta, gate=1 → full PDF
+        gated = gate * p + (1.0 - gate) * delta
+
+        # Renormalize
+        return gated / (gated.sum(dim=1, keepdim=True) + self.eps)
+
+class VorticityLayer(nn.Module):
+    """
+    Computes 2D vorticity from velocity components (ux, uy) using finite differences.
+    
+    Vorticity ω = ∂uy/∂x - ∂ux/∂y
+    
+    Input: (B, C, H, W) where C >= 2 and channels [..., ux_idx, uy_idx, ...]
+    Output: (B, C+1, H, W) — original channels + vorticity appended as last channel
+    """
+    def __init__(self, ux_idx=2, uy_idx=3):
+        super().__init__()
+        # Sobel-like kernels for finite differences
+        # ∂/∂x kernel (detect horizontal gradients)
+        self.register_buffer('dx_kernel', torch.tensor([
+            [[-1, 0, 1],
+             [-2, 0, 2],
+             [-1, 0, 1]]
+        ], dtype=torch.float32).unsqueeze(0))  # (1, 1, 3, 3)
+        
+        # ∂/∂y kernel (detect vertical gradients)  
+        self.register_buffer('dy_kernel', torch.tensor([
+            [[-1, -2, -1],
+             [ 0,  0,  0],
+             [ 1,  2,  1]]
+        ], dtype=torch.float32).unsqueeze(0))  # (1, 1, 3, 3)
+        
+        self.ux_idx = ux_idx
+        self.uy_idx = uy_idx
+        self.padding = 1
+    
+    def forward(self, x):
+        B, C, H, W = x.shape
+        
+        ux = x[:, self.ux_idx:self.ux_idx+1, :, :]   # (B, 1, H, W)
+        uy = x[:, self.uy_idx:self.uy_idx+1, :, :]   # (B, 1, H, W)
+        
+        # Compute gradients using conv2d
+        duy_dx = F.conv2d(uy, self.dx_kernel, padding=self.padding, groups=1)
+        dux_dy = F.conv2d(ux, self.dy_kernel, padding=self.padding, groups=1)
+        
+        # Vorticity = ∂uy/∂x - ∂ux/∂y
+        vorticity = duy_dx - dux_dy  # (B, 1, H, W)
+        
+        # Concatenate as new channel
+        return torch.cat([x, vorticity], dim=1)  # (B, C+1, H, W)
+
 class ConvNN(nn.Module):
     """
-    CNN Model for PDF prediction
+    CNN Model for PDF prediction (with Vorticity layer + Vorticity Gate)
 
     Architecture:
-    Input: (B, 5, 16, 8)
+    Input: (B, 5, 16, 8)  [rho, temp, ux, uy, ps]
              │
-        ┌────▼────────┐
-        │   Encoder   │  3× Conv2d + BN + ReLU (+ Dropout in first 2)
-        │ 5→32→64→128 │
-        └────┬────────┘
-             │
-        ┌────▼─────────┐
-        │   Decoder    │  3× Conv2d + BN + ReLU, final 1×1 conv
-        │ 128→64→32→40 │
-        └────┬─────────┘
-             │
-    Output: (B, 40, 16, 8)  ← PDF (normalized using Sparsemax)
+        ┌────▼────────────┐
+        │  VorticityLayer │  ω = ∂uy/∂x - ∂ux/∂y  →  appended as 6th channel
+        │    5 → 6        │
+        └────┬────────────┘
+             │           │
+        ┌────▼────────┐  └──── vort_mag ────►  ┌──────────────┐
+        │   Encoder   │  3× Conv2d + BN + ReLU │ VorticityGate│
+        │ 6→32→64→128 │  (+ Dropout in 1st 2)  │  gate ∈(0,1) │
+        └────┬────────┘                        └──────┬───────┘
+             │                                         │
+        ┌────▼─────────┐                               │
+        │   Decoder    │  3× Conv2d + BN + ReLU        │
+        │ 128→64→32→40 │                               │
+        └────┬─────────┘                               │
+             │  logits                                 │ gate
+             └────────────────┬────────────────────────┘
+                              ▼
+                    forward returns (logits, gate)
+                    predict_pdf applies GatedThresholdedSoftmax
     """
-    def __init__(self, in_channels, layer_size1, layer_size2, layer_size3, out_channels, kernel_size):
+    def __init__(self, in_channels, layer_size1, layer_size2, layer_size3, layer_size4, out_channels, kernel_size):
 
         super().__init__()
         padding = kernel_size // 2
 
+        # Vorticity layer: automatically computes ω from ux, uy and appends it
+        self.vorticity = VorticityLayer(ux_idx=2, uy_idx=3)
+
+        # Lightweight gate branch: takes |ω| and outputs g ∈ (0,1) per cell
+        self.gate_branch = VorticityGate(kernel_size)
+
+        # Encoder now takes in_channels + 1 because vorticity adds a channel
         self.encoder = nn.Sequential(
-            nn.Conv2d(in_channels, layer_size1, kernel_size, padding=padding),
+            nn.Conv2d(in_channels + 1, layer_size1, kernel_size, padding=padding),
             nn.BatchNorm2d(layer_size1),
             nn.ReLU(),
             nn.Dropout(dropout_rate),
@@ -357,9 +555,17 @@ class ConvNN(nn.Module):
             nn.Conv2d(layer_size2, layer_size3, kernel_size, padding=padding),
             nn.BatchNorm2d(layer_size3),
             nn.ReLU(),
+
+            nn.Conv2d(layer_size3, layer_size4, kernel_size, padding=padding),
+            nn.BatchNorm2d(layer_size4),
+            nn.ReLU()
         )
 
         self.decoder = nn.Sequential(
+            nn.Conv2d(layer_size4, layer_size3, kernel_size, padding=padding),
+            nn.BatchNorm2d(layer_size3),
+            nn.ReLU(),
+
             nn.Conv2d(layer_size3, layer_size2, kernel_size, padding=padding),
             nn.BatchNorm2d(layer_size2),
             nn.ReLU(),
@@ -371,12 +577,25 @@ class ConvNN(nn.Module):
             nn.Conv2d(layer_size1, out_channels, kernel_size=1),
         )
 
-        self.pdf_activation = ThresholdedSoftmax()
+        self.pdf_activation = GatedThresholdedSoftmax()
 
     def forward(self, x):
-        x = self.encoder(x)
-        logits = self.decoder(x)
-        return logits
+        x_with_vort = self.vorticity(x)              # (B, C+1, H, W)
+
+        # Gate from vorticity magnitude only
+        vort_mag = x_with_vort[:, -1:, :, :]  # (B, 1, H, W)
+        gate = self.gate_branch(vort_mag)            # (B, 1, H, W)
+
+        # Main prediction path
+        features = self.encoder(x_with_vort)
+        logits = self.decoder(features)
+
+        return logits, gate   # both needed for the gated loss
+
+    def predict_pdf(self, x):
+        """Apply GatedThresholdedSoftmax and return the final PDF."""
+        logits, gate = self.forward(x)
+        return self.pdf_activation(logits, gate)
 
 class WassersteinLoss(nn.Module):
     def __init__(self):
@@ -402,7 +621,6 @@ class WassersteinLoss(nn.Module):
 class KLWithLeakageLoss(nn.Module):
     def __init__(self, alpha=0, T0=1e6, width=0.1):
         super().__init__()
-        self.kl = nn.KLDivLoss(reduction="batchmean")
         self.alpha = alpha
         self.activation = ThresholdedSoftmax()
 
@@ -422,7 +640,10 @@ class KLWithLeakageLoss(nn.Module):
         kl_elementwise = target * (torch.log(target + 1e-12) - log_probs)
         weighted_kl = kl_elementwise * weights
 
-        kl_loss = torch.mean(weighted_kl)
+        # Step 1: calculate the KLdivergence loss per pixel
+        kl_per_pixel = torch.sum(weighted_kl, dim=1)
+        # Step 2: calculate the mean across all the pixels
+        kl_loss = torch.mean(kl_per_pixel)
 
         # Peak bin index from TRUE PDF
         peak_idx = torch.argmax(target, dim=1)  # (B, nx, ny)
@@ -503,17 +724,18 @@ class PDFEmissivityLoss(nn.Module):
         self.alpha_emiss = alpha_emiss
         self.alpha_profile = alpha_profile
 
-        self.kl = nn.KLDivLoss(
-            reduction="batchmean"
-        )
         self.activation = ThresholdedSoftmax()
 
     def forward(self, logits, true_pdf, rho):
 
         pred_pdf = self.activation(logits)
 
-        # --- PDF loss (unchanged) ---
-        pdf_loss = self.kl(torch.log(pred_pdf + 1e-12), true_pdf)
+        # --- PDF loss ---
+        # Step 1: calculate the KLdivergence loss per pixel
+        kl_elementwise = true_pdf * (torch.log(true_pdf + 1e-12) - torch.log(pred_pdf + 1e-12))
+        kl_per_pixel = torch.sum(kl_elementwise, dim=1)
+        # Step 2: calculate the mean across all the pixels
+        pdf_loss = torch.mean(kl_per_pixel)
 
         # --- Emissivity maps: shape (B, 1, nx, ny) ---
         emiss_pred = emissivity_from_pdf(pred_pdf, rho, lambda_tensor)
@@ -545,6 +767,76 @@ class PDFEmissivityLoss(nn.Module):
 
         return total_loss
 
+
+class GatedPDFEmissivityLoss(nn.Module):
+    """
+    Extends PDFEmissivityLoss with an explicit gate supervision term.
+
+    Gate target is derived from the entropy of the true PDF:
+        - High entropy (broad, multi-phase)  → gate_target = 1
+        - Low entropy  (sharp, single-phase) → gate_target = 0
+
+    Total loss = KL(pred ‖ true) + α_emiss * emiss_MSE
+                 + α_profile * profile_MSE + α_gate * BCE(gate, gate_target)
+    """
+    def __init__(
+        self,
+        alpha_emiss=1.0,
+        alpha_profile=1.0,
+        alpha_gate=1.0,
+        entropy_threshold=0.1,
+    ):
+        super().__init__()
+        self.alpha_emiss = alpha_emiss
+        self.alpha_profile = alpha_profile
+        self.alpha_gate = alpha_gate
+        self.entropy_threshold = entropy_threshold
+
+        self.activation = GatedThresholdedSoftmax()
+
+    def forward(self, logits, gate, true_pdf, rho):
+
+        pred_pdf = self.activation(logits, gate)
+
+        # --- PDF loss ---
+        # Step 1: calculate the KLdivergence loss per pixel
+        kl_elementwise = true_pdf * (torch.log(true_pdf + 1e-12) - torch.log(pred_pdf + 1e-12))
+        kl_per_pixel = torch.sum(kl_elementwise, dim=1)
+        # Step 2: calculate the mean across all the pixels
+        pdf_loss = torch.mean(kl_per_pixel)
+
+        # --- Emissivity maps: shape (B, 1, nx, ny) ---
+        emiss_pred = emissivity_from_pdf(pred_pdf, rho, lambda_tensor)
+        emiss_true  = emissivity_from_pdf(true_pdf, rho, lambda_tensor)
+
+        emiss_loss = F.mse_loss(
+            torch.log10(emiss_pred + 1e-30),
+            torch.log10(emiss_true  + 1e-30)
+        )
+
+        profile_pred = emiss_pred.mean(dim=3)   # (B, 1, nx)
+        profile_true  = emiss_true.mean(dim=3)
+        profile_loss = F.mse_loss(
+            torch.log10(profile_pred + 1e-30),
+            torch.log10(profile_true  + 1e-30)
+        )
+
+        # --- Gate supervision via true-PDF entropy ---
+        # entropy ∈ [0, log(bins)]; normalize to [0, 1]
+        entropy = -(true_pdf * torch.log(true_pdf + 1e-12)).sum(dim=1, keepdim=True)
+        entropy_norm = entropy / np.log(true_pdf.shape[1])
+        gate_target = (entropy_norm > self.entropy_threshold).float()
+
+        gate_loss = F.binary_cross_entropy(gate, gate_target)
+
+        return (
+            pdf_loss
+            + self.alpha_emiss   * emiss_loss
+            + self.alpha_profile * profile_loss
+            + self.alpha_gate    * gate_loss
+        )
+
+
 if __name__ == "__main__":
 
     file_path = DATA_PATH
@@ -554,10 +846,12 @@ if __name__ == "__main__":
     #torch.cuda.empty_cache()
 
     # Initialize model
-    cnn_model = ConvNN(in_channels, layer_size1, layer_size2, layer_size3,
+    cnn_model = ConvNN(in_channels, layer_size1, layer_size2, layer_size3, layer_size4,
                        out_channels, kernel_size).to(device)
 
-    criterion = PDFEmissivityLoss(alpha_emiss=10.0, alpha_profile=10.0)
+    criterion = GatedPDFEmissivityLoss(
+        alpha_emiss=30.0, alpha_profile=20.0, alpha_gate=1.0
+    )
     # criterion = nn.KLDivLoss(reduction="batchmean")
     # criterion = KLWithLeakageLoss()
     # criterion = WassersteinLoss()
@@ -624,11 +918,11 @@ if __name__ == "__main__":
 
         for inputs, labels, rho in train_loader:
 
-            outputs = cnn_model(inputs)
+            logits, gate = cnn_model(inputs)
 
             # rho is the un-normalized physical density from the dataset
-            # Pass raw outputs (logits) and rho to the new loss function
-            loss = criterion(outputs, labels, rho)
+            # Pass logits, gate, labels, and rho to the gated loss
+            loss = criterion(logits, gate, labels, rho)
 
             optimizer.zero_grad()
             loss.backward()
@@ -645,18 +939,18 @@ if __name__ == "__main__":
             # Train evaluation
             for x_batch, y_batch, rho_batch in train_loader:
 
-                preds = cnn_model(x_batch)
+                logits_b, gate_b = cnn_model(x_batch)
 
-                train_loss_total += criterion(preds, y_batch, rho_batch).item()
+                train_loss_total += criterion(logits_b, gate_b, y_batch, rho_batch).item()
 
             train_loss = train_loss_total / len(train_loader)
 
             # Validation evaluation
             for x_batch, y_batch, rho_batch in validation_loader:
 
-                preds = cnn_model(x_batch)
+                logits_b, gate_b = cnn_model(x_batch)
 
-                val_loss_total += criterion(preds, y_batch, rho_batch).item()
+                val_loss_total += criterion(logits_b, gate_b, y_batch, rho_batch).item()
 
             val_loss = val_loss_total / len(validation_loader)
 
@@ -672,21 +966,21 @@ if __name__ == "__main__":
         train_loss_arr.append(train_loss)
         val_loss_arr.append(val_loss)
 
-        # Early stopping
-        window_size = 200
+        # # Early stopping
+        # window_size = 200
 
-        if len(val_loss_arr) >= window_size:
+        # if len(val_loss_arr) >= window_size:
 
-            val_loss_ma = np.convolve(
-                val_loss_arr,
-                np.ones(window_size)/window_size,
-                mode='valid'
-            )
+        #     val_loss_ma = np.convolve(
+        #         val_loss_arr,
+        #         np.ones(window_size)/window_size,
+        #         mode='valid'
+        #     )
 
-            if len(val_loss_ma) > 1 and val_loss_ma[-1] > np.min(val_loss_ma[:-1]) and epoch >= 499:
+        #     if len(val_loss_ma) > 1 and val_loss_ma[-1] > np.min(val_loss_ma[:-1]) and epoch >= 499:
 
-                print(f"Early stopping at epoch {epoch+1}")
-                break
+        #         print(f"Early stopping at epoch {epoch+1}")
+        #         break
 
     # Testing
     cnn_model.eval()
@@ -697,9 +991,9 @@ if __name__ == "__main__":
 
         for x_batch, y_batch, rho_batch in test_loader:
 
-            preds = cnn_model(x_batch)
+            logits_b, gate_b = cnn_model(x_batch)
 
-            test_loss_total += criterion(preds, y_batch, rho_batch).item()
+            test_loss_total += criterion(logits_b, gate_b, y_batch, rho_batch).item()
 
         test_loss = test_loss_total / len(test_loader)
 
