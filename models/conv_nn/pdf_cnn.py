@@ -124,6 +124,9 @@ def lambda_cool(temp):
         logcool = (lhd[ipps+1]*dx - lhd[ipps]*(dx - 0.04)) * 25.0
         lam[mask_mid] = 10.0**logcool
 
+    mask_off = (logt < 4.5) | (logt > 5.5)
+    lam[mask_off] = 0.0
+
     return lam
 
 lambda_vals = lambda_cool(T_centers)
@@ -353,17 +356,21 @@ def snapshot_pred_with_gate(
     cnn_model.eval()
 
     with torch.no_grad():
-        # Run the full forward pass to get logits + gate
-        x_with_vort = cnn_model.vorticity(input_tensor)         # (1, C+1, H, W)
-        vort_mag = x_with_vort[:, -1:, :, :].abs()              # (1, 1, H, W)
-        gate_raw = cnn_model.gate_branch(vort_mag)               # (1, 1, H, W)
-        features = cnn_model.encoder(x_with_vort)
-        logits = cnn_model.decoder(features)
-        pdf_tensor = cnn_model.pdf_activation(logits, gate_raw)  # (1, bins, H, W)
+        # Append 8 mixing-layer physics channels
+        x_enriched   = cnn_model.mixing(input_tensor)                      # (1, C+8, H, W)
 
-        pdf          = pdf_tensor[0].cpu().numpy()               # (bins, nx, ny)
-        gate         = gate_raw[0, 0].cpu().numpy()              # (nx, ny)
-        vorticity_mag = vort_mag[0, 0].cpu().numpy()             # (nx, ny)
+        # Gate from the 8 mixing features (last 8 channels)
+        mixing_feats = x_enriched[:, -cnn_model._N_MIXING:, :, :]          # (1, 8, H, W)
+        gate_raw     = cnn_model.gate_branch(mixing_feats)                  # (1, 1, H, W)
+
+        features  = cnn_model.encoder(x_enriched)
+        logits    = cnn_model.decoder(features)
+        pdf_tensor = cnn_model.pdf_activation(logits, gate_raw)            # (1, bins, H, W)
+
+        pdf          = pdf_tensor[0].cpu().numpy()                          # (bins, nx, ny)
+        gate         = gate_raw[0, 0].cpu().numpy()                         # (nx, ny)
+        # Return |ω| from mixing features (ch 0 of mixing_feats = |ω|)
+        vorticity_mag = mixing_feats[0, 0].cpu().numpy()                   # (nx, ny)
 
     return pdf, gate, vorticity_mag
 
@@ -400,26 +407,127 @@ class ThresholdedSoftmax(nn.Module):
         return p / (p.sum(dim=1, keepdim=True) + self.eps)
 
 
-class VorticityGate(nn.Module):
+class MixingLayerFeatures(nn.Module):
     """
-    Learns a spatial gate g(x,y) ∈ [0,1] from vorticity magnitude.
+    Builds a feature tensor capturing mixing-layer physics:
+      ch 0: |ω|                              (vorticity magnitude)
+      ch 1: signed ω                         (KH rolls have a characteristic sign)
+      ch 2: |∇T|                             (thermal contrast — Sobel on T)
+      ch 3: |∇ρ|                             (density contrast — baroclinic source)
+      ch 4: cos θ = (∇T · ∇ρ)/(|∇T||∇ρ|)     (baroclinic alignment)
+      ch 5: strain rate magnitude |σ|        (compressive mixing)
+      ch 6: ρ|ω|                             (densimetric vorticity, weighs shear by inertia)
+      ch 7: (T - T̄)²  proxy                  (coarse-cell T variance; high when multi-phase)
 
-    g ≈ 0 → single-phase cell (PDF collapses to peak bin delta)
-    g ≈ 1 → mixing cell (full broad PDF is allowed)
+    Input : (B, C, H, W)  — normalized simulation fields
+    Output: (B, C+8, H, W) — original channels concatenated with the 8 mixing features
     """
-    def __init__(self, kernel_size=5):
+    # Number of mixing-layer feature channels appended to the input.
+    N_MIXING = 8
+
+    def __init__(self, T_idx=1, rho_idx=0, ux_idx=2, uy_idx=3):
+        super().__init__()
+        self.T_idx   = T_idx
+        self.rho_idx = rho_idx
+        self.ux_idx  = ux_idx
+        self.uy_idx  = uy_idx
+
+        # Sobel ∂/∂x  (1, 1, 3, 3)
+        self.register_buffer('dx_kernel', torch.tensor(
+            [[[-1, 0, 1],
+              [-2, 0, 2],
+              [-1, 0, 1]]],
+            dtype=torch.float32).unsqueeze(0))
+
+        # Sobel ∂/∂y  (1, 1, 3, 3)
+        self.register_buffer('dy_kernel', torch.tensor(
+            [[[-1, -2, -1],
+              [ 0,  0,  0],
+              [ 1,  2,  1]]],
+            dtype=torch.float32).unsqueeze(0))
+
+    def forward(self, x):
+        # x: (B, C, H, W)  — normalized inputs
+        ux  = x[:, self.ux_idx  : self.ux_idx  + 1]   # (B,1,H,W)
+        uy  = x[:, self.uy_idx  : self.uy_idx  + 1]
+        T   = x[:, self.T_idx   : self.T_idx   + 1]
+        rho = x[:, self.rho_idx : self.rho_idx + 1]
+
+        # --- velocity gradients ---
+        duy_dx = F.conv2d(uy, self.dx_kernel, padding=1)
+        dux_dy = F.conv2d(ux, self.dy_kernel, padding=1)
+        dux_dx = F.conv2d(ux, self.dx_kernel, padding=1)
+        duy_dy = F.conv2d(uy, self.dy_kernel, padding=1)
+
+        omega  = duy_dx - dux_dy                                            # signed vorticity
+        strain = torch.sqrt((dux_dx - duy_dy)**2 +
+                            (duy_dx + dux_dy)**2 + 1e-12)                   # |σ|
+
+        # --- temperature gradients ---
+        dT_dx  = F.conv2d(T,   self.dx_kernel, padding=1)
+        dT_dy  = F.conv2d(T,   self.dy_kernel, padding=1)
+        gradT  = torch.sqrt(dT_dx**2 + dT_dy**2 + 1e-12)                   # |∇T|
+
+        # --- density gradients ---
+        drho_dx = F.conv2d(rho, self.dx_kernel, padding=1)
+        drho_dy = F.conv2d(rho, self.dy_kernel, padding=1)
+        gradRho = torch.sqrt(drho_dx**2 + drho_dy**2 + 1e-12)              # |∇ρ|
+
+        # --- baroclinic alignment: cos θ between ∇T and ∇ρ ---
+        baroclinic = ((dT_dx * drho_dx + dT_dy * drho_dy) /
+                      (gradT * gradRho + 1e-12))                            # ∈ [-1, 1]
+
+        # --- coarse-cell T variance proxy: (T - T_mean_local)^2 ---
+        # Use a box-blur (3×3 average) to get a local mean, then square the residual.
+        box = torch.ones(1, 1, 3, 3, dtype=T.dtype, device=T.device) / 9.0
+        T_local_mean = F.conv2d(T, box, padding=1)
+        T_var_proxy  = (T - T_local_mean) ** 2                             # (B,1,H,W)
+
+        mixing_features = torch.cat([
+            omega.abs(),          # ch 0
+            omega,                # ch 1
+            gradT,                # ch 2
+            gradRho,              # ch 3
+            baroclinic,           # ch 4
+            strain,               # ch 5
+            rho.abs() * omega.abs(),  # ch 6
+            T_var_proxy,          # ch 7
+        ], dim=1)                 # (B, 8, H, W)
+
+        return torch.cat([x, mixing_features], dim=1)  # (B, C+8, H, W)
+
+
+class MixingLayerGate(nn.Module):
+    """
+    Learns a spatial gate g(x,y) ∈ [0,1] from the full set of mixing-layer
+    physics features produced by MixingLayerFeatures.
+
+    g ≈ 0 → single-phase cell  (PDF collapses to a peak-bin delta)
+    g ≈ 1 → mixing-layer cell  (full broad PDF is permitted)
+
+    Input : (B, 8, H, W)  — the 8 mixing channels from MixingLayerFeatures
+    Output: (B, 1, H, W)  — gate value per spatial cell
+    """
+    def __init__(self, n_mixing=MixingLayerFeatures.N_MIXING, kernel_size=5):
         super().__init__()
         padding = kernel_size // 2
         self.gate_net = nn.Sequential(
-            nn.Conv2d(1, 8, kernel_size, padding=padding),
+            nn.Conv2d(n_mixing, 16, kernel_size, padding=padding),
+            nn.BatchNorm2d(16),
+            nn.ReLU(),
+            nn.Conv2d(16, 8, kernel_size=3, padding=1),
             nn.ReLU(),
             nn.Conv2d(8, 1, kernel_size=1),
             nn.Sigmoid(),   # output ∈ (0, 1)
         )
+        # Initialize the final Conv2d (gate_net[-2]) so the gate starts "practically"
+        # closed (sigmoid(-3) ≈ 0.05); the model then learns to open it during training.
+        nn.init.constant_(self.gate_net[-2].bias, -3.0)  # sigmoid(-3) ≈ 0.05
+        nn.init.normal_(self.gate_net[-2].weight, std=1e-3)
 
-    def forward(self, vorticity_mag):
-        # vorticity_mag: (B, 1, H, W)
-        return self.gate_net(vorticity_mag)   # (B, 1, H, W)
+    def forward(self, mixing_features):
+        # mixing_features: (B, 8, H, W)
+        return self.gate_net(mixing_features)   # (B, 1, H, W)
 
 
 class GatedThresholdedSoftmax(nn.Module):
@@ -435,7 +543,7 @@ class GatedThresholdedSoftmax(nn.Module):
         gated = gate * p_thresh + (1 - gate) * delta_peak
     followed by renormalization so the output always sums to 1.
     """
-    def __init__(self, threshold=1e-4, eps=1e-12):
+    def __init__(self, threshold=1e-3, eps=1e-12):
         super().__init__()
         self.threshold = threshold
         self.eps = eps
@@ -456,93 +564,61 @@ class GatedThresholdedSoftmax(nn.Module):
         # Renormalize
         return gated / (gated.sum(dim=1, keepdim=True) + self.eps)
 
-class VorticityLayer(nn.Module):
-    """
-    Computes 2D vorticity from velocity components (ux, uy) using finite differences.
-    
-    Vorticity ω = ∂uy/∂x - ∂ux/∂y
-    
-    Input: (B, C, H, W) where C >= 2 and channels [..., ux_idx, uy_idx, ...]
-    Output: (B, C+1, H, W) — original channels + vorticity appended as last channel
-    """
-    def __init__(self, ux_idx=2, uy_idx=3):
-        super().__init__()
-        # Sobel-like kernels for finite differences
-        # ∂/∂x kernel (detect horizontal gradients)
-        self.register_buffer('dx_kernel', torch.tensor([
-            [[-1, 0, 1],
-             [-2, 0, 2],
-             [-1, 0, 1]]
-        ], dtype=torch.float32).unsqueeze(0))  # (1, 1, 3, 3)
-        
-        # ∂/∂y kernel (detect vertical gradients)  
-        self.register_buffer('dy_kernel', torch.tensor([
-            [[-1, -2, -1],
-             [ 0,  0,  0],
-             [ 1,  2,  1]]
-        ], dtype=torch.float32).unsqueeze(0))  # (1, 1, 3, 3)
-        
-        self.ux_idx = ux_idx
-        self.uy_idx = uy_idx
-        self.padding = 1
-    
-    def forward(self, x):
-        B, C, H, W = x.shape
-        
-        ux = x[:, self.ux_idx:self.ux_idx+1, :, :]   # (B, 1, H, W)
-        uy = x[:, self.uy_idx:self.uy_idx+1, :, :]   # (B, 1, H, W)
-        
-        # Compute gradients using conv2d
-        duy_dx = F.conv2d(uy, self.dx_kernel, padding=self.padding, groups=1)
-        dux_dy = F.conv2d(ux, self.dy_kernel, padding=self.padding, groups=1)
-        
-        # Vorticity = ∂uy/∂x - ∂ux/∂y
-        vorticity = duy_dx - dux_dy  # (B, 1, H, W)
-        
-        # Concatenate as new channel
-        return torch.cat([x, vorticity], dim=1)  # (B, C+1, H, W)
+# VorticityLayer has been superseded by MixingLayerFeatures, which provides
+# a richer 8-channel physics descriptor (vorticity, thermal/density gradients,
+# baroclinic alignment, strain rate, densimetric vorticity, T-variance proxy).
+# Kept as a thin alias for any legacy references.
+VorticityLayer = MixingLayerFeatures
 
 class ConvNN(nn.Module):
     """
-    CNN Model for PDF prediction (with Vorticity layer + Vorticity Gate)
+    CNN Model for PDF prediction (with MixingLayerFeatures + MixingLayerGate)
 
     Architecture:
     Input: (B, 5, 16, 8)  [rho, temp, ux, uy, ps]
              │
-        ┌────▼────────────┐
-        │  VorticityLayer │  ω = ∂uy/∂x - ∂ux/∂y  →  appended as 6th channel
-        │    5 → 6        │
-        └────┬────────────┘
-             │           │
-        ┌────▼────────┐  └──── vort_mag ────►  ┌──────────────┐
-        │   Encoder   │  3× Conv2d + BN + ReLU │ VorticityGate│
-        │ 6→32→64→128 │  (+ Dropout in 1st 2)  │  gate ∈(0,1) │
-        └────┬────────┘                        └──────┬───────┘
-             │                                         │
-        ┌────▼─────────┐                               │
-        │   Decoder    │  3× Conv2d + BN + ReLU        │
-        │ 128→64→32→40 │                               │
-        └────┬─────────┘                               │
-             │  logits                                 │ gate
-             └────────────────┬────────────────────────┘
+        ┌────▼───────────────────┐
+        │  MixingLayerFeatures   │  8 physics channels:
+        │    5 → 13              │  |ω|, ω, |∇T|, |∇ρ|, cos θ_baroclinic,
+        └────┬───────────────────┘  |σ|, ρ|ω|, T-var proxy
+             │              │        mixing_features (B,8,H,W)
+             │              └──────────────────►  ┌──────────────────┐
+        ┌────▼────────┐                           │ MixingLayerGate  │
+        │   Encoder   │  4× Conv2d + BN + ReLU    │  16→8→1 convs    │
+        │ 13→32→64    │  (+ Dropout in 1st 2)     │  gate ∈ (0,1)    │
+        │  →128→256   │                           └──────┬───────────┘
+        └────┬────────┘                                  │
+             │                                           │
+        ┌────▼─────────┐                                 │
+        │   Decoder    │  4× Conv2d + BN + ReLU          │
+        │ 256→128→64   │                                 │
+        │  →32→40      │                                 │
+        └────┬─────────┘                                 │
+             │  logits                                   │ gate
+             └────────────────┬──────────────────────────┘
                               ▼
                     forward returns (logits, gate)
                     predict_pdf applies GatedThresholdedSoftmax
     """
+    # How many extra channels MixingLayerFeatures appends.
+    _N_MIXING = MixingLayerFeatures.N_MIXING  # 8
+
     def __init__(self, in_channels, layer_size1, layer_size2, layer_size3, layer_size4, out_channels, kernel_size):
 
         super().__init__()
         padding = kernel_size // 2
 
-        # Vorticity layer: automatically computes ω from ux, uy and appends it
-        self.vorticity = VorticityLayer(ux_idx=2, uy_idx=3)
+        # MixingLayerFeatures appends 8 physics channels derived from
+        # vorticity, temperature/density gradients, strain, and their cross-terms.
+        self.mixing = MixingLayerFeatures(T_idx=1, rho_idx=0, ux_idx=2, uy_idx=3)
 
-        # Lightweight gate branch: takes |ω| and outputs g ∈ (0,1) per cell
-        self.gate_branch = VorticityGate(kernel_size)
+        # Gate branch: consumes all 8 mixing features → scalar gate ∈ (0,1)
+        self.gate_branch = MixingLayerGate(n_mixing=self._N_MIXING, kernel_size=kernel_size)
 
-        # Encoder now takes in_channels + 1 because vorticity adds a channel
+        # Encoder: original in_channels + 8 mixing features
+        encoder_in = in_channels + self._N_MIXING
         self.encoder = nn.Sequential(
-            nn.Conv2d(in_channels + 1, layer_size1, kernel_size, padding=padding),
+            nn.Conv2d(encoder_in, layer_size1, kernel_size, padding=padding),
             nn.BatchNorm2d(layer_size1),
             nn.ReLU(),
             nn.Dropout(dropout_rate),
@@ -580,15 +656,16 @@ class ConvNN(nn.Module):
         self.pdf_activation = GatedThresholdedSoftmax()
 
     def forward(self, x):
-        x_with_vort = self.vorticity(x)              # (B, C+1, H, W)
+        # Append 8 mixing-layer physics channels
+        x_enriched = self.mixing(x)                     # (B, C+8, H, W)
 
-        # Gate from vorticity magnitude only
-        vort_mag = x_with_vort[:, -1:, :, :]  # (B, 1, H, W)
-        gate = self.gate_branch(vort_mag)            # (B, 1, H, W)
+        # Gate from the 8 mixing features (last 8 channels of x_enriched)
+        mixing_feats = x_enriched[:, -self._N_MIXING:, :, :]  # (B, 8, H, W)
+        gate = self.gate_branch(mixing_feats)            # (B, 1, H, W)
 
-        # Main prediction path
-        features = self.encoder(x_with_vort)
-        logits = self.decoder(features)
+        # Main prediction path uses the full enriched tensor
+        features = self.encoder(x_enriched)
+        logits   = self.decoder(features)
 
         return logits, gate   # both needed for the gated loss
 

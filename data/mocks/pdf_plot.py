@@ -27,7 +27,7 @@ print(f"Using device: {device}")
 # =========================
 # RUN TOGGLES
 # =========================
-RUN_PDF_ANIMATION = True
+RUN_PDF_ANIMATION = False
 RUN_COOLING_SCATTER = True
 RUN_COOLING_HISTOGRAM = True
 RUN_PDF_COMPARE_ANIMATION = True
