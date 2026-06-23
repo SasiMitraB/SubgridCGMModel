@@ -7,7 +7,7 @@ import os
 def main():
     parser = argparse.ArgumentParser(description="Generate .athinput from config.json")
     parser.add_argument("--config", required=True, help="Path to config.json")
-    parser.add_argument("--step", required=True, choices=["hr", "lr", "sg"], help="Step name to generate for")
+    parser.add_argument("--step", required=True, choices=["hr", "lr", "lr_build", "sg"], help="Step name to generate for")
     parser.add_argument("--output", required=True, help="Output path for the .athinput file")
     args = parser.parse_args()
 

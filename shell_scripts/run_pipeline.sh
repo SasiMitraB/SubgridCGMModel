@@ -3,30 +3,30 @@
 # run_pipeline.sh — Full SubgridCGM pipeline
 #
 # Steps:
-#   1. High-resolution Athena simulation  (skipped if master HR output exists)
-#   2. Train the PDF CNN model            (models/conv_nn/pdf_cnn.py)
-#   3. Validate the model                 (data/mocks/pdf_plot.py)
-#   4. Low-resolution Athena simulation   (HR athinput downsampled 32×)
-#   5. Subgrid-model Athena simulation    (builds/subgrid_model)
-#   6. Benchmark mock comparison          (data/mocks/mock_sg.py)
+#   1. Train the PDF CNN model              (models/conv_nn/pdf_cnn.py)
+#   2. Low-resolution simulation 5 Myr      (16×8 grid; ISM cooling)
+#      Outputs to: simulation_outputs/lr_build
+#   3. lr_build — restart from 5 Myr rst   (hr_build/src/athena; ISM cooling)
+#      Uses:  simulation_outputs/lr_build/rst/KH.00005.rst
+#      Outputs to: simulation_outputs/lr_build_ism
+#   4. subgrid_model — restart from same rst (subgrid_model/src/athena; CNN)
+#      Uses:  simulation_outputs/lr_build/rst/KH.00005.rst
+#      Outputs to: simulation_outputs/subgrid_model
+#   5. Diagnostic plots                     (data/mocks/mock_sg.py)
 #
-# HIGH-RESOLUTION SIMULATION POLICY
+# RESTART FILE POLICY
 # -----------------------------------
-# The HR simulation is expensive. The script keeps a single canonical set of
-# HR outputs under:
+# Steps 3 and 4 both branch from the SAME 5 Myr restart file produced
+# by Step 2:
+#   simulation_outputs/lr_build/rst/KH.00005.rst
 #
-#   simulation_outputs/hr_build/   (bin/, hst/, rst/, cache/)
-#
-# Before running Step 1, we check whether that directory already contains
-# binary output files (*.bin).  If it does, Step 1 is SKIPPED and the
-# existing outputs are reused.  Delete (or rename) the directory to force a
-# fresh HR run.
+# The restart file index 00005 corresponds to tlim=5.0 with rst_dt=1.0
+# (one restart file written per simulated Myr).
 #
 # ATHINPUT CACHING
 # -----------------------------------
 # Every athinput actually used during the run is copied into:
 #   runs/run_<timestamp>/athinputs/
-# so you have a complete, self-contained record of what was run.
 #
 # LOGS
 # -----------------------------------
@@ -37,8 +37,7 @@
 #
 # EXIT POLICY
 # -----------------------------------
-# The script exits immediately on any non-zero return (set -e) so it is
-# obvious which step failed.
+# The script exits immediately on any non-zero return (set -e).
 # =============================================================================
 
 set -euo pipefail
@@ -48,9 +47,19 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 PROJECT_ROOT="/Volumes/PortableSSD/Projects/SubgridCGMModel"
 
-# ---- Canonical HR output (never changes across runs) ----
+# ---- Canonical HR output (training data source; not re-run here) ----
 HR_SIM_OUTPUT="${PROJECT_ROOT}/simulation_outputs/hr_build"
 HR_BIN_DIR="${HR_SIM_OUTPUT}/bin"
+
+# ---- LR 5 Myr base simulation (Step 2) ----
+LR_OUTPUT_DIR="${PROJECT_ROOT}/simulation_outputs/lr_build"
+LR_RST_5MYR="${LR_OUTPUT_DIR}/rst/KH.00005.rst"
+
+# ---- lr_build restart (Step 3) — ISM cooling from 5 Myr ----
+LR_BUILD_OUTPUT_DIR="${PROJECT_ROOT}/simulation_outputs/lr_build_ism"
+
+# ---- subgrid_model restart (Step 4) — CNN from 5 Myr ----
+SG_OUTPUT_DIR="${PROJECT_ROOT}/simulation_outputs/subgrid_model"
 
 # ---- Per-run timestamped directory ----
 TIMESTAMP="$(date '+%Y%m%d_%H%M%S')"
@@ -63,7 +72,16 @@ export LOSS_PLOTS_DIR="${RUN_DIR}/loss_plots"
 export PDF_MOCKS_DIR="${RUN_DIR}/pdf_mocks"
 export SG_MOCKS_DIR="${RUN_DIR}/sg_mocks"
 
-mkdir -p "${LOG_DIR}" "${ATHINPUT_CACHE_DIR}" "${MODEL_SAVES_DIR}" "${LOSS_PLOTS_DIR}" "${PDF_MOCKS_DIR}" "${SG_MOCKS_DIR}"
+mkdir -p \
+    "${LOG_DIR}" \
+    "${ATHINPUT_CACHE_DIR}" \
+    "${MODEL_SAVES_DIR}" \
+    "${LOSS_PLOTS_DIR}" \
+    "${PDF_MOCKS_DIR}" \
+    "${SG_MOCKS_DIR}" \
+    "${LR_OUTPUT_DIR}" \
+    "${LR_BUILD_OUTPUT_DIR}" \
+    "${SG_OUTPUT_DIR}"
 
 # ---------------------------------------------------------------------------
 # Logging helpers
@@ -150,25 +168,27 @@ MANIFEST="${RUN_DIR}/manifest.txt"
     echo ""
     echo "--- Source scripts / configs ---"
     echo "Config JSON        : ${CONFIG_JSON}"
-    echo "HR athinput (gen)  : ${ATHINPUT_CACHE_DIR}/hr_sim.athinput"
     echo "LR athinput (gen)  : ${ATHINPUT_CACHE_DIR}/lr_sim.athinput"
+    echo "lr_build athinput  : ${ATHINPUT_CACHE_DIR}/lr_build_sim.athinput"
     echo "SG athinput (gen)  : ${ATHINPUT_CACHE_DIR}/sg_sim.athinput"
     echo "CNN trainer        : ${PROJECT_ROOT}/models/conv_nn/pdf_cnn.py"
-    echo "PDF mock           : ${PROJECT_ROOT}/data/mocks/pdf_plot.py"
-    echo "SG mock            : ${PROJECT_ROOT}/data/mocks/mock_sg.py"
+    echo "Diagnostic plots   : ${PROJECT_ROOT}/data/mocks/mock_sg.py"
     echo ""
-    echo "--- Output directories ---"
-    echo "HR sim output      : ${HR_SIM_OUTPUT}  [canonical / shared across runs]"
-    echo "LR sim output      : ${PROJECT_ROOT}/simulation_outputs/lr_build"
-    echo "SG sim output      : ${PROJECT_ROOT}/simulation_outputs/subgrid_model"
+    echo "--- Simulation outputs ---"
+    echo "LR sim (0→5 Myr)   : ${LR_OUTPUT_DIR}"
+    echo "lr_build (5→10 Myr): ${LR_BUILD_OUTPUT_DIR}  [ISM cooling restart]"
+    echo "subgrid_model      : ${SG_OUTPUT_DIR}         [CNN restart]"
+    echo "5 Myr restart file : ${LR_RST_5MYR}"
+    echo ""
+    echo "--- Model / plot outputs ---"
     echo "Model weights      : ${MODEL_SAVES_DIR}"
     echo "Loss plots         : ${LOSS_PLOTS_DIR}"
     echo "PDF mock outputs   : ${PDF_MOCKS_DIR}"
     echo "SG  mock outputs   : ${SG_MOCKS_DIR}"
     echo ""
     echo "--- Cached athinputs (this run) ---"
-    echo "  ${ATHINPUT_CACHE_DIR}/hr_sim.athinput"
     echo "  ${ATHINPUT_CACHE_DIR}/lr_sim.athinput"
+    echo "  ${ATHINPUT_CACHE_DIR}/lr_build_sim.athinput"
     echo "  ${ATHINPUT_CACHE_DIR}/sg_sim.athinput"
 } > "${MANIFEST}"
 
@@ -177,76 +197,41 @@ log "Manifest       : ${MANIFEST}"
 separator
 
 # ===========================================================================
-# STEP 1 — High-resolution simulation
-#
-# This is guarded: if bin files already exist under HR_BIN_DIR, the simulation
-# is skipped and the existing outputs are reused.
+# STEP 1 — Train the PDF CNN
 # ===========================================================================
 separator
-log "STEP 1: hr_simulation"
-
-HR_ATHINPUT="${ATHINPUT_CACHE_DIR}/hr_sim.athinput"
-generate_athinput "hr" "${HR_ATHINPUT}"
-
-# Clean beforehand
-dot_clean -m "${PROJECT_ROOT}"
-
-if compgen -G "${HR_BIN_DIR}/*.bin" > /dev/null 2>&1 || \
-   compgen -G "${HR_BIN_DIR}/*.hydro_w.*" > /dev/null 2>&1; then
-    log "HR output already exists at: ${HR_BIN_DIR}"
-    log "SKIPPING HR simulation — delete ${HR_BIN_DIR} to force a re-run."
-    log "STEP 1 SKIPPED (using cached HR outputs)"
-else
-    log "No existing HR outputs found — running HR simulation."
-    mkdir -p "${HR_SIM_OUTPUT}"
-    run_step 1 "hr_simulation" \
-        bash "${PROJECT_ROOT}/builds/hr_build/src/sim_still_steady_state.sh" "${HR_ATHINPUT}"
-fi
-dot_clean -m "${PROJECT_ROOT}"
+log "STEP 1: train_pdf_cnn"
+log "Training data  : ${HR_BIN_DIR}"
 separator
 
-# ===========================================================================
-# STEP 2 — Train the PDF CNN
-# ===========================================================================
-
-run_step 2 "train_pdf_cnn" \
+run_step 1 "train_pdf_cnn" \
     python3 "${PROJECT_ROOT}/models/conv_nn/pdf_cnn.py"
 
 dot_clean -m "${PROJECT_ROOT}"
 
 # ===========================================================================
-# STEP 3 — Validate the model (pdf_plot.py)
+# STEP 2 — Low-resolution simulation: 0 → 5 Myr  (16×8 grid, ISM cooling)
 #
-# pdf_plot.py uses relative paths rooted at data/mocks/, so we run it from
-# that directory.
-# ===========================================================================
-run_step 3 "validate_pdf_model" \
-    bash -c "cd '${PROJECT_ROOT}/data/mocks' && python3 pdf_plot.py"
-
-dot_clean -m "${PROJECT_ROOT}"
-
-# ===========================================================================
-# STEP 4 — Low-resolution simulation
+# Grid:  nx1=8, nx2=16  (16×8 cells — 32× downsampled from HR 256×512)
+# tlim:  5.0  (5 Myr)
+# rst_dt: 1.0 → restart files written at t=1,2,3,4,5 Myr
 #
-# Derived from the canonical HR athinput with a 32× downsample:
-#   HR  nx1=256, nx2=512  →  LR  nx1=8, nx2=16
-#   HR  meshblock nx1=32  →  LR  meshblock nx1=8
-#   HR  meshblock nx2=512 →  LR  meshblock nx2=16
-#
-# The generated athinput is written to the athinput cache directory and is
-# also the file passed to Athena (-i flag), so the cache IS the source of
-# truth for this run's LR config.
+# Output restart files land in:
+#   simulation_outputs/lr_build/rst/KH.000{01..05}.rst
+# The 5 Myr file KH.00005.rst is the branch point for Steps 3 & 4.
 # ===========================================================================
 LR_ATHINPUT="${ATHINPUT_CACHE_DIR}/lr_sim.athinput"
-LR_OUTPUT_DIR="${PROJECT_ROOT}/simulation_outputs/lr_build"
-mkdir -p "${LR_OUTPUT_DIR}"
-
 generate_athinput "lr" "${LR_ATHINPUT}"
 
+separator
+log "STEP 2: lr_simulation  (16×8 grid, 0 → 5 Myr)"
 log "LR athinput mesh settings:"
 grep -E '^\s*nx[12]\s*=' "${LR_ATHINPUT}" | tee -a "${MASTER_LOG}"
+log "LR athinput tlim:"
+grep -E '^\s*tlim\s*=' "${LR_ATHINPUT}" | tee -a "${MASTER_LOG}"
+separator
 
-run_step 4 "lr_simulation" \
+run_step 2 "lr_simulation_5myr" \
     bash -c "
         set -euo pipefail
         cd '${PROJECT_ROOT}/builds/hr_build/src'
@@ -257,24 +242,100 @@ run_step 4 "lr_simulation" \
 
 dot_clean -m "${PROJECT_ROOT}"
 
-# ===========================================================================
-# STEP 5 — Subgrid-model simulation (neural-network source terms)
-# ===========================================================================
-SG_ATHINPUT="${ATHINPUT_CACHE_DIR}/sg_sim.athinput"
-generate_athinput "sg" "${SG_ATHINPUT}"
+# Verify the 5 Myr restart file was produced
+if [[ ! -f "${LR_RST_5MYR}" ]]; then
+    log "ERROR: Expected 5 Myr restart file not found: ${LR_RST_5MYR}"
+    log "       Check the LR simulation output in ${LR_OUTPUT_DIR}/rst/"
+    exit 1
+fi
+log "5 Myr restart file confirmed: ${LR_RST_5MYR}"
 
-run_step 5 "subgrid_model_simulation" \
-    bash "${PROJECT_ROOT}/builds/subgrid_model/src/run_simulation.sh" "${SG_ATHINPUT}"
+# ===========================================================================
+# STEP 3 — lr_build: restart from 5 Myr with ISM cooling (no CNN)
+#
+# Uses:    hr_build/src/athena   (ISM-cooling build, no neural-network source)
+# Restart: simulation_outputs/lr_build/rst/KH.00005.rst  (t = 5 Myr)
+# tlim:    10.0  (continues from 5 → 10 Myr)
+# Output:  simulation_outputs/lr_build_ism/
+# ===========================================================================
+LR_BUILD_ATHINPUT="${ATHINPUT_CACHE_DIR}/lr_build_sim.athinput"
+generate_athinput "lr_build" "${LR_BUILD_ATHINPUT}"
+
+separator
+log "STEP 3: lr_build  (ISM cooling restart from ${LR_RST_5MYR})"
+log "lr_build athinput mesh settings:"
+grep -E '^\s*nx[12]\s*=' "${LR_BUILD_ATHINPUT}" | tee -a "${MASTER_LOG}"
+log "lr_build athinput tlim:"
+grep -E '^\s*tlim\s*=' "${LR_BUILD_ATHINPUT}" | tee -a "${MASTER_LOG}"
+separator
+
+run_step 3 "lr_build_ism_restart" \
+    bash -c "
+        set -euo pipefail
+        cd '${PROJECT_ROOT}/builds/hr_build/src'
+        dot_clean -m '${PROJECT_ROOT}'
+        ./athena \
+            -i '${LR_BUILD_ATHINPUT}' \
+            -d '${LR_BUILD_OUTPUT_DIR}' \
+            -r '${LR_RST_5MYR}'
+        dot_clean -m '${PROJECT_ROOT}'
+    "
 
 dot_clean -m "${PROJECT_ROOT}"
 
 # ===========================================================================
-# STEP 6 — Benchmark mock (mock_sg.py)
+# STEP 4 — subgrid_model: restart from same 5 Myr rst with CNN source terms
 #
-# Compares HR (coarse-grained), LR, and SG simulation outputs.
+# Uses:    subgrid_model/src/athena  (CNN-enabled build)
+# Restart: simulation_outputs/lr_build/rst/KH.00005.rst  (t = 5 Myr)
+# tlim:    10.0  (continues from 5 → 10 Myr)
+# Output:  simulation_outputs/subgrid_model/
+#
+# The subgrid_model build requires PYTHONPATH to find source_module.py.
+# ===========================================================================
+SG_ATHINPUT="${ATHINPUT_CACHE_DIR}/sg_sim.athinput"
+generate_athinput "sg" "${SG_ATHINPUT}"
+
+separator
+log "STEP 4: subgrid_model  (CNN restart from ${LR_RST_5MYR})"
+log "SG athinput mesh settings:"
+grep -E '^\s*nx[12]\s*=' "${SG_ATHINPUT}" | tee -a "${MASTER_LOG}"
+log "SG athinput tlim:"
+grep -E '^\s*tlim\s*=' "${SG_ATHINPUT}" | tee -a "${MASTER_LOG}"
+separator
+
+run_step 4 "subgrid_model_cnn_restart" \
+    bash -c "
+        set -euo pipefail
+        cd '${PROJECT_ROOT}/builds/subgrid_model/src'
+        dot_clean -m '${PROJECT_ROOT}'
+
+        # Activate venv and set PYTHONPATH for the embedded Python source module
+        source '${VENV_ACTIVATE}'
+        VENV='${PROJECT_ROOT}/venv'
+        SITE_PACKAGES=\"\$VENV/lib/python3.14/site-packages\"
+        export PYTHONPATH=\"\$PWD:\$SITE_PACKAGES\${PYTHONPATH:+:\$PYTHONPATH}\"
+
+        ./athena \
+            -i '${SG_ATHINPUT}' \
+            -d '${SG_OUTPUT_DIR}' \
+            -r '${LR_RST_5MYR}'
+        dot_clean -m '${PROJECT_ROOT}'
+    "
+
+dot_clean -m "${PROJECT_ROOT}"
+
+# ===========================================================================
+# STEP 5 — Diagnostic plots (mock_sg.py)
+#
+# Compares lr_build (ISM) and subgrid_model (CNN) simulation outputs.
 # Run from data/mocks/ so relative output paths resolve correctly.
 # ===========================================================================
-run_step 6 "benchmark_mock_sg" \
+separator
+log "STEP 5: diagnostic_plots  (mock_sg.py)"
+separator
+
+run_step 5 "diagnostic_plots" \
     bash -c "cd '${PROJECT_ROOT}/data/mocks' && python3 mock_sg.py"
 
 dot_clean -m "${PROJECT_ROOT}"
@@ -291,9 +352,9 @@ log "Master log       : ${MASTER_LOG}"
 log "Manifest         : ${MANIFEST}"
 log ""
 log "Cached athinputs (this run):"
-log "  HR  → ${ATHINPUT_CACHE_DIR}/hr_sim.athinput"
-log "  LR  → ${ATHINPUT_CACHE_DIR}/lr_sim.athinput"
-log "  SG  → ${ATHINPUT_CACHE_DIR}/sg_sim.athinput"
+log "  LR (0→5 Myr)    → ${ATHINPUT_CACHE_DIR}/lr_sim.athinput"
+log "  lr_build (ISM)  → ${ATHINPUT_CACHE_DIR}/lr_build_sim.athinput"
+log "  subgrid_model   → ${ATHINPUT_CACHE_DIR}/sg_sim.athinput"
 log ""
 log "Step logs:"
 for f in "${LOG_DIR}"/step*.log; do
@@ -301,10 +362,10 @@ for f in "${LOG_DIR}"/step*.log; do
 done
 log ""
 log "Key output directories:"
-log "  HR sim   : ${HR_SIM_OUTPUT}  [canonical, shared]"
-log "  LR sim   : ${LR_OUTPUT_DIR}"
-log "  SG sim   : ${PROJECT_ROOT}/simulation_outputs/subgrid_model"
-log "  Model    : ${MODEL_SAVES_DIR}"
-log "  PDF mock : ${PDF_MOCKS_DIR}"
-log "  SG mock  : ${SG_MOCKS_DIR}"
+log "  LR sim (0→5 Myr)      : ${LR_OUTPUT_DIR}"
+log "  lr_build (ISM restart) : ${LR_BUILD_OUTPUT_DIR}"
+log "  subgrid_model (CNN)    : ${SG_OUTPUT_DIR}"
+log "  Model weights          : ${MODEL_SAVES_DIR}"
+log "  PDF mock               : ${PDF_MOCKS_DIR}"
+log "  SG mock                : ${SG_MOCKS_DIR}"
 separator

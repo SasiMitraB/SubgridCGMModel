@@ -27,16 +27,27 @@
     "downsample_factor": 32,
     "mb_nx1": 8, "mb_nx2": 16,
     "ndiag": 100,
-    "nscalars": 1,
+    "nscalars": 2,
     "ism_cooling": true,
-    "user_srcs": false
+    "user_srcs": false,
+    "tlim": 5.0
+  },
+  "lr_build": {
+    "nx1": 8, "nx2": 16,
+    "mb_nx1": 8, "mb_nx2": 16,
+    "ndiag": 100,
+    "nscalars": 2,
+    "ism_cooling": true,
+    "user_srcs": false,
+    "tlim": 10.0
   },
   "sg": {
     "nx1": 8, "nx2": 16,
-    "mb_nx1": 4, "mb_nx2": 16,
+    "mb_nx1": 8, "mb_nx2": 16,
     "ndiag": 5,
     "nscalars": 2,
     "ism_cooling": false,
-    "user_srcs": true
+    "user_srcs": true,
+    "tlim": 10.0
   }
 }

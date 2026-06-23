@@ -65,6 +65,7 @@ from scipy.ndimage import gaussian_filter, sobel
 np.random.seed(10)
 resolution = (1024, 512)
 downsample = 64
+shape = (resolution[0] // downsample, resolution[1] // downsample)
 layer_size4 = 256
 layer_size5 = 512
 total_length: float = 20
@@ -87,7 +88,7 @@ def divergence(f, dx, dy):
 def source_func(rho, pres, ux, uy, ps, fmcl):
 
     global resolution, downsample
-    global cnn_model
+    global cnn_model, shape
     global input_mean, input_std
     global device
     global total_length, total_width
@@ -97,6 +98,11 @@ def source_func(rho, pres, ux, uy, ps, fmcl):
     # ------------------------------------------------------------
 
     temp = (np.array(pres) * 1.59916e-14 / np.array(rho)) * (1.0 / 1.381e-16)
+    # ------------------------------------------------------------
+    # Allocate source term
+    # ------------------------------------------------------------
+
+    source_term = np.zeros((5, shape[0], shape[1]))
 
     # ------------------------------------------------------------
     # Build input fields
@@ -149,7 +155,7 @@ def source_func(rho, pres, ux, uy, ps, fmcl):
 
     n = P / (kb * T)
 
-    cool = lambda_cool(T) * n**2
+    cool = lambda_cool(T, mask=True) * n**2
 
     cool_rate = np.sum(pdf * cool, axis=0)
 
