@@ -756,9 +756,11 @@ class SimulationData:
         self,
         fields: Optional[List[str]] = None,
         cmaps:  Optional[dict[str, str]] = None,
+        backend: str = "fastplotlib",
+        **kwargs,
     ) -> "Visualization":
         """
-        Create a fastplotlib-backed animated visualisation.
+        Create an animated visualisation backed by fastplotlib or matplotlib.
 
         Parameters
         ----------
@@ -766,6 +768,11 @@ class SimulationData:
             Fields to display.  Defaults to all available fields.
         cmaps : dict, optional
             Per-field colourmap overrides, e.g. ``{"density": "plasma"}``.
+        backend : str, optional
+            The visualization library to use: ``"fastplotlib"`` (default)
+            or ``"matplotlib"``.
+        **kwargs
+            Extra keyword arguments passed to the backend visualization class.
 
         Returns
         -------
@@ -773,7 +780,7 @@ class SimulationData:
             Call ``.show()`` to open the window.
         """
         from .visualization import Visualization
-        return Visualization(self, fields=fields, cmaps=cmaps)
+        return Visualization(self, fields=fields, cmaps=cmaps, backend=backend, **kwargs)
 
     # ── Repr ──────────────────────────────────────────────────────────────────
 

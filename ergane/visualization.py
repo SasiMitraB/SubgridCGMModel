@@ -39,14 +39,14 @@ _DEFAULT_CMAPS: dict[str, str] = {
 
 # Human-readable subplot titles
 _TITLES: dict[str, str] = {
-    "density":  "Density",
+    "density":  "log10(Density)",
     "pressure": "Pressure",
-    "velx":     "v_x",
-    "vely":     "v_y",
-    "velz":     "v_z",
-    "bx":       "B_x",
-    "by":       "B_y",
-    "bz":       "B_z",
+    "velx":     "$v_x$",
+    "vely":     "$v_y$",
+    "velz":     "$v_z$",
+    "bx":       "$B_x$",
+    "by":       "$B_y$",
+    "bz":       "$B_z$",
 }
 
 
@@ -67,7 +67,10 @@ def _grid_shape(n: int) -> tuple[int, int]:
 
 class Visualization:
     """
-    Animated fastplotlib figure for an AthenaK / Athena++ simulation.
+    Animated figure for an AthenaK / Athena++ simulation.
+
+    Acts as a factory that returns either a FastplotlibVisualization
+    or a MatplotlibVisualization instance depending on the chosen backend.
 
     Parameters
     ----------
@@ -77,14 +80,47 @@ class Visualization:
         Which fields to include.  Defaults to ``sim.fields_available``.
     cmaps : dict, optional
         Per-field colourmap overrides, e.g. ``{"density": "plasma"}``.
+    backend : str, optional
+        The visualization backend to use: ``"fastplotlib"`` (default) or ``"matplotlib"``.
     size : tuple[int, int], optional
         Window size in pixels ``(width, height)``.  Auto-sized if omitted.
+    **kwargs
+        Additional backend-specific arguments.
+    """
 
-    Attributes
-    ----------
-    figure : fastplotlib.Figure
-        The underlying figure — customise subplots, titles, etc. before
-        calling ``.show()``.
+    def __new__(
+        cls,
+        sim: SimulationData,
+        fields: Optional[List[str]] = None,
+        cmaps: Optional[dict[str, str]] = None,
+        backend: str = "fastplotlib",
+        *args,
+        **kwargs,
+    ) -> Visualization:
+        if cls is Visualization:
+            if backend == "matplotlib":
+                return object.__new__(MatplotlibVisualization)
+            elif backend == "fastplotlib":
+                return object.__new__(FastplotlibVisualization)
+            else:
+                raise ValueError(f"Unknown backend: {backend}")
+        return object.__new__(cls)
+
+    def show(self) -> None:
+        """
+        Open the figure window and start the animation loop.
+        """
+        raise NotImplementedError
+
+    def __repr__(self) -> str:
+        raise NotImplementedError
+
+
+# ── Fastplotlib Backend ───────────────────────────────────────────────────────
+
+class FastplotlibVisualization(Visualization):
+    """
+    Animated fastplotlib figure for an AthenaK / Athena++ simulation.
     """
 
     def __init__(
@@ -92,7 +128,9 @@ class Visualization:
         sim: SimulationData,
         fields: Optional[List[str]] = None,
         cmaps: Optional[dict[str, str]] = None,
+        backend: str = "fastplotlib",
         size: Optional[tuple[int, int]] = None,
+        **kwargs,
     ):
         import fastplotlib as fpl  # imported here so the module is importable without fpl
 
@@ -135,12 +173,19 @@ class Visualization:
 
         self._images: dict[str, object] = {}  # field → fpl ImageGraphic
         self._subplot_coords: dict[str, tuple[int, int]] = {}
+        self._histogram_tools: dict[str, object] = {}  # field → fpl HistogramLUTTool
 
         for idx, field_name in enumerate(self._fields):
             r, c = divmod(idx, cols)
             data = getattr(frame, field_name)
             if data is None:
                 continue  # field not available — leave subplot blank
+
+            if field_name == "density":
+                data = np.log10(np.maximum(data, 1e-10))
+
+            # Flip vertically to match origin='lower' (standard physical coordinate system)
+            data = np.flipud(data)
 
             img = self.figure[r, c].add_image(
                 data=data,
@@ -149,6 +194,25 @@ class Visualization:
             img.cmap = self._cmaps.get(field_name, "inferno")
             self._images[field_name] = img
             self._subplot_coords[field_name] = (r, c)
+
+            # ── Add interactive histogram/colorbar tool for this image ───
+            try:
+                from fastplotlib.tools import HistogramLUTTool
+
+                hist_tool = HistogramLUTTool(
+                    data=data,
+                    images=img,
+                    name=f"{field_name}_histogram",
+                )
+                self.figure[r, c].docks["right"].add_graphic(hist_tool)
+                self.figure[r, c].docks["right"].size = 80
+                self.figure[r, c].docks["right"].auto_scale(maintain_aspect=False)
+                self.figure[r, c].docks["right"].controller.enabled = False
+
+                self._histogram_tools[field_name] = hist_tool
+            except Exception as e:
+                # If histogram creation fails, log warning but continue
+                print(f"Warning: Could not create histogram/colorbar tool for {field_name}: {e}")
 
         for subplot in self.figure:
             subplot.toolbar = False
@@ -163,11 +227,13 @@ class Visualization:
             for field_name, img in self._images.items():
                 data = getattr(f, field_name)
                 if data is not None:
+                    if field_name == "density":
+                        data = np.log10(np.maximum(data, 1e-10))
+                    # Flip vertically to match origin='lower'
+                    data = np.flipud(data)
                     img.data = data
 
         self.figure.add_animations(_update)
-
-    # ── Public API ────────────────────────────────────────────────────────────
 
     def show(self) -> None:
         """
@@ -183,6 +249,123 @@ class Visualization:
 
     def __repr__(self) -> str:
         return (
-            f"<Visualization  sim='{self._sim.basename}'  "
+            f"<FastplotlibVisualization  sim='{self._sim.basename}'  "
+            f"fields={self._fields}>"
+        )
+
+
+# ── Matplotlib Backend ────────────────────────────────────────────────────────
+
+class MatplotlibVisualization(Visualization):
+    """
+    Animated matplotlib figure for an AthenaK / Athena++ simulation.
+    """
+
+    def __init__(
+        self,
+        sim: SimulationData,
+        fields: Optional[List[str]] = None,
+        cmaps: Optional[dict[str, str]] = None,
+        backend: str = "matplotlib",
+        size: Optional[tuple[int, int]] = None,
+        interval: int = 100,
+        **kwargs,
+    ):
+        import matplotlib.pyplot as plt
+        import matplotlib.animation as animation
+
+        self._sim = sim
+        self._fields = fields if fields is not None else sim.fields_available
+        self._cmaps = dict(_DEFAULT_CMAPS)
+        if cmaps:
+            self._cmaps.update(cmaps)
+
+        n = len(self._fields)
+        rows, cols = _grid_shape(n)
+
+        # Matplotlib figsize is in inches. Convert from size (pixels) / 100.
+        if size is None:
+            w = min(5 * cols, 18)
+            h = min(5 * rows, 12)
+            figsize = (w, h)
+        else:
+            figsize = (size[0] / 100.0, size[1] / 100.0)
+
+        # Create figure and axes
+        self.figure, axes = plt.subplots(
+            rows,
+            cols,
+            figsize=figsize,
+            squeeze=False,
+        )
+        self._axes = axes
+
+        # Hide any unused axes in the grid
+        for idx in range(n, rows * cols):
+            r, c = divmod(idx, cols)
+            self.figure.delaxes(self._axes[r, c])
+
+        # Load the last frame first to show it initially
+        self._frame_idx = self._sim.n_frames - 1
+        frame = self._sim.get_frame(self._sim.frame_numbers[self._frame_idx])
+
+        self._images: dict[str, object] = {}
+        self._subplot_coords: dict[str, tuple[int, int]] = {}
+
+        for idx, field_name in enumerate(self._fields):
+            r, c = divmod(idx, cols)
+            ax = self._axes[r, c]
+            data = getattr(frame, field_name)
+            if data is None:
+                continue
+
+            if field_name == "density":
+                data = np.log10(np.maximum(data, 1e-10))
+
+            cmap = self._cmaps.get(field_name, "inferno")
+            # We use origin='lower' as standard for simulation output grids
+            im = ax.imshow(data, cmap=cmap, origin='lower')
+            ax.set_title(_TITLES.get(field_name, field_name))
+            self.figure.colorbar(im, ax=ax)
+            
+            self._images[field_name] = im
+            self._subplot_coords[field_name] = (r, c)
+
+        self.figure.suptitle(f"Time: {frame.time:.4f} (Frame {frame.number})")
+        self.figure.tight_layout()
+
+        # Set up matplotlib animation
+        self.ani = animation.FuncAnimation(
+            self.figure,
+            self._update,
+            frames=self._sim.n_frames,
+            interval=interval,
+            blit=False,
+            cache_frame_data=False,
+        )
+
+    def _update(self, frame_idx: int):
+        num = self._sim.frame_numbers[frame_idx]
+        f = self._sim.get_frame(num)
+        for field_name, im in self._images.items():
+            data = getattr(f, field_name)
+            if data is not None:
+                if field_name == "density":
+                    data = np.log10(np.maximum(data, 1e-10))
+                im.set_data(data)
+
+        self.figure.suptitle(f"Time: {f.time:.4f} (Frame {num})")
+        return list(self._images.values())
+
+    def show(self) -> None:
+        """
+        Open the figure window and start the animation loop.
+        """
+        import matplotlib.pyplot as plt
+        plt.show()
+
+    def __repr__(self) -> str:
+        return (
+            f"<MatplotlibVisualization  sim='{self._sim.basename}'  "
             f"fields={self._fields}>"
         )
