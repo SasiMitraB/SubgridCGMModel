@@ -1,0 +1,26 @@
+Quasi-Steady State Diagnostics — kh_radiative_32
+============================================================
+  t_final = 10.0000  |  t0 (cooling time) = 0.0195
+  T_cold  = 139.2500  |  T_hot = 13925.0000
+  chi     = 100.0
+
+Diagnostic results:
+  ✓  1. Time criterion (t >= t0)
+  ✗  2. Mass flux flat in z
+  ✗  3. Density stationary (TRML fr)
+  ✓  4. Momentum flux flat in z
+  ✓  5. Temperature fits tanh
+  ✗  6. PDF stable over time
+  ✗  7. Energy balance satisfied
+
+Metrics:
+  Mass flux flatness index:      0.5658  (< 0.15 = flat)
+  Density stationarity score:    1.0902  (< 0.10 = stat.)
+  Momentum flux flatness index:  0.0016  (< 0.10 = flat)
+  Tanh fit residual:             0.0936  (< 0.10 = good)
+  Tanh width z0:                 2.7566
+  PDF Wasserstein distance:      N/A  (< 0.05 = stable)
+  Energy balance error:          1.2436  (< 0.50 = balanced)
+
+  Passed 3/7 diagnostics
+  VERDICT: QSS NOT CONFIRMED

@@ -61,8 +61,8 @@ device = torch.device("mps")
 print("Using Apple MPS GPU")
 
 
-resolution = (1024, 512)
-downsample = 64
+resolution = (512, 256)
+downsample = 32
 in_channels = 5
 out_channels = 40
 layer_size1 = 32
@@ -468,8 +468,8 @@ def snapshot_pred_16x8(
     ux: np.ndarray,
     uy: np.ndarray,
     ps: np.ndarray,
-    fine_resolution: tuple = (1024, 512),
-    downsample: int = 64,
+    fine_resolution: tuple = (512, 256),
+    downsample: int = 32,
 ) -> np.ndarray:
     """
     Predict pixel temperature PDFs for a snapshot whose fields are ALREADY

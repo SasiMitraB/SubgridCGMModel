@@ -255,8 +255,8 @@ lr_cons_ps = lr_sim_data.cons_ps[: rho.shape[0]]
 
 lr_fmcl = (lr_temp < 1e5).astype(float)
 
-hr_resolution = (1024, 512)
-hr_downsample = 64
+hr_resolution = (512, 256)
+hr_downsample = 32
 hr_file_path = (
     f"/Volumes/PortableSSD/Projects/SubgridCGMModel/simulation_outputs/hr_build"
 )
@@ -266,7 +266,7 @@ hr_sim_data.down_sample = hr_downsample
 # hr_sim_data.input_data(hr_file_path)
 # hr_rho = hr_sim_data.rho
 # hr_temp = hr_sim_data.temp
-hr_folder_path = f"/Volumes/PortableSSD/Projects/SubgridCGMModel/simulation_outputs/hr_build/cache/sc(1024, 512)_64"
+hr_folder_path = f"/Volumes/PortableSSD/Projects/SubgridCGMModel/simulation_outputs/hr_build/cache/sc(512, 256)_32"
 # Memory-map the large HR arrays so the OS pages them in on demand
 # instead of loading every frame into RAM at once.
 _n = rho.shape[0]

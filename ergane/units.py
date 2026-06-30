@@ -101,6 +101,7 @@ class Units:
         magnetic: float | None = None,
         system:   str = "custom",
         labels:   dict[str, str] | None = None,
+        mu:       float = 0.62,
     ):
         self._length   = float(length)
         self._density  = float(density)
@@ -110,6 +111,7 @@ class Units:
         self._magnetic_override = float(magnetic) if magnetic is not None else None
         self.system  = system
         self.labels  = labels or {}
+        self.mu      = float(mu)
 
     # ── Derived scale properties ──────────────────────────────────────────────
 
@@ -236,6 +238,35 @@ class Units:
         """
         return cls(length=length, density=density, velocity=velocity,
                    system="SI", **kwargs)
+
+    @classmethod
+    def from_params(cls, params: dict[str, dict[str, str]]) -> "Units":
+        """
+        Create a Units instance from the parsed simulation parameters (e.g. athinput).
+        Looks for a 'units' section with length_cgs, mass_cgs, time_cgs, and mu.
+        If no units section is present or if keys are missing, returns Units.code().
+        """
+        unit_section = params.get("units", {})
+        if not unit_section:
+            return cls.code()
+
+        try:
+            length_cgs = float(unit_section.get("length_cgs", 3.08568e18))
+            mass_cgs = float(unit_section.get("mass_cgs", 4.91417e31))
+            time_cgs = float(unit_section.get("time_cgs", 3.15576e13))
+            mu = float(unit_section.get("mu", 0.62))
+
+            density_scale = mass_cgs / length_cgs**3
+            velocity_scale = length_cgs / time_cgs
+
+            return cls.cgs(
+                length=length_cgs,
+                density=density_scale,
+                velocity=velocity_scale,
+                mu=mu,
+            )
+        except (ValueError, TypeError, ZeroDivisionError):
+            return cls.code()
 
     # ── Repr ─────────────────────────────────────────────────────────────────
 

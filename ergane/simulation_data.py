@@ -146,9 +146,33 @@ class Frame:
     by:       Optional[np.ndarray] = None
     bz:       Optional[np.ndarray] = None
 
+    @property
+    def xc(self) -> np.ndarray:
+        """Cell center coordinates along X1 (x-axis)."""
+        return 0.5 * (self.x[:-1] + self.x[1:])
+
+    @property
+    def yc(self) -> np.ndarray:
+        """Cell center coordinates along X2 (y-axis)."""
+        return 0.5 * (self.y[:-1] + self.y[1:])
+
+    @property
+    def temperature(self) -> Optional[np.ndarray]:
+        """
+        Compute the temperature field in Kelvin.
+        T = (P / rho) * (mu * m_H / k_B).
+        Only supported when both pressure and density are available.
+        """
+        if self.density is None or self.pressure is None:
+            return None
+        mu = getattr(self.units, "mu", 0.62)
+        m_H = 1.6726e-24
+        k_B = 1.3807e-16
+        return (self.pressure / (self.density + 1e-30)) * (mu * m_H / k_B)
+
     def __repr__(self) -> str:
         available = [
-            k for k in ("density", "pressure", "velx", "vely", "velz", "bx", "by", "bz")
+            k for k in ("density", "pressure", "temperature", "velx", "vely", "velz", "bx", "by", "bz")
             if getattr(self, k) is not None
         ]
         return (
@@ -321,8 +345,8 @@ class SimulationData:
         self._grid_cache:       Optional[dict]       = None
         self._time_index_cache: Optional[np.ndarray] = None  # shape (n_frames,)
 
-        # Units — default to code units (scale = 1 everywhere)
-        self._units: Units = Units.code()
+        # Units — try to parse from params if available, otherwise default to code units
+        self._units: Units = Units.from_params(self.params)
 
         # Lazy field accessor singletons
         self._accessors: dict[str, _FieldAccessor] = {}
@@ -547,6 +571,8 @@ class SimulationData:
         base = ["density", "pressure", "velx", "vely"]
         if self._physics == "mhd":
             base += ["bx", "by"]
+        if "density" in base and "pressure" in base:
+            base.append("temperature")
         return base
 
     # Grid — prefer athinput values; fall back to first VTK frame
@@ -630,6 +656,11 @@ class SimulationData:
     def pressure(self) -> _FieldAccessor:
         """Accessor for the pressure (or internal energy) field."""
         return self._get_accessor("pressure")
+
+    @property
+    def temperature(self) -> _FieldAccessor:
+        """Accessor for the temperature field (computed from pressure and density)."""
+        return self._get_accessor("temperature")
 
     @property
     def velx(self) -> _FieldAccessor:

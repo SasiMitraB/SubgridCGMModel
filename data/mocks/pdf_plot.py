@@ -37,8 +37,8 @@ RUN_FOURWAY_COMPARE_ANIMATION = True
 # =========================
 # SETTINGS
 # =========================
-resolution = (1024, 512)
-downsample = 64
+resolution = (512, 256)
+downsample = 32
 bins = 40
 
 
@@ -87,7 +87,7 @@ log_temp_centers = 0.5 * (np.log10(temp_bins[:-1]) + np.log10(temp_bins[1:]))
 cmap = plt.get_cmap("inferno")
 norm = colors.Normalize(vmin=3.0, vmax=7.0)
 
-folder_path = f"/Volumes/PortableSSD/Projects/SubgridCGMModel/simulation_outputs/hr_build/cache/sc(1024, 512)_64"
+folder_path = f"/Volumes/PortableSSD/Projects/SubgridCGMModel/simulation_outputs/hr_build/cache/sc(512, 256)_32"
 
 PDF_MOCKS_DIR = os.environ.get("PDF_MOCKS_DIR", "mocks/pdf")
 os.makedirs(PDF_MOCKS_DIR, exist_ok=True)
