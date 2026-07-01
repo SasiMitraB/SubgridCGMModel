@@ -681,7 +681,7 @@ def read_binary_as_athdf(
     levels = filedata["mb_logical"][:, 3]
     logical_locations = filedata["mb_logical"][:, :3]
     if dtype is None:
-        dtype = np.float32
+        dtype = np.float64
 
     # Calculate nx_vals
     nx_vals = []
@@ -941,7 +941,7 @@ def read_all_ranks_binary_as_athdf(
     levels = filedata["mb_logical"][:, 3]
     logical_locations = filedata["mb_logical"][:, :3]
     if dtype is None:
-        dtype = np.float32
+        dtype = np.float64
 
     # Calculate nx_vals
     nx_vals = []
@@ -1196,7 +1196,7 @@ def read_all_ranks_coarsened_binary_as_athdf(
     levels = filedata["mb_logical"][:, 3]
     logical_locations = filedata["mb_logical"][:, :3]
     if dtype is None:
-        dtype = np.float32
+        dtype = np.float64
 
     # Calculate nx_vals
     nx_vals = []
@@ -1414,7 +1414,7 @@ def read_single_rank_binary_as_athdf(
     # Extract size information
     block_size = [filedata["nx1_mb"], filedata["nx2_mb"], filedata["nx3_mb"]]
     if dtype is None:
-        dtype = np.float32
+        dtype = np.float64
 
     # Set coordinate system and related functions
     if vol_func is None:
@@ -1556,7 +1556,7 @@ def read_coarsened_binary_as_athdf(
     levels = filedata["mb_logical"][:, 3]
     logical_locations = filedata["mb_logical"][:, :3]
     if dtype is None:
-        dtype = np.float32
+        dtype = np.float64
 
     # Calculate nx_vals
     nx_vals = []

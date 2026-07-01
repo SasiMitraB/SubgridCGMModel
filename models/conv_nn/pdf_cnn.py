@@ -53,29 +53,54 @@ CACHE_PATH = os.environ.get("SUBGRID_CACHE_PATH", "/path/to/cache")
 import data_preprocess
 from data_preprocess import simulation_data
 
-np.random.seed(10)
-# device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-# device = torch.device('cpu')
-# print("Using CPU")
-device = torch.device("mps")
+# =========================
+# TRAINING / MODEL HYPERPARAMETERS
+# =========================
+HYPERPARAMS = {
+    "seed": 10,
+    "device": "mps",
+    "resolution": (512, 256),
+    "downsample": 32,
+    "in_channels": 5,
+    "out_channels": 40,
+    "layer_size1": 32,
+    "layer_size2": 64,
+    "layer_size3": 128,
+    "layer_size4": 256,
+    "kernel_size": 7,
+    "num_epochs": 1000,
+    "print_every": 50,
+    "batch_size": 64,
+    "learning_rate": 1e-3,
+    "weight_decay": 1e-3,
+    "dropout_rate": 0.3,
+    "alpha_emiss": 30.0,
+    "alpha_profile": 20.0,
+    "alpha_gate": 10.0,
+    "train_fraction": 0.50,
+    "val_fraction": 0.25,
+    "grad_clip_max_norm": 1.0,
+}
+
+np.random.seed(HYPERPARAMS["seed"])
+device = torch.device(HYPERPARAMS["device"])
 print("Using Apple MPS GPU")
 
-
-resolution = (512, 256)
-downsample = 32
-in_channels = 5
-out_channels = 40
-layer_size1 = 32
-layer_size2 = 64
-layer_size3 = 128
-layer_size4 = 256
-kernel_size = 5
-num_epochs = 1000
-print_every = 50
-batch_size = 64
-learning_rate = 1e-3
-weight_decay = 1e-3
-dropout_rate = 0.3
+resolution = HYPERPARAMS["resolution"]
+downsample = HYPERPARAMS["downsample"]
+in_channels = HYPERPARAMS["in_channels"]
+out_channels = HYPERPARAMS["out_channels"]
+layer_size1 = HYPERPARAMS["layer_size1"]
+layer_size2 = HYPERPARAMS["layer_size2"]
+layer_size3 = HYPERPARAMS["layer_size3"]
+layer_size4 = HYPERPARAMS["layer_size4"]
+kernel_size = HYPERPARAMS["kernel_size"]
+num_epochs = HYPERPARAMS["num_epochs"]
+print_every = HYPERPARAMS["print_every"]
+batch_size = HYPERPARAMS["batch_size"]
+learning_rate = HYPERPARAMS["learning_rate"]
+weight_decay = HYPERPARAMS["weight_decay"]
+dropout_rate = HYPERPARAMS["dropout_rate"]
 
 T_edges = np.logspace(3.0, 7.0, out_channels + 1)
 T_centers = np.sqrt(T_edges[:-1] * T_edges[1:])
@@ -1207,7 +1232,9 @@ if __name__ == "__main__":
     ).to(device)
 
     criterion = GatedPDFEmissivityLoss(
-        alpha_emiss=30.0, alpha_profile=20.0, alpha_gate=1.0
+        alpha_emiss=HYPERPARAMS["alpha_emiss"],
+        alpha_profile=HYPERPARAMS["alpha_profile"],
+        alpha_gate=HYPERPARAMS["alpha_gate"],
     )
     # criterion = nn.KLDivLoss(reduction="batchmean")
     # criterion = KLWithLeakageLoss()
@@ -1255,8 +1282,8 @@ if __name__ == "__main__":
 
     indices = np.random.permutation(num_samples)
 
-    train_end = int(0.50 * num_samples)
-    val_end = int(0.75 * num_samples)
+    train_end = int(HYPERPARAMS["train_fraction"] * num_samples)
+    val_end = int((HYPERPARAMS["train_fraction"] + HYPERPARAMS["val_fraction"]) * num_samples)
 
     train_dataset = Subset(dataset, indices[:train_end])
     val_dataset = Subset(dataset, indices[train_end:val_end])
@@ -1283,7 +1310,9 @@ if __name__ == "__main__":
 
             optimizer.zero_grad()
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(cnn_model.parameters(), max_norm=1.0)
+            torch.nn.utils.clip_grad_norm_(
+                cnn_model.parameters(), max_norm=HYPERPARAMS["grad_clip_max_norm"]
+            )
             optimizer.step()
 
         cnn_model.eval()
@@ -1321,21 +1350,21 @@ if __name__ == "__main__":
         train_loss_arr.append(train_loss)
         val_loss_arr.append(val_loss)
 
-        # # Early stopping
-        # window_size = 200
+        # Early stopping
+        window_size = 200
 
-        # if len(val_loss_arr) >= window_size:
+        if len(val_loss_arr) >= window_size:
 
-        #     val_loss_ma = np.convolve(
-        #         val_loss_arr,
-        #         np.ones(window_size)/window_size,
-        #         mode='valid'
-        #     )
+            val_loss_ma = np.convolve(
+                val_loss_arr,
+                np.ones(window_size)/window_size,
+                mode='valid'
+            )
 
-        #     if len(val_loss_ma) > 1 and val_loss_ma[-1] > np.min(val_loss_ma[:-1]) and epoch >= 499:
+            if len(val_loss_ma) > 1 and val_loss_ma[-1] > np.min(val_loss_ma[:-1]) and epoch >= 499:
 
-        #         print(f"Early stopping at epoch {epoch+1}")
-        #         break
+                print(f"Early stopping at epoch {epoch+1}")
+                break
 
     # Testing
     cnn_model.eval()

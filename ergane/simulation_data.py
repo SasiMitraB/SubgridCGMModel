@@ -325,9 +325,11 @@ class SimulationData:
         self,
         datafolder: str | Path,
         athinp:     Optional[str | Path] = None,
+        dtype:      np.dtype = np.float64,
     ):
         self._datafolder  = Path(datafolder)
         self._athinp_path = Path(athinp) if athinp else None
+        self._dtype       = dtype
 
         # Parse athinput (optional)
         self.params: dict[str, dict[str, str]] = {}
@@ -417,17 +419,17 @@ class SimulationData:
             )
 
         if self._file_format == "vtk":
-            raw    = parse_athena_vtk(self._hydro_files[num])
+            raw    = parse_athena_vtk(self._hydro_files[num], dtype=self._dtype)
             merged = dict(raw["fields"])
 
             if num in self._bcc_files:
-                bcc_raw = parse_athena_vtk(self._bcc_files[num])
+                bcc_raw = parse_athena_vtk(self._bcc_files[num], dtype=self._dtype)
                 merged.update(bcc_raw["fields"])
 
             return _resolve_all(merged), raw["time"], raw["x"], raw["y"]
 
         elif self._file_format == "bin":
-            data_h = bin_reader.read_all_ranks_binary_as_athdf(str(self._hydro_files[num]))
+            data_h = bin_reader.read_all_ranks_binary_as_athdf(str(self._hydro_files[num]), dtype=self._dtype)
             merged = {}
             time_val = data_h["Time"]
             x_code = data_h["x1f"]
@@ -442,7 +444,7 @@ class SimulationData:
                         merged[k] = val
 
             if num in self._bcc_files:
-                data_b = bin_reader.read_all_ranks_binary_as_athdf(str(self._bcc_files[num]))
+                data_b = bin_reader.read_all_ranks_binary_as_athdf(str(self._bcc_files[num]), dtype=self._dtype)
                 for k, val in data_b.items():
                     if k not in exclude_keys and isinstance(val, np.ndarray):
                         if val.shape[0] == 1:
@@ -457,12 +459,12 @@ class SimulationData:
         if self._grid_cache is None:
             first = self._frame_numbers[0]
             if self._file_format == "vtk":
-                raw   = parse_athena_vtk(self._hydro_files[first])
+                raw   = parse_athena_vtk(self._hydro_files[first], dtype=self._dtype)
                 arr0  = raw["fields"][next(iter(raw["fields"]))]
                 ncy, ncx = arr0.shape[:2]
                 self._grid_cache = {"x": raw["x"], "y": raw["y"], "ncx": ncx, "ncy": ncy}
             elif self._file_format == "bin":
-                data_h = bin_reader.read_all_ranks_binary_as_athdf(str(self._hydro_files[first]))
+                data_h = bin_reader.read_all_ranks_binary_as_athdf(str(self._hydro_files[first]), dtype=self._dtype)
                 exclude_keys = {"Time", "NumCycles", "MaxLevel", "x1f", "x1v", "x2f", "x2v", "x3f", "x3v", "Levels"}
                 arr0 = None
                 for k, val in data_h.items():

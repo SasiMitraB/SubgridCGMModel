@@ -38,7 +38,7 @@ def _read_newline(f) -> None:
 
 # ── Public API ────────────────────────────────────────────────────────────────
 
-def parse_athena_vtk(path: str | Path) -> dict:
+def parse_athena_vtk(path: str | Path, dtype: np.dtype = np.float64) -> dict:
     """
     Parse a single Athena/AthenaK binary VTK file.
 
@@ -46,14 +46,16 @@ def parse_athena_vtk(path: str | Path) -> dict:
     ----------
     path : str or Path
         Path to the .vtk file.
+    dtype : np.dtype, optional
+        Target datatype for the loaded coordinate and field arrays. Default is np.float64.
 
     Returns
     -------
     dict with keys:
         "time"   – simulation time extracted from the VTK comment line.
-        "x"      – 1-D float32 node coordinate array along X.
-        "y"      – 1-D float32 node coordinate array along Y.
-        "fields" – dict mapping field name → numpy array.
+        "x"      – 1-D node coordinate array along X.
+        "y"      – 1-D node coordinate array along Y.
+        "fields" – dict mapping field name → numpy array of type `dtype`.
     """
     fields: dict[str, np.ndarray] = {}
 
@@ -80,8 +82,8 @@ def parse_athena_vtk(path: str | Path) -> dict:
             spacing_line = f.readline().decode("ascii").strip()
             dx, dy, dz = map(float, spacing_line.split()[1:])
 
-            x = np.linspace(ox, ox + dx * ncx, nx, dtype="f4")
-            y = np.linspace(oy, oy + dy * ncy, ny, dtype="f4")
+            x = np.linspace(ox, ox + dx * ncx, nx, dtype=dtype)
+            y = np.linspace(oy, oy + dy * ncy, ny, dtype=dtype)
 
             # Fast-forward to CELL_DATA block
             while True:
@@ -92,12 +94,12 @@ def parse_athena_vtk(path: str | Path) -> dict:
         elif next_line.startswith("X_COORDINATES"):
             # ── Legacy Athena++ style: RECTILINEAR_GRID ───────────────────
             n_x = int(next_line.split()[1])
-            x = np.frombuffer(f.read(n_x * 4), dtype=">f4").astype("f4").copy()
+            x = np.frombuffer(f.read(n_x * 4), dtype=">f4").astype(dtype).copy()
             _read_newline(f)
 
             y_hdr = f.readline().decode("ascii").strip()
             n_y = int(y_hdr.split()[1])
-            y = np.frombuffer(f.read(n_y * 4), dtype=">f4").astype("f4").copy()
+            y = np.frombuffer(f.read(n_y * 4), dtype=">f4").astype(dtype).copy()
             _read_newline(f)
 
             z_hdr = f.readline().decode("ascii").strip()
@@ -130,7 +132,7 @@ def parse_athena_vtk(path: str | Path) -> dict:
                 f.readline()  # "LOOKUP_TABLE default"
                 arr = (
                     np.frombuffer(f.read(n_cells * 4), dtype=">f4")
-                    .astype("f4")
+                    .astype(dtype)
                     .copy()
                 )
                 arr = (
@@ -145,7 +147,7 @@ def parse_athena_vtk(path: str | Path) -> dict:
                 name = parts[1]
                 arr = (
                     np.frombuffer(f.read(n_cells * 3 * 4), dtype=">f4")
-                    .astype("f4")
+                    .astype(dtype)
                     .copy()
                 )
                 arr = (

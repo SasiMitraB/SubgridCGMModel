@@ -103,10 +103,12 @@ class simulation_data():
 
         # Count only the hydro_w files so we know exactly how many snapshots
         # exist, regardless of whether they start at 00000 or 00501 etc.
-        w_files = sorted([f for f in os.listdir(filepath) if f.startswith('KH.hydro_w') and f.endswith('.bin')])
-        num_snaps = len(w_files)
+        w_files = [f for f in os.listdir(filepath) if f.startswith('KH.hydro_w') and f.endswith('.bin')]
+        indices = sorted([int(f.split('.')[-2]) for f in w_files])
+        valid_indices = [idx for idx in indices if idx >= start]
+        num_load = len(valid_indices)
 
-        self.rho = np.zeros((num_snaps, self.resolution[0], self.resolution[1]))
+        self.rho = np.zeros((num_load, self.resolution[0], self.resolution[1]))
         self.temp = np.zeros_like(self.rho)
         self.pressure = np.zeros_like(self.rho)
         self.ux = np.zeros_like(self.rho)
@@ -115,20 +117,20 @@ class simulation_data():
         self.ps = np.zeros_like(self.rho)
         self.frho = np.zeros_like(self.rho)
 
-        for i in tqdm(range(num_snaps), desc="Loading data"):
-            file_data = bin_convert.read_binary(f"KH.hydro_w.{i + start:05d}.bin")
-            self.rho[i] = bin_convert.make_2D_array(file_data, "dens")
-            self.ux[i] = bin_convert.make_2D_array(file_data, "velx")
-            self.uy[i] = bin_convert.make_2D_array(file_data, "vely")
-            self.eint[i] = bin_convert.make_2D_array(file_data, "eint")
-            self.ps[i] = bin_convert.make_2D_array(file_data, "s_00")
+        for idx, i in enumerate(tqdm(valid_indices, desc="Loading data")):
+            file_data = bin_convert.read_binary(f"KH.hydro_w.{i:05d}.bin")
+            self.rho[idx] = bin_convert.make_2D_array(file_data, "dens")
+            self.ux[idx] = bin_convert.make_2D_array(file_data, "velx")
+            self.uy[idx] = bin_convert.make_2D_array(file_data, "vely")
+            self.eint[idx] = bin_convert.make_2D_array(file_data, "eint")
+            self.ps[idx] = bin_convert.make_2D_array(file_data, "s_00")
             try:
-                self.frho[i] = bin_convert.make_2D_array(file_data, "s_01")
+                self.frho[idx] = bin_convert.make_2D_array(file_data, "s_01")
             except Exception:
                 pass
 
-            self.pressure[i] = 2./3. * self.eint[i]
-            self.temp[i] = (self.pressure[i] * 1.59916e-14 / self.rho[i]) * (1. / 1.381e-16)
+            self.pressure[idx] = 2./3. * self.eint[idx]
+            self.temp[idx] = (self.pressure[idx] * 1.59916e-14 / self.rho[idx]) * (1. / 1.381e-16)
 
         os.chdir(cwd)
         return
@@ -139,22 +141,24 @@ class simulation_data():
         os.chdir(filepath)
 
         # Count only hydro_u files
-        u_files = sorted([f for f in os.listdir(filepath) if f.startswith('KH.hydro_u') and f.endswith('.bin')])
-        num_snaps = len(u_files)
+        u_files = [f for f in os.listdir(filepath) if f.startswith('KH.hydro_u') and f.endswith('.bin')]
+        indices = sorted([int(f.split('.')[-2]) for f in u_files])
+        valid_indices = [idx for idx in indices if idx >= start]
+        num_load = len(valid_indices)
 
-        self.cons_rho = np.zeros((num_snaps, self.resolution[0], self.resolution[1]))
+        self.cons_rho = np.zeros((num_load, self.resolution[0], self.resolution[1]))
         self.cons_momx = np.zeros_like(self.cons_rho)
         self.cons_momy = np.zeros_like(self.cons_rho)
         self.cons_ener = np.zeros_like(self.cons_rho)
         self.cons_ps = np.zeros_like(self.cons_rho)
 
-        for i in tqdm(range(num_snaps), desc="Loading cons data"):
-            file_data = bin_convert.read_binary(f"KH.hydro_u.{i + start:05d}.bin")
-            self.cons_rho[i] = bin_convert.make_2D_array(file_data, "dens")
-            self.cons_momx[i] = bin_convert.make_2D_array(file_data, "mom1")
-            self.cons_momy[i] = bin_convert.make_2D_array(file_data, "mom2")
-            self.cons_ener[i] = bin_convert.make_2D_array(file_data, "ener")
-            self.cons_ps[i] = bin_convert.make_2D_array(file_data, "r_00")
+        for idx, i in enumerate(tqdm(valid_indices, desc="Loading cons data")):
+            file_data = bin_convert.read_binary(f"KH.hydro_u.{i:05d}.bin")
+            self.cons_rho[idx] = bin_convert.make_2D_array(file_data, "dens")
+            self.cons_momx[idx] = bin_convert.make_2D_array(file_data, "mom1")
+            self.cons_momy[idx] = bin_convert.make_2D_array(file_data, "mom2")
+            self.cons_ener[idx] = bin_convert.make_2D_array(file_data, "ener")
+            self.cons_ps[idx] = bin_convert.make_2D_array(file_data, "r_00")
 
         os.chdir(cwd)
         return
