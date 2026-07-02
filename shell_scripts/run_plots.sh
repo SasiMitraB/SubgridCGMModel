@@ -9,7 +9,7 @@
 
 set -euo pipefail
 
-PROJECT_ROOT="/Volumes/PortableSSD/Projects/SubgridCGMModel"
+PROJECT_ROOT="/home/sasi/Projects/SubgridCGMModel"
 
 # ---------------------------------------------------------------------------
 # Resolve run directory (latest by default, or explicit arg)

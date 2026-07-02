@@ -30,15 +30,30 @@ print(f"Using device: {device}")
 RUN_PDF_ANIMATION = False
 RUN_COOLING_SCATTER = True
 RUN_COOLING_HISTOGRAM = True
-RUN_PDF_COMPARE_ANIMATION = True
-RUN_COOLING_COMPARE_ANIMATION = True
-RUN_FOURWAY_COMPARE_ANIMATION = True
+RUN_PDF_COMPARE_ANIMATION = False
+RUN_COOLING_COMPARE_ANIMATION = False
+RUN_FOURWAY_COMPARE_ANIMATION = False
+RUN_DENSITY_GATE_ANIMATION = True
 
 # =========================
 # SETTINGS
 # =========================
-resolution = (512, 256)
-downsample = 32
+DEFAULT_FINE_RESOLUTION = (512, 256)
+DEFAULT_DOWNSAMPLE = 32
+
+
+def _parse_resolution(value: str, default: tuple[int, int]) -> tuple[int, int]:
+    try:
+        width_str, height_str = value.split(",")
+        return int(width_str.strip()), int(height_str.strip())
+    except (ValueError, AttributeError):
+        return default
+
+
+resolution = _parse_resolution(
+    os.environ.get("PDF_CNN_RESOLUTION", "512,256"), DEFAULT_FINE_RESOLUTION
+)
+downsample = int(os.environ.get("PDF_CNN_DOWNSAMPLE", str(DEFAULT_DOWNSAMPLE)))
 bins = 40
 
 
@@ -87,7 +102,7 @@ log_temp_centers = 0.5 * (np.log10(temp_bins[:-1]) + np.log10(temp_bins[1:]))
 cmap = plt.get_cmap("inferno")
 norm = colors.Normalize(vmin=3.0, vmax=7.0)
 
-folder_path = f"/Volumes/PortableSSD/Projects/SubgridCGMModel/simulation_outputs/hr_build/cache/sc(512, 256)_32"
+folder_path = f"/home/sasi/Projects/SubgridCGMModel/simulation_outputs/hr_build_1024/cache/sc{resolution}_{downsample}"
 
 PDF_MOCKS_DIR = os.environ.get("PDF_MOCKS_DIR", "mocks/pdf")
 os.makedirs(PDF_MOCKS_DIR, exist_ok=True)
@@ -434,10 +449,10 @@ if RUN_COOLING_SCATTER:
     for t in tqdm(range(nt), desc="Coarse-graining temperature (global scatter)"):
         cg_temp[t] = sim_data.coarse_grain(sim_data.temp[t])
 
-    # =========================
-    # GLOBAL THREE-WAY SCATTER  (Change #2)
-    # =========================
-    print("Creating three-way cooling scatter plots...")
+    # ============================================================
+    # GLOBAL COOLING RATE DIAGNOSTICS: 2D Density & Residuals
+    # ============================================================
+    print("Creating global cooling diagnostic plots...")
 
     from matplotlib.colors import LogNorm
 
@@ -449,58 +464,134 @@ if RUN_COOLING_SCATTER:
     flat_true_iso = true_iso_cool.flatten()
     flat_cnn = cnn_cool.flatten()
 
-    fig_sc, axes_sc = plt.subplots(1, 3, figsize=(18, 6))
+    def add_running_median(ax, xv, yv, n_bins=25):
+        logx = np.log10(xv)
+        bin_edges = np.linspace(logx.min(), logx.max(), n_bins + 1)
+        bin_idx = np.digitize(logx, bin_edges)
+        xs, meds, lo, hi = [], [], [], []
+        for b in range(1, n_bins + 1):
+            sel = bin_idx == b
+            if sel.sum() < 5:
+                continue
+            xs.append(10 ** (0.5 * (bin_edges[b-1] + bin_edges[b])))
+            yb = yv[sel]
+            meds.append(np.median(yb))
+            lo.append(np.percentile(yb, 16))
+            hi.append(np.percentile(yb, 84))
+        if len(xs) > 0:
+            ax.plot(xs, meds, color="cyan", lw=2, label="Median")
+            ax.fill_between(xs, lo, hi, color="cyan", alpha=0.2, label="16–84%")
+            ax.legend(fontsize=8, loc="upper left")
 
-    _scatter_pairs = [
-        (
-            flat_true,
-            flat_true_iso,
-            "True Fine",
-            "True Isobaric",
-            "Physics Closure Error",
-        ),
-        (
-            flat_true_iso,
-            flat_cnn,
-            "True Isobaric",
-            "CNN Isobaric",
-            "CNN Prediction Error",
-        ),
-        (flat_true, flat_cnn, "True Fine", "CNN Isobaric", "Total Error"),
-    ]
+    fig_sc, axes_sc = plt.subplots(2, 2, figsize=(14, 12))
+    ax_closure = axes_sc[0, 0]
+    ax_pred = axes_sc[0, 1]
+    ax_total = axes_sc[1, 0]
+    ax_resid = axes_sc[1, 1]
 
-    for ax, (xv, yv, xl, yl, title) in zip(axes_sc, _scatter_pairs):
-        # Only plot points where BOTH axes are above the threshold
-        mask = (xv >= SCATTER_MIN) & (yv >= SCATTER_MIN)
-        xm, ym, tm = xv[mask], yv[mask], np.clip(temp_flat[mask], 1e3, None)
+    # Panel 1: Physics Closure Error (True Fine vs True Isobaric)
+    mask1 = (flat_true >= SCATTER_MIN) & (flat_true_iso >= SCATTER_MIN)
+    xm1, ym1 = flat_true[mask1], flat_true_iso[mask1]
+    tm1 = np.clip(temp_flat[mask1], 1e3, None)
 
-        sc = ax.scatter(
-            xm,
-            ym,
-            c=tm,
-            s=1,
-            alpha=0.2,
-            cmap="plasma",
-            norm=LogNorm(vmin=1e3, vmax=1e8),
-        )
-        # Reference line across the plotted range
-        if len(xm):
-            _lim = [min(xm.min(), ym.min()), max(xm.max(), ym.max())]
-            ax.plot(_lim, _lim, "r--", lw=1)
-        ax.set_xscale("log")
-        ax.set_yscale("log")
-        ax.set_xlabel(xl)
-        ax.set_ylabel(yl)
-        ax.set_title(f"{title}\n({mask.sum():,} / {len(xv):,} points)")
-        plt.colorbar(sc, ax=ax, label="Temperature (K)")
+    hb1 = ax_closure.hexbin(
+        xm1, ym1,
+        C=tm1,
+        reduce_C_function=np.median,
+        xscale="log", yscale="log",
+        gridsize=60,
+        cmap="plasma",
+        norm=LogNorm(vmin=1e3, vmax=1e8),
+        mincnt=1,
+        rasterized=True,
+    )
+    if len(xm1):
+        _lim = [min(xm1.min(), ym1.min()), max(xm1.max(), ym1.max())]
+        ax_closure.plot(_lim, _lim, "r--", lw=1)
+    ax_closure.set_xscale("log")
+    ax_closure.set_yscale("log")
+    ax_closure.set_xlabel("True Fine")
+    ax_closure.set_ylabel("True Isobaric")
+    ax_closure.set_title(f"Physics Closure Error\n({mask1.sum():,} / {len(flat_true):,} points)")
+    plt.colorbar(hb1, ax=ax_closure, label="Median Temperature (K)")
+    add_running_median(ax_closure, xm1, ym1)
 
-    fig_sc.suptitle("Cooling Rate Comparisons (All Pixels, All Timesteps)", fontsize=16)
+    # Panel 2: CNN Prediction Error (True Isobaric vs CNN Isobaric)
+    mask2 = (flat_true_iso >= SCATTER_MIN) & (flat_cnn >= SCATTER_MIN)
+    xm2, ym2 = flat_true_iso[mask2], flat_cnn[mask2]
+
+    hb2 = ax_pred.hexbin(
+        xm2, ym2,
+        xscale="log", yscale="log",
+        gridsize=60,
+        bins="log",
+        cmap="viridis",
+        mincnt=1,
+        rasterized=True,
+    )
+    if len(xm2):
+        _lim = [min(xm2.min(), ym2.min()), max(xm2.max(), ym2.max())]
+        ax_pred.plot(_lim, _lim, "r--", lw=1)
+    ax_pred.set_xscale("log")
+    ax_pred.set_yscale("log")
+    ax_pred.set_xlabel("True Isobaric")
+    ax_pred.set_ylabel("CNN Isobaric")
+    ax_pred.set_title(f"CNN Prediction Error\n({mask2.sum():,} / {len(flat_true_iso):,} points)")
+    plt.colorbar(hb2, ax=ax_pred, label="log$_{10}$(count)")
+    add_running_median(ax_pred, xm2, ym2)
+
+    # Panel 3: Total Error (True Fine vs CNN Isobaric)
+    mask3 = (flat_true >= SCATTER_MIN) & (flat_cnn >= SCATTER_MIN)
+    xm3, ym3 = flat_true[mask3], flat_cnn[mask3]
+
+    hb3 = ax_total.hexbin(
+        xm3, ym3,
+        xscale="log", yscale="log",
+        gridsize=60,
+        bins="log",
+        cmap="viridis",
+        mincnt=1,
+        rasterized=True,
+    )
+    if len(xm3):
+        _lim = [min(xm3.min(), ym3.min()), max(xm3.max(), ym3.max())]
+        ax_total.plot(_lim, _lim, "r--", lw=1)
+    ax_total.set_xscale("log")
+    ax_total.set_yscale("log")
+    ax_total.set_xlabel("True Fine")
+    ax_total.set_ylabel("CNN Isobaric")
+    ax_total.set_title(f"Total Error\n({mask3.sum():,} / {len(flat_true):,} points)")
+    plt.colorbar(hb3, ax=ax_total, label="log$_{10}$(count)")
+    add_running_median(ax_total, xm3, ym3)
+
+    # Panel 4: CNN Residuals (log10(CNN / True) vs True Isobaric)
+    mask4 = (flat_true_iso >= SCATTER_MIN) & (flat_cnn >= SCATTER_MIN)
+    xm4, ym4 = flat_true_iso[mask4], np.log10(flat_cnn[mask4] / flat_true_iso[mask4])
+
+    hb4 = ax_resid.hexbin(
+        xm4, ym4,
+        xscale="log",
+        gridsize=60,
+        bins="log",
+        cmap="viridis",
+        mincnt=1,
+        rasterized=True,
+    )
+    ax_resid.axhline(0, color="r", linestyle="--", lw=1)
+    ax_resid.set_xscale("log")
+    ax_resid.set_xlabel("True Isobaric")
+    ax_resid.set_ylabel(r"$\log_{10}$(CNN Isobaric / True Isobaric)")
+    ax_resid.set_title(f"CNN Residuals\n({mask4.sum():,} / {len(flat_true_iso):,} points)")
+    plt.colorbar(hb4, ax=ax_resid, label="log$_{10}$(count)")
+    add_running_median(ax_resid, xm4, ym4)
+
+    fig_sc.suptitle("Cooling Rate Comparisons & Diagnostics (All Pixels, All Timesteps)", fontsize=16)
     fig_sc.tight_layout()
     fig_sc.savefig(
         os.path.join(PDF_MOCKS_DIR, "pdf_cooling_scatter_threeway.png"), dpi=200
     )
     plt.show()
-    print("Saved three-way scatter plot.")
+    print("Saved multi-panel cooling diagnostic plot.")
 
 
 # ============================================================
@@ -1094,3 +1185,93 @@ if RUN_FOURWAY_COMPARE_ANIMATION:
 
     print(f"Saved four-way comparison animation → {mp4_path_fourway}")
     plt.close(fig4)
+
+
+# ============================================================
+# DENSITY (FINE vs COARSE) & GATE COMPARISON ANIMATION
+# Panels: Fine Density (log) | Coarse Density (log) | Gate Output
+# ============================================================
+if RUN_DENSITY_GATE_ANIMATION:
+    print("Creating density and gate comparison animation...")
+
+    mp4_path_density = os.path.join(PDF_MOCKS_DIR, "pdf_density_gate_animation.mp4")
+    snapshot_density_path = os.path.join(PDF_MOCKS_DIR, "pdf_density_gate_t0.png")
+
+    # Set up the figure with 3 side-by-side subplots
+    # A figsize of (12, 7) or (14, 8) is much better suited for 3 tall subplots
+    fig5, axes5 = plt.subplots(1, 3, figsize=(12, 7))
+    ax_fine, ax_cg, ax_gate = axes5
+
+    # Determine consistent colorbar limits for the density plots using the coarse data
+    pos_rho = cg_rho[cg_rho > 0]
+    if len(pos_rho) > 0:
+        rho_vmin = np.log10(max(np.percentile(pos_rho, 1), 1e-10))
+        rho_vmax = np.log10(np.percentile(pos_rho, 99))
+    else:
+        rho_vmin, rho_vmax = -5, 5
+
+    # 1. Left: True Fine Density (log-scale)
+    im_fine = ax_fine.imshow(
+        np.log10(sim_data.rho[0] + 1e-10), 
+        origin="lower", cmap="viridis", vmin=rho_vmin, vmax=rho_vmax
+    )
+    ax_fine.set_title("True Density (Before CG) [$\log_{10}$]", fontsize=14)
+    fig5.colorbar(im_fine, ax=ax_fine, fraction=0.046, pad=0.04)
+
+    # 2. Middle: Coarse-Grained Density (log-scale)
+    im_cg = ax_cg.imshow(
+        np.log10(cg_rho[0] + 1e-10), 
+        origin="lower", cmap="viridis", vmin=rho_vmin, vmax=rho_vmax
+    )
+    ax_cg.set_title("Coarse-Grained Density [$\log_{10}$]", fontsize=14)
+    fig5.colorbar(im_cg, ax=ax_cg, fraction=0.046, pad=0.04)
+
+    # 3. Right: Gate Output
+    im_gate = ax_gate.imshow(
+        cnn_gate_maps[0], 
+        origin="lower", cmap="inferno", vmin=0.0, vmax=1.0
+    )
+    ax_gate.set_title("CNN Gate Output $g(x,y)$", fontsize=14)
+    fig5.colorbar(im_gate, ax=ax_gate, fraction=0.046, pad=0.04)
+
+    for ax in axes5:
+        ax.set_xlabel("Y (cells)")
+        ax.set_ylabel("X (cells)")
+
+    title5 = fig5.suptitle(f"Density & Gate Comparison | t = 0", fontsize=18, y=0.95)
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95], w_pad=1.0)
+
+    def init_density():
+        im_fine.set_data(np.log10(sim_data.rho[0] + 1e-10))
+        im_cg.set_data(np.log10(cg_rho[0] + 1e-10))
+        im_gate.set_data(cnn_gate_maps[0])
+        return [im_fine, im_cg, im_gate]
+
+    def update_density(frame):
+        im_fine.set_data(np.log10(sim_data.rho[frame] + 1e-10))
+        im_cg.set_data(np.log10(cg_rho[frame] + 1e-10))
+        im_gate.set_data(cnn_gate_maps[frame])
+        
+        title5.set_text(f"Density & Gate Comparison | t = {frame}")
+
+        if frame == 0:
+            fig5.savefig(snapshot_density_path, dpi=300)
+            print(f"Saved density/gate snapshot → {snapshot_density_path}")
+
+        return [im_fine, im_cg, im_gate]
+
+    anim5 = animation.FuncAnimation(
+        fig5, update_density, frames=nt, init_func=init_density, blit=False
+    )
+
+    print("Saving density and gate comparison MP4...")
+    with tqdm(total=nt, desc="Saving Density/Gate MP4") as pbar:
+        anim5.save(
+            mp4_path_density,
+            writer="ffmpeg",
+            fps=24,
+            progress_callback=lambda i, n: pbar.update(1),
+        )
+
+    print(f"Saved density/gate animation → {mp4_path_density}")
+    plt.close(fig5)

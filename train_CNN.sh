@@ -1,18 +1,13 @@
-export SUBGRID_DATA_PATH='/Volumes/PortableSSD/Projects/SubgridCGMModel/simulation_outputs/hr_build/bin'
-export SUBGRID_CACHE_PATH='/Volumes/PortableSSD/Projects/SubgridCGMModel/simulation_outputs/hr_build/cache'
+export SUBGRID_DATA_PATH='/home/sasi/Projects/SubgridCGMModel/simulation_outputs/hr_build_1024/bin'
+export SUBGRID_CACHE_PATH='/home/sasi/Projects/SubgridCGMModel/simulation_outputs/hr_build_1024/cache'
+export PDF_CNN_RESOLUTION='512,256'
+export PDF_CNN_DOWNSAMPLE='32'
 
-source /Volumes/PortableSSD/Projects/SubgridCGMModel/venv/bin/activate
-
-dot_clean -m /Volumes/PortableSSD/Projects/SubgridCGMModel
+source /home/sasi/Projects/SubgridCGMModel/venv/bin/activate
 
 start_time=$SECONDS
 python3 models/conv_nn/pdf_cnn.py
 duration=$(( SECONDS - start_time ))
 echo "Python script took $((duration / 60))m $((duration % 60))s to run."
 
-
-dot_clean -m /Volumes/PortableSSD/Projects/SubgridCGMModel
-
 python3 data/mocks/pdf_plot.py
-
-dot_clean -m /Volumes/PortableSSD/Projects/SubgridCGMModel

@@ -6,3 +6,5 @@ tqdm
 torch
 scikit-image
 pybind11
+ipympl
+ipywidgets

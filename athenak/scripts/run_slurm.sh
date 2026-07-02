@@ -13,4 +13,4 @@ module purge
 module load rh/devtoolset/7
 module load openmpi/gcc/3.0.3/64
 
-srun /home/jmstone/athenak/build/src/athena -i linear_wave.athinput time/nlim=100
+srun /home/sasi/Projects/SubgridCGMModel/athenak/build/src/athena -i linear_wave.athinput time/nlim=100

@@ -45,7 +45,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 # 0.  Project root and paths
 # ---------------------------------------------------------------------------
-PROJECT_ROOT="/Volumes/PortableSSD/Projects/SubgridCGMModel"
+PROJECT_ROOT="/home/sasi/Projects/SubgridCGMModel"
 
 # ---- Canonical HR output (training data source; not re-run here) ----
 HR_SIM_OUTPUT="${PROJECT_ROOT}/simulation_outputs/hr_build"
@@ -207,8 +207,6 @@ separator
 run_step 1 "train_pdf_cnn" \
     python3 "${PROJECT_ROOT}/models/conv_nn/pdf_cnn.py"
 
-dot_clean -m "${PROJECT_ROOT}"
-
 # ===========================================================================
 # STEP 2 — Low-resolution simulation: 0 → 5 Myr  (16×8 grid, ISM cooling)
 #
@@ -235,12 +233,8 @@ run_step 2 "lr_simulation_5myr" \
     bash -c "
         set -euo pipefail
         cd '${PROJECT_ROOT}/builds/hr_build/src'
-        dot_clean -m '${PROJECT_ROOT}'
         ./athena -i '${LR_ATHINPUT}' -d '${LR_OUTPUT_DIR}'
-        dot_clean -m '${PROJECT_ROOT}'
     "
-
-dot_clean -m "${PROJECT_ROOT}"
 
 # Verify the 5 Myr restart file was produced
 if [[ ! -f "${LR_RST_5MYR}" ]]; then
@@ -273,15 +267,11 @@ run_step 3 "lr_build_ism_restart" \
     bash -c "
         set -euo pipefail
         cd '${PROJECT_ROOT}/builds/hr_build/src'
-        dot_clean -m '${PROJECT_ROOT}'
         ./athena \
             -i '${LR_BUILD_ATHINPUT}' \
             -d '${LR_BUILD_OUTPUT_DIR}' \
             -r '${LR_RST_5MYR}'
-        dot_clean -m '${PROJECT_ROOT}'
     "
-
-dot_clean -m "${PROJECT_ROOT}"
 
 # ===========================================================================
 # STEP 4 — subgrid_model: restart from same 5 Myr rst with CNN source terms
@@ -308,7 +298,6 @@ run_step 4 "subgrid_model_cnn_restart" \
     bash -c "
         set -euo pipefail
         cd '${PROJECT_ROOT}/builds/subgrid_model/src'
-        dot_clean -m '${PROJECT_ROOT}'
 
         # Activate venv and set PYTHONPATH for the embedded Python source module
         source '${VENV_ACTIVATE}'
@@ -320,10 +309,7 @@ run_step 4 "subgrid_model_cnn_restart" \
             -i '${SG_ATHINPUT}' \
             -d '${SG_OUTPUT_DIR}' \
             -r '${LR_RST_5MYR}'
-        dot_clean -m '${PROJECT_ROOT}'
     "
-
-dot_clean -m "${PROJECT_ROOT}"
 
 # ===========================================================================
 # STEP 5 — Diagnostic plots (mock_sg.py)
@@ -337,8 +323,6 @@ separator
 
 run_step 5 "diagnostic_plots" \
     bash -c "cd '${PROJECT_ROOT}/data/mocks' && python3 mock_sg.py"
-
-dot_clean -m "${PROJECT_ROOT}"
 
 # ===========================================================================
 # Done — summary

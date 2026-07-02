@@ -1,22 +1,31 @@
 """
 ergane.visualization
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~
-fastplotlib-backed animated visualisation for AthenaK / Athena++ simulations.
+Multi-backend animated visualisation for AthenaK / Athena++ simulations.
+
+Backends
+--------
+- ``"fastplotlib"`` (default) — GPU-accelerated interactive window.
+- ``"matplotlib"``            — Animated matplotlib window (blocking).
+- ``"jupyter"``               — Inline ipywidgets display for Jupyter notebooks.
+- ``"auto"``                  — Selects ``"jupyter"`` inside a Jupyter kernel,
+                                ``"fastplotlib"`` otherwise.
 
 Typical usage (via SimulationData):
-    >>> viz = sim.visualize(fields=["density", "pressure"])
+    >>> viz = sim.visualize(backend='jupyter')   # Jupyter notebook
     >>> viz.show()
 
 Standalone usage:
     >>> from ergane import SimulationData, Visualization
     >>> sim = SimulationData(athinp=..., datafolder=...)
-    >>> viz = Visualization(sim, fields=["density", "pressure", "velx", "vely"])
+    >>> viz = Visualization(sim, fields=["density", "pressure"], backend='jupyter')
     >>> viz.show()
 """
 
 from __future__ import annotations
 
 import math
+from types import MethodType
 from typing import List, Optional
 
 import numpy as np
@@ -63,14 +72,50 @@ def _grid_shape(n: int) -> tuple[int, int]:
     return rows, cols
 
 
+def _is_jupyter() -> bool:
+    """Return True when running inside a Jupyter kernel."""
+    try:
+        from IPython import get_ipython
+        shell = get_ipython()
+        return shell is not None and "IPKernelApp" in shell.config
+    except ImportError:
+        return False
+
+
+def _enable_progress_save(animation_obj, total_frames: int) -> None:
+    original_save = animation_obj.save
+
+    def save_with_progress(self, *args, **kwargs):
+        if kwargs.get("progress_callback") is not None:
+            return original_save(*args, **kwargs)
+
+        try:
+            from tqdm import tqdm
+        except ImportError:
+            return original_save(*args, **kwargs)
+
+        save_target = args[0] if args else kwargs.get("filename", "animation")
+        desc = f"Saving {save_target}"
+
+        with tqdm(total=total_frames, desc=desc) as pbar:
+            def progress_callback(current_frame, total_frames_unused):
+                pbar.update(1)
+
+            kwargs["progress_callback"] = progress_callback
+            return original_save(*args, **kwargs)
+
+    animation_obj.save = MethodType(save_with_progress, animation_obj)
+
+
 # ── Visualization class ───────────────────────────────────────────────────────
 
 class Visualization:
     """
     Animated figure for an AthenaK / Athena++ simulation.
 
-    Acts as a factory that returns either a FastplotlibVisualization
-    or a MatplotlibVisualization instance depending on the chosen backend.
+    Acts as a factory that returns either a FastplotlibVisualization,
+    MatplotlibVisualization, or JupyterVisualization instance depending on 
+    the chosen backend.
 
     Parameters
     ----------
@@ -81,7 +126,12 @@ class Visualization:
     cmaps : dict, optional
         Per-field colourmap overrides, e.g. ``{"density": "plasma"}``.
     backend : str, optional
-        The visualization backend to use: ``"fastplotlib"`` (default) or ``"matplotlib"``.
+        The visualization backend to use:
+          - ``"fastplotlib"`` (default) – GPU-accelerated interactive window.
+          - ``"matplotlib"``            – Animated matplotlib window.
+          - ``"jupyter"``               – Inline ipywidgets display (Jupyter only).
+          - ``"auto"``                  – Uses ``"jupyter"`` if inside a Jupyter
+            kernel, ``"fastplotlib"`` otherwise.
     size : tuple[int, int], optional
         Window size in pixels ``(width, height)``.  Auto-sized if omitted.
     **kwargs
@@ -98,12 +148,19 @@ class Visualization:
         **kwargs,
     ) -> Visualization:
         if cls is Visualization:
+            if backend == "auto":
+                backend = "jupyter" if _is_jupyter() else "fastplotlib"
             if backend == "matplotlib":
                 return object.__new__(MatplotlibVisualization)
             elif backend == "fastplotlib":
                 return object.__new__(FastplotlibVisualization)
+            elif backend == "jupyter":
+                return object.__new__(JupyterVisualization)
             else:
-                raise ValueError(f"Unknown backend: {backend}")
+                raise ValueError(
+                    f"Unknown backend: {backend!r}. "
+                    f"Choose from 'fastplotlib', 'matplotlib', 'jupyter', 'auto'."
+                )
         return object.__new__(cls)
 
     def show(self) -> None:
@@ -182,7 +239,8 @@ class FastplotlibVisualization(Visualization):
                 continue  # field not available — leave subplot blank
 
             if field_name == "density":
-                data = np.log10(np.maximum(data, 1e-10))
+                floor = 1e-10 * self._sim.units.density
+                data = np.log10(np.maximum(data, floor))
 
             # Flip vertically to match origin='lower' (standard physical coordinate system)
             data = np.flipud(data)
@@ -228,7 +286,8 @@ class FastplotlibVisualization(Visualization):
                 data = getattr(f, field_name)
                 if data is not None:
                     if field_name == "density":
-                        data = np.log10(np.maximum(data, 1e-10))
+                        floor = 1e-10 * self._sim.units.density
+                        data = np.log10(np.maximum(data, floor))
                     # Flip vertically to match origin='lower'
                     data = np.flipud(data)
                     img.data = data
@@ -320,7 +379,8 @@ class MatplotlibVisualization(Visualization):
                 continue
 
             if field_name == "density":
-                data = np.log10(np.maximum(data, 1e-10))
+                floor = 1e-10 * self._sim.units.density
+                data = np.log10(np.maximum(data, floor))
 
             cmap = self._cmaps.get(field_name, "inferno")
             # We use origin='lower' as standard for simulation output grids
@@ -343,6 +403,7 @@ class MatplotlibVisualization(Visualization):
             blit=False,
             cache_frame_data=False,
         )
+        _enable_progress_save(self.ani, self._sim.n_frames)
 
     def _update(self, frame_idx: int):
         num = self._sim.frame_numbers[frame_idx]
@@ -351,7 +412,8 @@ class MatplotlibVisualization(Visualization):
             data = getattr(f, field_name)
             if data is not None:
                 if field_name == "density":
-                    data = np.log10(np.maximum(data, 1e-10))
+                    floor = 1e-10 * self._sim.units.density
+                    data = np.log10(np.maximum(data, floor))
                 im.set_data(data)
 
         self.figure.suptitle(f"Time: {f.time:.4f} (Frame {num})")
@@ -368,4 +430,253 @@ class MatplotlibVisualization(Visualization):
         return (
             f"<MatplotlibVisualization  sim='{self._sim.basename}'  "
             f"fields={self._fields}>"
+        )
+
+
+# ── Jupyter (ipywidgets) Backend ──────────────────────────────────────────────
+
+class JupyterVisualization(Visualization):
+    """
+    Interactive inline visualisation for Jupyter notebooks.
+
+    Uses ``ipywidgets`` to provide:
+    - A **frame slider** to scrub through the simulation in time.
+    - A **Play** button for auto-play animation.
+    - A **log-scale toggle** for the density field.
+    - A **colourmap selector** dropdown per field.
+
+    Requirements: ``ipywidgets``, ``matplotlib``.
+    The notebook should have ``%matplotlib widget`` active (or ``inline``) so
+    that the figure renders inside the cell output.
+
+    Parameters
+    ----------
+    sim : SimulationData
+        The simulation to visualise.
+    fields : list of str, optional
+        Which fields to show.  Defaults to ``sim.fields_available``.
+    cmaps : dict, optional
+        Per-field colourmap overrides.
+    figsize_per_panel : tuple[float, float], optional
+        Size of each subplot panel in inches ``(width, height)``.
+        Default is ``(4.5, 3.5)``.
+    interval : int, optional
+        Auto-play step interval in milliseconds.  Default is 200.
+    """
+
+    def __init__(
+        self,
+        sim: SimulationData,
+        fields: Optional[List[str]] = None,
+        cmaps: Optional[dict[str, str]] = None,
+        backend: str = "jupyter",
+        figsize_per_panel: tuple = (4.5, 3.5),
+        interval: int = 200,
+        **kwargs,
+    ):
+        try:
+            import ipywidgets as widgets
+            from IPython.display import display
+        except ImportError as exc:
+            raise ImportError(
+                "JupyterVisualization requires ipywidgets. "
+                "Install it with: pip install ipywidgets"
+            ) from exc
+
+        import matplotlib
+        import matplotlib.pyplot as plt
+
+        self._sim = sim
+        self._fields = fields if fields is not None else sim.fields_available
+        self._cmaps = dict(_DEFAULT_CMAPS)
+        if cmaps:
+            self._cmaps.update(cmaps)
+
+        n = len(self._fields)
+        rows, cols = _grid_shape(n)
+        pw, ph = figsize_per_panel
+        figsize = (pw * cols, ph * rows)
+
+        # ── Build the matplotlib figure (non-blocking) ──────────────────
+        plt.ioff()
+        self.figure, axes_grid = plt.subplots(rows, cols, figsize=figsize, squeeze=False)
+        plt.ion()
+
+        self._axes: dict[str, object] = {}
+        self._images_mpl: dict[str, object] = {}  # field → AxesImage
+        self._cbars: dict[str, object] = {}        # field → Colorbar
+
+        # Hide unused axes
+        for idx in range(n, rows * cols):
+            r, c = divmod(idx, cols)
+            self.figure.delaxes(axes_grid[r, c])
+
+        # Load first frame for initial render
+        first_num = sim.frame_numbers[0]
+        frame0 = sim.get_frame(first_num)
+
+        for idx, field_name in enumerate(self._fields):
+            r, c = divmod(idx, cols)
+            ax = axes_grid[r, c]
+            self._axes[field_name] = ax
+
+            data = getattr(frame0, field_name)
+            if data is None:
+                ax.set_visible(False)
+                continue
+
+            display_data = self._prepare_data(field_name, data, log_scale=True)
+            cmap = self._cmaps.get(field_name, "inferno")
+
+            im = ax.imshow(display_data, cmap=cmap, origin="lower", aspect="auto")
+            ax.set_title(_TITLES.get(field_name, field_name), fontsize=10)
+            ax.set_xlabel("x [code]", fontsize=8)
+            ax.set_ylabel("y [code]", fontsize=8)
+            ax.tick_params(labelsize=7)
+
+            cbar = self.figure.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+            cbar.ax.tick_params(labelsize=7)
+
+            self._images_mpl[field_name] = im
+            self._cbars[field_name] = cbar
+
+        self.figure.suptitle(
+            f"{sim.basename}  |  t = {frame0.time:.4f}  (frame {first_num})",
+            fontsize=11,
+        )
+        self.figure.tight_layout()
+
+        # ── Widgets ──────────────────────────────────────────────────────
+        n_frames = sim.n_frames
+
+        frame_slider = widgets.IntSlider(
+            value=0, min=0, max=n_frames - 1, step=1,
+            description="Frame:",
+            continuous_update=False,
+            layout=widgets.Layout(width="70%"),
+            style={"description_width": "60px"},
+        )
+        play = widgets.Play(
+            value=0, min=0, max=n_frames - 1, step=1,
+            interval=interval,
+            description="Play",
+        )
+        widgets.jslink((play, "value"), (frame_slider, "value"))
+
+        log_toggle = widgets.ToggleButton(
+            value=True,
+            description="Log scale (density)",
+            button_style="info",
+            icon="adjust",
+            layout=widgets.Layout(width="200px"),
+        )
+
+        available_cmaps = [
+            "inferno", "plasma", "viridis", "magma", "hot",
+            "seismic", "bwr", "RdBu_r", "coolwarm", "jet",
+            "turbo", "cividis", "twilight",
+        ]
+        cmap_dropdowns = {}
+        for field_name in self._fields:
+            dd = widgets.Dropdown(
+                options=available_cmaps,
+                value=self._cmaps.get(field_name, "inferno"),
+                description=f"{field_name}:",
+                style={"description_width": "80px"},
+                layout=widgets.Layout(width="220px"),
+            )
+            cmap_dropdowns[field_name] = dd
+
+        time_label = widgets.Label(
+            value=f"t = {frame0.time:.4f}  |  frame {first_num}  (idx 0 / {n_frames - 1})"
+        )
+
+        # ── Update callback ───────────────────────────────────────────────
+        def _redraw(frame_pos, log_on):
+            num = sim.frame_numbers[frame_pos]
+            frame = sim.get_frame(num)
+            for field_name, im in self._images_mpl.items():
+                data = getattr(frame, field_name)
+                if data is None:
+                    continue
+                cmap_name = cmap_dropdowns[field_name].value
+                display_data = self._prepare_data(field_name, data, log_scale=log_on)
+                im.set_data(display_data)
+                im.set_cmap(cmap_name)
+                vmin, vmax = float(np.nanmin(display_data)), float(np.nanmax(display_data))
+                im.set_clim(vmin, vmax)
+            self.figure.suptitle(
+                f"{sim.basename}  |  t = {frame.time:.4f}  (frame {num})",
+                fontsize=11,
+            )
+            self.figure.canvas.draw_idle()
+            time_label.value = (
+                f"t = {frame.time:.4f}  |  frame {num}  "
+                f"(idx {frame_pos} / {n_frames - 1})"
+            )
+
+        def _on_frame_change(change):
+            _redraw(change["new"], log_toggle.value)
+
+        def _on_log_change(change):
+            _redraw(frame_slider.value, change["new"])
+
+        def _make_cmap_observer(fn):
+            def _on_cmap_change(change):
+                _redraw(frame_slider.value, log_toggle.value)
+            return _on_cmap_change
+
+        frame_slider.observe(_on_frame_change, names="value")
+        log_toggle.observe(_on_log_change, names="value")
+        for fn, dd in cmap_dropdowns.items():
+            dd.observe(_make_cmap_observer(fn), names="value")
+
+        # ── Assemble widget layout ────────────────────────────────────────
+        cmap_box = widgets.HBox(
+            list(cmap_dropdowns.values()),
+            layout=widgets.Layout(flex_wrap="wrap"),
+        )
+        controls = widgets.VBox([
+            widgets.HBox([play, frame_slider]),
+            time_label,
+            log_toggle,
+            widgets.HTML("<b>Colourmap overrides:</b>"),
+            cmap_box,
+        ])
+
+        self._widget = widgets.VBox([self.figure.canvas, controls])
+        self._display_fn = display
+
+    def _prepare_data(
+        self,
+        field_name: str,
+        data: np.ndarray,
+        *,
+        log_scale: bool,
+    ) -> np.ndarray:
+        """Apply log10 to the density field when log_scale is True."""
+        if log_scale and field_name == "density":
+            floor = 1e-10 * self._sim.units.density
+            return np.log10(np.maximum(data, floor))
+        return data
+
+    def show(self) -> None:
+        """
+        Display the interactive widget inline in the current Jupyter cell.
+
+        Call this at the end of a notebook cell.  Use the slider or Play
+        button to scrub through frames; toggle Log scale for density display;
+        choose per-field colourmaps from the dropdowns.
+        """
+        self._display_fn(self._widget)
+
+    @property
+    def widget(self):
+        """The root ``ipywidgets.VBox`` containing the figure and controls."""
+        return self._widget
+
+    def __repr__(self) -> str:
+        return (
+            f"<JupyterVisualization  sim='{self._sim.basename}'  "
+            f"fields={self._fields}  n_frames={self._sim.n_frames}>"
         )
