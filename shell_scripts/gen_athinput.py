@@ -84,6 +84,7 @@ def main():
             "length_cgs": params.get("length_cgs"),
             "mass_cgs": params.get("mass_cgs"),
             "time_cgs": params.get("time_cgs"),
+            "mu": params.get("mu"),
         },
         "output1": {"file_type": "hst", "dt": params.get("hst_dt")},
         "output2": {"file_type": "bin", "variable": "hydro_w", "dt": params.get("bin_w_dt")},
@@ -102,8 +103,31 @@ def main():
             f.write(f"<{block_name}>\n")
             for k, v in block_params.items():
                 if v is not None:
-                    # Format float without python's e notation if it's not a scientific notation by default
-                    f.write(f"{k:<11} = {v}\n")
+                    if block_name == "problem" and k == "a_char":
+                        f.write(f"a_char = {v}\t\t    # width of tanh profile\n#a_char = 0.125\n")
+                    elif block_name == "problem" and k == "press":
+                        f.write(f"# press = 8.63359\t\t# pressure = 1.380649e-13 dyne cm^-3; 8.63359\n")
+                        f.write(f"press = {v} # Since mu was updated, even pressure should be updated from 8.63359\n")
+                    elif block_name == "problem" and k == "cold_frac":
+                        f.write(f"#cold_frac = 0.16666667\t# fraction of region occupied by cold gas\n")
+                        f.write(f"cold_frac = {v:.8f}\n")
+                        f.write(f"#cold_frac = 0.3300000\n")
+                    elif block_name == "units" and k in ["length_cgs", "mass_cgs", "time_cgs"]:
+                        f.write(f"{k:<11} = {v:.5e}\n")
+                    elif block_name == "units" and k == "mu":
+                        f.write(f"mu = {v}\n")
+                        f.write("# This is because we're in plasma and things need to be ionized.\n\n")
+                        f.write("# Units :-\n")
+                        f.write("# length = 1 pc = 3.08568e+18 cm\n")
+                        f.write("# time   = 1 My  = 3.15576e+13 s\n")
+                        f.write("# mass   = 4.91417e+31 g cm^-3 \t\t(this is so that density has units of m_p per cm^3)\n")
+                        f.write("# velocity = 9.77793e+4  cm s^-1\n")
+                        f.write("# density  = 1.67262e-24 g cm^-3\n")
+                        f.write("# energy   = 4.69834e+41 ergs\n")
+                        f.write("# power    = 1.48881e+28 erg/s\n")
+                        f.write("# energy density/pressure = 1.59916e-14 dyne/cm^2\n")
+                    else:
+                        f.write(f"{k:<11} = {v}\n")
             f.write("\n")
 
 if __name__ == "__main__":

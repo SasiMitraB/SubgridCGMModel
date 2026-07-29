@@ -48,7 +48,7 @@ set -euo pipefail
 PROJECT_ROOT="/home/sasi/Projects/SubgridCGMModel"
 
 # ---- Canonical HR output (training data source; not re-run here) ----
-HR_SIM_OUTPUT="${PROJECT_ROOT}/simulation_outputs/hr_build"
+HR_SIM_OUTPUT="${PROJECT_ROOT}/simulation_outputs/hr_build_1024"
 HR_BIN_DIR="${HR_SIM_OUTPUT}/bin"
 
 # ---- LR 5 Myr base simulation (Step 2) ----
@@ -153,6 +153,8 @@ export PYTHONPATH="${PROJECT_ROOT}:${PROJECT_ROOT}/data:${PYTHONPATH:-}"
 # Environment variables for pdf_cnn.py's data/cache paths
 export SUBGRID_DATA_PATH="${HR_BIN_DIR}"
 export SUBGRID_CACHE_PATH="${HR_SIM_OUTPUT}/cache"
+export PDF_CNN_RESOLUTION="1024,512"
+export PDF_CNN_DOWNSAMPLE="32"
 
 # ---------------------------------------------------------------------------
 # Write a manifest of all key paths for this run
@@ -227,6 +229,8 @@ log "LR athinput mesh settings:"
 grep -E '^\s*nx[12]\s*=' "${LR_ATHINPUT}" | tee -a "${MASTER_LOG}"
 log "LR athinput tlim:"
 grep -E '^\s*tlim\s*=' "${LR_ATHINPUT}" | tee -a "${MASTER_LOG}"
+log "LR athinput press and mu settings:"
+grep -E '^\s*(press|mu)\s*=' "${LR_ATHINPUT}" | tee -a "${MASTER_LOG}"
 separator
 
 run_step 2 "lr_simulation_5myr" \
@@ -261,6 +265,8 @@ log "lr_build athinput mesh settings:"
 grep -E '^\s*nx[12]\s*=' "${LR_BUILD_ATHINPUT}" | tee -a "${MASTER_LOG}"
 log "lr_build athinput tlim:"
 grep -E '^\s*tlim\s*=' "${LR_BUILD_ATHINPUT}" | tee -a "${MASTER_LOG}"
+log "lr_build athinput press and mu settings:"
+grep -E '^\s*(press|mu)\s*=' "${LR_BUILD_ATHINPUT}" | tee -a "${MASTER_LOG}"
 separator
 
 run_step 3 "lr_build_ism_restart" \
@@ -292,6 +298,8 @@ log "SG athinput mesh settings:"
 grep -E '^\s*nx[12]\s*=' "${SG_ATHINPUT}" | tee -a "${MASTER_LOG}"
 log "SG athinput tlim:"
 grep -E '^\s*tlim\s*=' "${SG_ATHINPUT}" | tee -a "${MASTER_LOG}"
+log "SG athinput press and mu settings:"
+grep -E '^\s*(press|mu)\s*=' "${SG_ATHINPUT}" | tee -a "${MASTER_LOG}"
 separator
 
 run_step 4 "subgrid_model_cnn_restart" \

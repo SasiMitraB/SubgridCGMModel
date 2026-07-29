@@ -1,0 +1,31 @@
+Authorization required, but no authorization protocol specified
+Authorization required, but no authorization protocol specified
+
+Root grid = 1 x 4 x 1 MeshBlocks
+Total number of MeshBlocks = 4
+Number of logical  levels of refinement = 2 (3 levels total)
+Number of physical levels of refinement = 0 (1 levels total)
+Number of parallel ranks = 4
+  Rank = 0: 1 MeshBlocks, cost = 1
+  Rank = 1: 1 MeshBlocks, cost = 1
+  Rank = 2: 1 MeshBlocks, cost = 1
+  Rank = 3: 1 MeshBlocks, cost = 1
+Load Balancing:
+  Maximum normalized cost = 1, Average = 1
+
+Setup complete, executing task list(s)...
+
+elapsed=1.079122e-02 cycle=0 time=0.000000e+00 dt=1.730258e-04
+elapsed=2.482263e-01 cycle=100 time=1.729874e-02 dt=1.730194e-04
+elapsed=4.754654e-01 cycle=200 time=3.460098e-02 dt=1.730236e-04
+elapsed=7.121014e-01 cycle=300 time=5.190337e-02 dt=1.730242e-04
+elapsed=9.481850e-01 cycle=400 time=6.919396e-02 dt=1.731933e-04
+elapsed=1.185359e+00 cycle=500 time=8.647332e-02 dt=1.726746e-04
+elapsed=1.424244e+00 cycle=600 time=1.037111e-01 dt=1.725714e-04
+elapsed=1.663685e+00 cycle=700 time=1.209561e-01 dt=1.723515e-04
+elapsed=1.902921e+00 cycle=800 time=1.380663e-01 dt=1.688735e-04
+elapsed=2.146184e+00 cycle=900 time=1.548716e-01 dt=1.665493e-04
+elapsed=2.392069e+00 cycle=1000 time=1.715362e-01 dt=1.660425e-04
+elapsed=2.638384e+00 cycle=1100 time=1.881455e-01 dt=1.653433e-04
+elapsed=2.889236e+00 cycle=1200 time=2.046628e-01 dt=1.655295e-04
+elapsed=3.141679e+00 cycle=1300 time=2.211120e-01 dt=1.635702e-04

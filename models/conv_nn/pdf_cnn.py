@@ -91,7 +91,7 @@ HYPERPARAMS = {
     "alpha_emiss": 30.0,
     "alpha_profile": 20.0,
     "alpha_gate": 25.0,
-    'alpha_leak': 10.0,
+    'alpha_leak': 25.0,
     "train_fraction": 0.50,
     "val_fraction": 0.25,
     "grad_clip_max_norm": 1.0,
@@ -362,8 +362,8 @@ def nn_data(resolution: tuple, downsample: int) -> tuple:
         sim_data.cons_ener = np.load(f"{folder_path}/cons_ener.npy")
         sim_data.cons_ps = np.load(f"{folder_path}/cons_ps.npy")
     else:
-        sim_data.input_data(file_path, start=501)
-        sim_data.input_cons_data(file_path, start=501)
+        sim_data.input_data(file_path)
+        sim_data.input_cons_data(file_path)
         os.makedirs(folder_path, exist_ok=True)
 
         np.save(f"{folder_path}/rho.npy", sim_data.rho)
@@ -539,8 +539,8 @@ def snapshot_pred_16x8(
     """
 
     # ---- 1. Shape check -------------------------------------------------
-    expected_shape = (16, 8)
     fields = {"rho": rho, "temp": temp, "ux": ux, "uy": uy, "ps": ps}
+    expected_shape = rho.shape
     for name, arr in fields.items():
         if tuple(arr.shape) != expected_shape:
             raise ValueError(
@@ -735,7 +735,7 @@ class MixingLayerFeatures(nn.Module):
       ch 3: |∇ρ|                             (density contrast — baroclinic source)
       ch 4: cos θ = (∇T · ∇ρ)/(|∇T||∇ρ|)     (baroclinic alignment)
       ch 5: strain rate magnitude |σ|        (compressive mixing)
-      ch 6: ρ|ω|                             (densimetric vorticity, weighs shear by inertia)
+      ch 6: T|ω|                             (Temperature Weighted Vorticity)
       ch 7: (T - T̄)²  proxy                  (coarse-cell T variance; high when multi-phase)
 
     Input : (B, C, H, W)  — normalized simulation fields
@@ -815,13 +815,15 @@ class MixingLayerFeatures(nn.Module):
                 gradRho,  # ch 3
                 baroclinic,  # ch 4
                 strain,  # ch 5
-                rho.abs() * omega.abs(),  # ch 6
+                T.abs() * omega.abs(),  # ch 6
                 T_var_proxy,  # ch 7
             ],
             dim=1,
         )  # (B, 8, H, W)
 
         return torch.cat([x, mixing_features], dim=1)  # (B, C+8, H, W)
+
+
 
 
 class MixingLayerGate(nn.Module):
@@ -1200,8 +1202,8 @@ class GatedPDFEmissivityLoss(nn.Module):
         alpha_profile=1.0,
         alpha_gate=1.0,
         alpha_leak=1.0,
-        alpha_active_pdf=20.0,   # NEW: Weight for the active window PDF shape
-        entropy_threshold=0.1,
+        alpha_active_pdf=40.0,   # NEW: Weight for the active window PDF shape
+        entropy_threshold=0.05,
         logT_min=3.0,
         logT_max=7.0,
         num_bins=40,

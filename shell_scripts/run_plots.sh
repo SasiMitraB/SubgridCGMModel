@@ -31,10 +31,12 @@ fi
 echo "Using run directory: ${RUN_DIR}"
 
 # ---------------------------------------------------------------------------
-# Export the SG_MOCKS_DIR that mock_sg.py reads to decide where to save plots
+# Export mock output directories
 # ---------------------------------------------------------------------------
 export SG_MOCKS_DIR="${RUN_DIR}/sg_mocks"
+export PDF_MOCKS_DIR="${RUN_DIR}/pdf_mocks"
 mkdir -p "${SG_MOCKS_DIR}"
+mkdir -p "${PDF_MOCKS_DIR}"
 
 # ---------------------------------------------------------------------------
 # Activate venv and set PYTHONPATH
@@ -51,17 +53,25 @@ fi
 export PYTHONPATH="${PROJECT_ROOT}:${PROJECT_ROOT}/data:${PYTHONPATH:-}"
 
 # ---------------------------------------------------------------------------
-# Run mock_sg.py from data/mocks/ so relative imports resolve correctly
+# Run diagnostic plot scripts from data/mocks/ so relative imports resolve correctly
 # ---------------------------------------------------------------------------
 LOG_FILE="${RUN_DIR}/logs/step5_diagnostic_plots.log"
 mkdir -p "${RUN_DIR}/logs"
 
-echo "Saving plots to : ${SG_MOCKS_DIR}"
-echo "Log             : ${LOG_FILE}"
+echo "Saving SG plots to  : ${SG_MOCKS_DIR}"
+echo "Saving PDF plots to : ${PDF_MOCKS_DIR}"
+echo "Log                 : ${LOG_FILE}"
 echo ""
 
 cd "${PROJECT_ROOT}/data/mocks"
-python3 mock_sg.py 2>&1 | tee "${LOG_FILE}"
+echo "--- Running mock_sg.py ---" | tee "${LOG_FILE}"
+python3 mock_sg.py 2>&1 | tee -a "${LOG_FILE}"
+
+echo "" | tee -a "${LOG_FILE}"
+echo "--- Running pdf_plot.py ---" | tee -a "${LOG_FILE}"
+python3 pdf_plot.py 2>&1 | tee -a "${LOG_FILE}"
 
 echo ""
-echo "Done. Plots saved to: ${SG_MOCKS_DIR}"
+echo "Done. Plots saved to:"
+echo "  - ${SG_MOCKS_DIR}"
+echo "  - ${PDF_MOCKS_DIR}"

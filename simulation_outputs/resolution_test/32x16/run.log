@@ -1,0 +1,28 @@
+Authorization required, but no authorization protocol specified
+Authorization required, but no authorization protocol specified
+
+Root grid = 2 x 4 x 1 MeshBlocks
+Total number of MeshBlocks = 8
+Number of logical  levels of refinement = 2 (3 levels total)
+Number of physical levels of refinement = 0 (1 levels total)
+Number of parallel ranks = 1
+
+Setup complete, executing task list(s)...
+
+elapsed=3.607689e-03 cycle=0 time=0.000000e+00 dt=1.384206e-03
+elapsed=3.895041e-01 cycle=1000 time=1.338696e+00 dt=1.334262e-03
+elapsed=7.803310e-01 cycle=2000 time=2.692716e+00 dt=1.378134e-03
+elapsed=1.175262e+00 cycle=3000 time=4.046249e+00 dt=1.372201e-03
+elapsed=1.570826e+00 cycle=4000 time=5.394536e+00 dt=1.286588e-03
+elapsed=1.965833e+00 cycle=5000 time=6.749454e+00 dt=1.361898e-03
+elapsed=2.359993e+00 cycle=6000 time=8.097797e+00 dt=1.359103e-03
+elapsed=2.754836e+00 cycle=7000 time=9.444640e+00 dt=1.357816e-03
+
+Terminating on time limit
+time=1.000000e+01 cycle=7426
+tlim=1.000000e+01 nlim=-1
+
+MeshBlock-cycles = 59408
+cpu time used  = 2.919422e+00
+zone-cycles/cpu_second = 1.302351e+06
+particle-updates/cpu_second = 0.000000e+00

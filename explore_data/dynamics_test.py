@@ -1,385 +1,342 @@
-
 import os
 import sys
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-import ergane
-from ergane import athinput_parser
-from ergane.units import Units
-from tqdm import tqdm
-from matplotlib import pyplot as plt
+import gc
+from pathlib import Path
 import numpy as np
+import matplotlib
+matplotlib.use('Agg')
+import matplotlib.pyplot as plt
+from tqdm import tqdm
+import re
+
+# Append project root to path
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(PROJECT_ROOT)
+
+from ergane import SimulationData
+
+RESOLUTION_TEST_ROOT = Path('/home/sasi/Projects/SubgridCGMModel/simulation_outputs/resolution_test')
+OUTPUT_DIR = Path('/home/sasi/Projects/SubgridCGMModel/outputs/explore_data')
+OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+SECONDS_PER_MYR = 3.15576e13
+CM_PER_PC = 3.08568e18
+CM_PER_KM = 1.0e5
+MIN_PROFILE_TIME_MYR = 5.0
 
 
-# New Version that truncates to 10^4.5 to 10^5.5
-def lambda_cool(temp, mask=False):
-    """
-    Cooling function ISMCoolFn translated from AthenaK C++.
-    Works on scalars or numpy arrays (any shape).
-    Returns Λ(T) in erg cm^3 / s.
-    """
-    logt = np.log10(temp)
+def iter_resolution_runs(root: Path):
+    def sort_key(run_dir: Path):
+        match = re.fullmatch(r'(\d+)x(\d+)', run_dir.name)
+        if match is None:
+            return (float('inf'), run_dir.name)
+        nx = int(match.group(1))
+        ny = int(match.group(2))
+        return (nx * ny, nx, ny, run_dir.name)
 
-    lhd = np.array(
-        [
-            -22.5977,
-            -21.9689,
-            -21.5972,
-            -21.4615,
-            -21.4789,
-            -21.5497,
-            -21.6211,
-            -21.6595,
-            -21.6426,
-            -21.5688,
-            -21.4771,
-            -21.3755,
-            -21.2693,
-            -21.1644,
-            -21.0658,
-            -20.9778,
-            -20.8986,
-            -20.8281,
-            -20.7700,
-            -20.7223,
-            -20.6888,
-            -20.6739,
-            -20.6815,
-            -20.7051,
-            -20.7229,
-            -20.7208,
-            -20.7058,
-            -20.6896,
-            -20.6797,
-            -20.6749,
-            -20.6709,
-            -20.6748,
-            -20.7089,
-            -20.8031,
-            -20.9647,
-            -21.1482,
-            -21.2932,
-            -21.3767,
-            -21.4129,
-            -21.4291,
-            -21.4538,
-            -21.5055,
-            -21.5740,
-            -21.6300,
-            -21.6615,
-            -21.6766,
-            -21.6886,
-            -21.7073,
-            -21.7304,
-            -21.7491,
-            -21.7607,
-            -21.7701,
-            -21.7877,
-            -21.8243,
-            -21.8875,
-            -21.9738,
-            -22.0671,
-            -22.1537,
-            -22.2265,
-            -22.2821,
-            -22.3213,
-            -22.3462,
-            -22.3587,
-            -22.3622,
-            -22.3590,
-            -22.3512,
-            -22.3420,
-            -22.3342,
-            -22.3312,
-            -22.3346,
-            -22.3445,
-            -22.3595,
-            -22.3780,
-            -22.4007,
-            -22.4289,
-            -22.4625,
-            -22.4995,
-            -22.5353,
-            -22.5659,
-            -22.5895,
-            -22.6059,
-            -22.6161,
-            -22.6208,
-            -22.6213,
-            -22.6184,
-            -22.6126,
-            -22.6045,
-            -22.5945,
-            -22.5831,
-            -22.5707,
-            -22.5573,
-            -22.5434,
-            -22.5287,
-            -22.5140,
-            -22.4992,
-            -22.4844,
-            -22.4695,
-            -22.4543,
-            -22.4392,
-            -22.4237,
-            -22.4087,
-            -22.3928,
-        ]
+    for run_dir in sorted((p for p in root.iterdir() if p.is_dir()), key=sort_key):
+        athinput_files = sorted(run_dir.glob('*.athinput'))
+        if not athinput_files:
+            continue
+        data_dir = run_dir / 'bin'
+        if not data_dir.is_dir():
+            continue
+        yield run_dir.name, athinput_files[0], data_dir
+
+
+def mixing_measure(frame) -> float:
+    """Compute \int c(1-c) dV for a 2-D frame using the cell areas."""
+    c = frame.scalar_00
+    if c.ndim != 2:
+        raise ValueError(
+            f"Expected a 2-D scalar field for mixing measure, got shape {c.shape!r}."
+        )
+
+    dx = np.diff(frame.x)
+    dy = np.diff(frame.y)
+    cell_area = dy[:, None] * dx[None, :]
+    return float(np.sum(c * (1.0 - c) * cell_area))
+
+
+def time_axis_label(simulation: SimulationData) -> str:
+    """Return a label that reflects the physical time unit from athinput."""
+    if simulation.units.system == 'code':
+        return 'Time [code units]'
+    if np.isclose(simulation.units.time, SECONDS_PER_MYR):
+        return 'Time [Myr]'
+    if simulation.units.system in {'CGS', 'SI'}:
+        return 'Time [s]'
+    return f'Time [{simulation.units.system}]'
+
+
+def time_axis_values(simulation: SimulationData, times: np.ndarray) -> np.ndarray:
+    """Convert the plotted time axis to the most natural physical unit."""
+    if simulation.units.system == 'code':
+        return times
+    if np.isclose(simulation.units.time, SECONDS_PER_MYR):
+        return times / SECONDS_PER_MYR
+    return times
+
+
+def length_axis_label(simulation: SimulationData) -> str:
+    """Return a label that reflects the physical length unit from athinput."""
+    if simulation.units.system == 'code':
+        return 'y [code units]'
+    if np.isclose(simulation.units.length, CM_PER_PC):
+        return 'y [pc]'
+    if simulation.units.system in {'CGS', 'SI'}:
+        return 'y [cm]'
+    return f'y [{simulation.units.system}]'
+
+
+def length_axis_values(simulation: SimulationData, lengths: np.ndarray) -> np.ndarray:
+    """Convert the plotted length axis to the most natural physical unit."""
+    if simulation.units.system == 'code':
+        return lengths
+    if np.isclose(simulation.units.length, CM_PER_PC):
+        return lengths / CM_PER_PC
+    return lengths
+
+
+def x_average_profile(frame, values: np.ndarray) -> np.ndarray:
+    """Compute the x-averaged profile of a 2-D field as a function of y."""
+    if values.ndim != 2:
+        raise ValueError(f'Expected a 2-D field, got shape {values.shape!r}.')
+
+    dx = np.abs(np.diff(frame.x))
+    if values.shape[1] != dx.size:
+        raise ValueError(
+            f'Field shape {values.shape!r} is incompatible with x grid of size {dx.size!r}.'
+        )
+
+    weighted_sum = np.sum(values * dx[None, :], axis=1)
+    return weighted_sum / np.sum(dx)
+
+
+def collect_profile_statistics(
+    simulation: SimulationData,
+    field_getter,
+    minimum_time_myr: float = MIN_PROFILE_TIME_MYR,
+):
+    """Return the post-threshold x-averaged profile mean and standard deviation."""
+    y_values = None
+    profiles = []
+
+    for frame_num in tqdm(
+        simulation.frame_numbers,
+        desc='Computing profile statistics',
+    ):
+        frame = simulation.get_frame(frame_num)
+        time_myr = time_axis_values(simulation, np.asarray([frame.time]))[0]
+        if time_myr <= minimum_time_myr:
+            del frame
+            gc.collect()
+            continue
+
+        field = field_getter(frame)
+        if field is None:
+            raise RuntimeError('Requested field is not available for this simulation.')
+
+        profile = x_average_profile(frame, field)
+        current_y = length_axis_values(simulation, frame.yc)
+        if y_values is None:
+            y_values = current_y
+        elif not np.allclose(y_values, current_y):
+            raise RuntimeError('Y grids differ across frames; cannot combine profiles.')
+
+        profiles.append(profile)
+        del frame
+        gc.collect()
+
+    if not profiles:
+        raise RuntimeError(
+            f'No frames in the post-{minimum_time_myr:g} Myr window for this simulation.'
+        )
+
+    stacked = np.vstack(profiles)
+    return y_values, np.mean(stacked, axis=0), np.std(stacked, axis=0)
+
+
+def temperature_field(frame):
+    return frame.temperature
+
+
+def velocity_x_field(frame):
+    if frame.velx is None:
+        return None
+    return frame.velx / CM_PER_KM
+
+def passive_scalar_field(frame):
+    if frame.scalar_00 is None:
+        return None 
+    return frame.scalar_00
+
+
+def plot_profile_comparison(
+    root: Path,
+    save_name: str,
+    title: str,
+    field_getter,
+    ylabel: str,
+) -> Path:
+    """Plot time-averaged x-profiles for every resolution test run."""
+    fig, ax = plt.subplots(figsize=(9, 6))
+    cmap = plt.get_cmap('tab10')
+    x_label = None
+
+    for idx, (run_name, athinp_path, data_dir) in enumerate(iter_resolution_runs(root)):
+        simulation = SimulationData(
+            athinp=str(athinp_path),
+            datafolder=str(data_dir),
+        )
+
+        if field_getter is temperature_field and 'temperature' not in simulation.fields_available:
+            raise RuntimeError(f'Temperature is not available in {run_name}.')
+        if field_getter is velocity_x_field and 'velx' not in simulation.fields_available:
+            raise RuntimeError(f'Velocity field v_x is not available in {run_name}.')
+
+        y_values, profile_mean, profile_std = collect_profile_statistics(
+            simulation,
+            field_getter,
+        )
+
+        color = cmap(idx % cmap.N)
+        ax.plot(y_values, profile_mean, lw=2, color=color, label=run_name)
+        ax.fill_between(
+            y_values,
+            profile_mean - profile_std,
+            profile_mean + profile_std,
+            color=color,
+            alpha=0.2,
+            linewidth=0,
+        )
+
+        if x_label is None:
+            x_label = length_axis_label(simulation)
+
+    ax.set_xlabel(x_label or 'y')
+    ax.set_ylabel(ylabel)
+    ax.set_title(title)
+    ax.grid(True, alpha=0.3)
+    ax.legend(title='Run', fontsize=9)
+    fig.tight_layout()
+
+    save_path = OUTPUT_DIR / save_name
+    fig.savefig(save_path, dpi=200, bbox_inches='tight')
+    plt.close(fig)
+    return save_path
+
+
+def plot_run(run_name: str, athinp_path: Path, data_dir: Path) -> Path:
+    simulation = SimulationData(
+        athinp=str(athinp_path),
+        datafolder=str(data_dir),
     )
 
-    lam = np.zeros_like(temp, dtype=float)
+    if 'scalar_00' not in simulation.fields_available:
+        raise RuntimeError(
+            f"Passive scalar 'scalar_00' is not available in {run_name}."
+        )
 
-    # turn off cooling below 1e4 K
-    mask_off = logt <= 4.0
-    lam[mask_off] = 0.0
+    times = []
+    mixing = []
 
-    # KI02 regime (4.0 < logT <= 4.2)
-    mask_ki = (logt > 4.0) & (logt <= 4.2)
-    if np.any(mask_ki):
-        lam[mask_ki] = 2.0e-19 * np.exp(
-            -1.184e5 / (temp[mask_ki] + 1.0e3)
-        ) + 2.8e-28 * np.sqrt(temp[mask_ki]) * np.exp(-92.0 / temp[mask_ki])
+    for frame_num in tqdm(
+        simulation.frame_numbers,
+        desc=f'Computing mixing measure ({run_name})',
+    ):
+        frame = simulation.get_frame(frame_num)
+        times.append(frame.time)
+        mixing.append(mixing_measure(frame))
+        del frame
+        gc.collect()
 
-    # CGOLS fit (logT > 8.15)
-    mask_hi = logt > 8.15
-    lam[mask_hi] = 10.0 ** (0.45 * logt[mask_hi] - 26.065)
+    times = time_axis_values(simulation, np.asarray(times))
+    mixing = np.asarray(mixing)
 
-    # SPEX interpolation (4.2 < logT <= 8.15)
-    mask_mid = (logt > 4.2) & (logt <= 8.15)
-    if np.any(mask_mid):
-        ipps = (25.0 * logt[mask_mid] - 103).astype(int)
-        # Clamp to [0,100] like C++
-        ipps = np.clip(ipps, 0, 100)
-        x0 = 4.12 + 0.04 * ipps
-        dx = logt[mask_mid] - x0
-        logcool = (lhd[ipps + 1] * dx - lhd[ipps] * (dx - 0.04)) * 25.0
-        lam[mask_mid] = 10.0**logcool
-    if mask:
-        mask_off = (logt < 4.5) | (logt > 5.5)
-        lam[mask_off] = 0.0
+    fig, ax = plt.subplots(figsize=(8, 5))
+    ax.plot(times, mixing, color='tab:blue', lw=2)
+    ax.set_xlabel(time_axis_label(simulation))
+    ax.set_ylabel(r'$\int c(1-c)\,dV$')
+    ax.set_title(f'Mixing Measure vs Time ({run_name})')
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
 
-    return lam
+    save_path = OUTPUT_DIR / f'mixing_measure_{run_name}.png'
+    fig.savefig(save_path, dpi=200, bbox_inches='tight')
+    plt.close(fig)
+    return save_path
 
 
+fig, ax = plt.subplots(figsize=(9, 6))
+saved_paths = []
+x_label = None
 
+for run_name, athinp_path, data_dir in iter_resolution_runs(RESOLUTION_TEST_ROOT):
+    simulation = SimulationData(
+        athinp=str(athinp_path),
+        datafolder=str(data_dir),
+    )
 
-hr_sim = ergane.SimulationData(
-    athinp='/Volumes/PortableSSD/Projects/SubgridCGMModel/builds/hr_build/src/kh_radiative_512.athinput',
-    datafolder='/Volumes/PortableSSD/Projects/SubgridCGMModel/simulation_outputs/hr_build'
+    if 'scalar_00' not in simulation.fields_available:
+        raise RuntimeError(
+            f"Passive scalar 'scalar_00' is not available in {run_name}."
+        )
+
+    times = []
+    mixing = []
+
+    for frame_num in tqdm(
+        simulation.frame_numbers,
+        desc=f'Computing mixing measure ({run_name})',
+    ):
+        frame = simulation.get_frame(frame_num)
+        times.append(frame.time)
+        mixing.append(mixing_measure(frame))
+        del frame
+        gc.collect()
+
+    times = time_axis_values(simulation, np.asarray(times))
+    mixing = np.asarray(mixing)
+    ax.plot(times, mixing, lw=2, label=run_name)
+    if x_label is None:
+        x_label = time_axis_label(simulation)
+
+ax.set_xlabel(x_label or 'Time')
+ax.set_ylabel(r'$\int c(1-c)\,dV$')
+ax.set_title('Mixing Measure vs Time for Resolution Test Runs')
+ax.grid(True, alpha=0.3)
+ax.legend(title='Run', fontsize=9)
+fig.tight_layout()
+
+save_path = OUTPUT_DIR / 'mixing_measure_all_resolutions.png'
+fig.savefig(save_path, dpi=200, bbox_inches='tight')
+plt.close(fig)
+print(f'Saved plot to: {save_path}')
+
+temperature_plot = plot_profile_comparison(
+    RESOLUTION_TEST_ROOT,
+    'temperature_profile_all_resolutions.png',
+    'Mean Temperature Profile vs y for Resolution Test Runs',
+    temperature_field,
+    r'$\langle T \rangle_x$ [K]',
 )
-lr_sim = ergane.SimulationData(
-    athinp='/Volumes/PortableSSD/Projects/SubgridCGMModel/builds/hr_build/src/kh_radiative_256.athinput',
-    datafolder='/Volumes/PortableSSD/Projects/SubgridCGMModel/simulation_outputs/lr_build'
+print(f'Saved plot to: {temperature_plot}')
+
+velocity_plot = plot_profile_comparison(
+    RESOLUTION_TEST_ROOT,
+    'velocity_x_profile_all_resolutions.png',
+    'Mean x-Velocity Profile vs y for Resolution Test Runs',
+    velocity_x_field,
+    r'$\langle v_x \rangle_x$ [km s$^{-1}$]',
 )
-sg_sim = ergane.SimulationData(
-    athinp='/Volumes/PortableSSD/Projects/SubgridCGMModel/builds/subgrid_model/src/neural_network.athinput',
-    datafolder='/Volumes/PortableSSD/Projects/SubgridCGMModel/simulation_outputs/subgrid_model'
+print(f'Saved plot to: {velocity_plot}')
+
+passive_scalar_plot = plot_profile_comparison(
+    RESOLUTION_TEST_ROOT,
+    'passive_scalar_profile.png',
+    'Passive Scalar profile mean x vs y',
+    passive_scalar_field,
+    r'$\langle c \rangle_x$'
 )
-
-# Physical unit systems are automatically loaded from simulation parameters (athinput)
-
-
-
-
-# Profiles along y axis averaged along x axis 
-steady_state_start = 500
-fields = ['density', 'temp', 'pressure', 'velx', 'vely', 'emissivity']
-
-profiles = {
-    'hr': {f: [] for f in fields},
-    'hr_coarse': {f: [] for f in fields},
-    'lr': {f: [] for f in fields},
-    'subgrid': {f: [] for f in fields}
-}
-
-for i in tqdm(range(steady_state_start, hr_sim.n_frames), desc='Calculating Profiles HR'):
-    rho = hr_sim.density[i]
-    press = hr_sim.pressure[i]
-    vx = hr_sim.velx[i]
-    vy = hr_sim.vely[i]
-    temp = hr_sim.temperature[i]
-    
-    emis = (rho**2) * lambda_cool(temp, mask=True)
-    
-    data = {
-        'density': np.log10(np.maximum(rho, 1e-35)),
-        'pressure': press,
-        'velx': vx,
-        'vely': vy,
-        'temp': np.log10(np.maximum(temp, 1.0)),
-        'emissivity': emis
-    }
-    
-    for f in fields:
-        profiles['hr'][f].append(np.mean(data[f], axis=1))
-        
-    # Coarse grain (reshape and average) linear fields first, then take log10
-    rho_coarse = rho.reshape(16, 32, 8, 32).mean(axis=(1, 3))
-    press_coarse = press.reshape(16, 32, 8, 32).mean(axis=(1, 3))
-    vx_coarse = vx.reshape(16, 32, 8, 32).mean(axis=(1, 3))
-    vy_coarse = vy.reshape(16, 32, 8, 32).mean(axis=(1, 3))
-    temp_coarse = temp.reshape(16, 32, 8, 32).mean(axis=(1, 3))
-    emis_coarse = emis.reshape(16, 32, 8, 32).mean(axis=(1, 3))
-    
-    cg_data = {
-        'density': np.log10(np.maximum(rho_coarse, 1e-35)),
-        'pressure': press_coarse,
-        'velx': vx_coarse,
-        'vely': vy_coarse,
-        'temp': np.log10(np.maximum(temp_coarse, 1.0)),
-        'emissivity': emis_coarse
-    }
-    
-    for f in fields:
-        profiles['hr_coarse'][f].append(np.mean(cg_data[f], axis=1))
-
-
-for i in tqdm(range(lr_sim.n_frames), desc='Calculating Profiles LR'):
-    rho = lr_sim.density[i]
-    press = lr_sim.pressure[i]
-    vx = lr_sim.velx[i]
-    vy = lr_sim.vely[i]
-    temp = lr_sim.temperature[i]
-    emis = (rho**2) * lambda_cool(temp, mask=True)
-    
-    data = {
-        'density': np.log10(np.maximum(rho, 1e-35)),
-        'pressure': press,
-        'velx': vx,
-        'vely': vy,
-        'temp': np.log10(np.maximum(temp, 1.0)),
-        'emissivity': emis
-    }
-    
-    for f in fields:
-        profiles['lr'][f].append(np.mean(data[f], axis=1))
-
-for i in tqdm(range(sg_sim.n_frames), desc='Calculating Profiles SG'):
-    rho = sg_sim.density[i + 501]
-    press = sg_sim.pressure[i + 501]
-    vx = sg_sim.velx[i + 501]
-    vy = sg_sim.vely[i + 501]
-    temp = sg_sim.temperature[i + 501]
-    emis = (rho**2) * lambda_cool(temp, mask=True)
-    
-    data = {
-        'density': np.log10(np.maximum(rho, 1e-35)),
-        'pressure': press,
-        'velx': vx,
-        'vely': vy,
-        'temp': np.log10(np.maximum(temp, 1.0)),
-        'emissivity': emis
-    }
-    
-    for f in fields:
-        profiles['subgrid'][f].append(np.mean(data[f], axis=1))
-
-# Convert to numpy arrays
-for key in profiles:
-    for f in fields:
-        profiles[key][f] = np.asarray(profiles[key][f], dtype=np.float64)
-
-
-# Extract y coordinate arrays (cell centers) and scale to physical length scales (parsecs)
-first_hr_frame = hr_sim.get_frame(hr_sim.frame_numbers[0])
-y_hr = first_hr_frame.yc / first_hr_frame.units.length
-
-first_lr_frame = lr_sim.get_frame(lr_sim.frame_numbers[0])
-y_lr = first_lr_frame.yc / first_lr_frame.units.length
-
-fig, axes = plt.subplots(3, 2, figsize=(10, 8), sharex=True)
-
-def plot_profile_with_sd(ax, y_hr, y_lr, field, ylabel, is_legend=False):
-    hr_data = profiles['hr'][field]
-    coarse_data = profiles['hr_coarse'][field]
-    lr_data = profiles['lr'][field]
-    sg_data = profiles['subgrid'][field]
-
-    # High Resolution
-    line_hr, = ax.plot(y_hr, np.mean(hr_data, axis=0), label='High Resolution')
-    ax.fill_between(y_hr, 
-                    np.mean(hr_data, axis=0) - np.std(hr_data, axis=0),
-                    np.mean(hr_data, axis=0) + np.std(hr_data, axis=0),
-                    color=line_hr.get_color(), alpha=0.15)
-
-    # Coarse Grained High Res
-    line_coarse, = ax.plot(y_lr, np.mean(coarse_data, axis=0), label='Coarse Grained High Res (16x8)', linestyle='--')
-    ax.fill_between(y_lr,
-                    np.mean(coarse_data, axis=0) - np.std(coarse_data, axis=0),
-                    np.mean(coarse_data, axis=0) + np.std(coarse_data, axis=0),
-                    color=line_coarse.get_color(), alpha=0.15)
-
-    # Low Resolution
-    line_lr, = ax.plot(y_lr, np.mean(lr_data, axis=0), label='Low Resolution')
-    ax.fill_between(y_lr,
-                    np.mean(lr_data, axis=0) - np.std(lr_data, axis=0),
-                    np.mean(lr_data, axis=0) + np.std(lr_data, axis=0),
-                    color=line_lr.get_color(), alpha=0.15)
-
-    # Subgrid
-    line_sg, = ax.plot(y_lr, np.mean(sg_data, axis=0), label='Subgrid')
-    ax.fill_between(y_lr,
-                    np.mean(sg_data, axis=0) - np.std(sg_data, axis=0),
-                    np.mean(sg_data, axis=0) + np.std(sg_data, axis=0),
-                    color=line_sg.get_color(), alpha=0.15)
-
-    ax.set_ylabel(ylabel)
-    if is_legend:
-        ax.legend()
-
-# Subplots mapping: (ax, field_name, label_name, is_legend)
-plot_mapping = [
-    (axes[0, 0], 'density', r"Log Density $\langle \log_{10}(\rho) \rangle_x$ ($g\ cm^{-3}$)", True),
-    (axes[0, 1], 'temp', r"Log Temperature $\langle \log_{10}(T) \rangle_x$ ($K$)", False),
-    (axes[1, 0], 'pressure', r"Pressure $\langle P \rangle_x$ (dyn cm⁻²)", False),
-    (axes[1, 1], 'velx', r"Velocity X $\langle u_x \rangle_x$ (cm s⁻¹)", False),
-    (axes[2, 0], 'vely', r"Velocity Y $\langle u_y \rangle_x$ (cm s⁻¹)", False)
-]
-
-for ax, field, label, is_leg in plot_mapping:
-    plot_profile_with_sd(ax, y_hr, y_lr, field, label, is_leg)
-
-# Hide the unused subplot in bottom-right
-fig.delaxes(axes[2, 1])
-
-# Label x-axes of bottom subplots in both columns
-axes[2, 0].set_xlabel("Y Position (pc)")
-axes[1, 1].set_xlabel("Y Position (pc)")
-axes[1, 1].tick_params(labelbottom=True)
-
-plt.tight_layout()
-plt.show()
-
-# =======================================================
-# Emissivity Profile Plot
-# =======================================================
-fig_emis, ax_emis = plt.subplots(figsize=(8, 6))
-
-def plot_emissivity(ax, y_coords, data_array, label, color, ls='-'):
-    # Average over time
-    mean_emis = np.mean(data_array, axis=0)
-    std_emis = np.std(data_array, axis=0)
-    
-    # Integrated Emissivity over the Y-domain
-    sig_c = np.trapezoid(mean_emis, y_coords)
-    
-    line, = ax.plot(y_coords, mean_emis, label=rf"{label} ($\Sigma_c$={sig_c:.2e})", color=color, ls=ls, lw=2)
-    ax.fill_between(y_coords,
-                    np.clip(mean_emis - std_emis, 1e-30, None), # Prevent log-scale crash on negatives
-                    mean_emis + std_emis,
-                    color=line.get_color(), alpha=0.15)
-
-plot_emissivity(ax_emis, y_hr, profiles['hr']['emissivity'], 'High Resolution', 'blue')
-plot_emissivity(ax_emis, y_lr, profiles['hr_coarse']['emissivity'], 'Coarse Grained HR', 'blue', ls='--')
-plot_emissivity(ax_emis, y_lr, profiles['lr']['emissivity'], 'Low Resolution', 'orange')
-plot_emissivity(ax_emis, y_lr, profiles['subgrid']['emissivity'], 'Subgrid', 'green')
-
-ax_emis.set_yscale("log")
-#ax_emis.set_ylim(2e-28, 1e-24)
-ax_emis.set_xlabel("Y Position (pc)")
-ax_emis.set_ylabel(r"$\langle \rho^2 \Lambda(T) \rangle_x$ (erg cm$^{-3}$ s$^{-1}$)")
-ax_emis.set_title(r"Mean Emissivity Profile vs $y$")
-ax_emis.grid(True, ls="--", alpha=0.5)
-ax_emis.legend()
-
-plt.tight_layout()
-plt.show()
+print(f'Saved Plot to: {passive_scalar_plot}')

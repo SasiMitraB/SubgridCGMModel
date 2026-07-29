@@ -4,6 +4,8 @@ import gc
 import os
 import sys
 
+import matplotlib
+matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -16,6 +18,215 @@ from data_preprocess import simulation_data
 from matplotlib.animation import FuncAnimation
 from matplotlib.colors import LogNorm
 from tqdm import tqdm
+import multiprocessing
+import tempfile
+import shutil
+import subprocess
+from functools import partial
+
+
+bins_pdf = np.logspace(4, 6, 200)
+window = 10
+
+
+def compute_color_limits(arr, use_log=False):
+    finite = arr[np.isfinite(arr)]
+    if finite.size == 0:
+        return 0.0, 1.0, None
+
+    if use_log:
+        positive = finite[finite > 0]
+        if positive.size:
+            vmin = positive.min()
+            vmax = positive.max()
+            if vmax <= vmin:
+                vmax = vmin * 1.01
+            return vmin, vmax, LogNorm(vmin=vmin, vmax=vmax)
+
+    vmin = finite.min()
+    vmax = finite.max()
+    if vmax <= vmin:
+        delta = abs(vmin) * 0.01 if vmin != 0 else 1.0
+        vmin -= delta / 2
+        vmax += delta / 2
+    return vmin, vmax, None
+
+
+def parallel_save_animation(render_func, frames_list, output_path, fps=10, num_workers=16):
+    """
+    Renders frames in parallel using render_func(frame, temp_dir)
+    and stitches them together using ffmpeg.
+    """
+    temp_dir = tempfile.mkdtemp()
+    try:
+        # Use 'fork' start method to inherit parent process's memory space
+        # (avoiding serialization of large numpy arrays).
+        ctx = multiprocessing.get_context('fork')
+        worker = partial(render_func, temp_dir=temp_dir)
+        
+        with ctx.Pool(processes=num_workers) as pool:
+            list(tqdm(pool.imap(worker, frames_list), total=len(frames_list), desc=os.path.basename(output_path)))
+            
+        # Stitch frames with ffmpeg
+        cmd = [
+            'ffmpeg', '-y',
+            '-r', str(fps),
+            '-i', os.path.join(temp_dir, 'frame_%04d.png'),
+            '-c:v', 'libx264',
+            '-pix_fmt', 'yuv420p',
+            output_path
+        ]
+        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        if res.returncode != 0:
+            print(f"Error compiling video {output_path} with ffmpeg: {res.stderr.decode()}")
+            raise RuntimeError(res.stderr.decode())
+    finally:
+        shutil.rmtree(temp_dir)
+
+
+def render_frame_all_fields(frame, temp_dir):
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    from matplotlib.colors import LogNorm
+    import numpy as np
+    import os
+
+    fig, axs = plt.subplots(6, 3, figsize=(8, 20))
+    for i in range(6):
+        f_hr = fields_hr[i][frame]
+        f_sg = fields_sg[i][frame]
+        f_lr = fields_lr[i][frame]
+
+        arr = np.concatenate([f_hr.flatten(), f_sg.flatten(), f_lr.flatten()])
+        use_log = (i == 0 or i == 1)
+        vmin, vmax, norm = compute_color_limits(arr, use_log=use_log)
+
+        im0 = axs[i, 0].imshow(f_hr, origin='lower', cmap='plasma', norm=norm, vmin=None if norm else vmin, vmax=None if norm else vmax)
+        axs[i, 0].set_title(f"HR {titles[i]}")
+        plt.colorbar(im0, ax=axs[i, 0], fraction=0.035, pad=0.02)
+
+        im1 = axs[i, 1].imshow(f_sg, origin='lower', cmap='plasma', norm=norm, vmin=None if norm else vmin, vmax=None if norm else vmax)
+        axs[i, 1].set_title(f"SG {titles[i]}")
+        plt.colorbar(im1, ax=axs[i, 1], fraction=0.035, pad=0.02)
+
+        im2 = axs[i, 2].imshow(f_lr, origin='lower', cmap='plasma', norm=norm, vmin=None if norm else vmin, vmax=None if norm else vmax)
+        axs[i, 2].set_title(f"LR {titles[i]}")
+        plt.colorbar(im2, ax=axs[i, 2], fraction=0.035, pad=0.02)
+
+    for ax in axs.flat:
+        ax.set_xlabel(f"Timestep: {frame}")
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(temp_dir, f"frame_{frame:04d}.png"), dpi=200)
+    plt.close(fig)
+
+
+def render_frame_cons_fields(frame, temp_dir):
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    from matplotlib.colors import LogNorm
+    import numpy as np
+    import os
+
+    fig, axs = plt.subplots(6, 3, figsize=(8, 20))
+    for i in range(6):
+        f_hr = cons_fields_hr[i][frame]
+        f_sg = cons_fields_sg[i][frame]
+        f_lr = cons_fields_lr[i][frame]
+
+        arr = np.concatenate([f_hr.flatten(), f_sg.flatten(), f_lr.flatten()])
+        use_log = (i == 0 or i == 3)
+        vmin, vmax, norm = compute_color_limits(arr, use_log=use_log)
+
+        im0 = axs[i, 0].imshow(f_hr, origin="lower", cmap="plasma", norm=norm, vmin=None if norm else vmin, vmax=None if norm else vmax)
+        plt.colorbar(im0, ax=axs[i, 0], fraction=0.035, pad=0.02)
+        axs[i, 0].set_title(f"HR {cons_titles[i]}")
+
+        im1 = axs[i, 1].imshow(f_sg, origin="lower", cmap="plasma", norm=norm, vmin=None if norm else vmin, vmax=None if norm else vmax)
+        plt.colorbar(im1, ax=axs[i, 1], fraction=0.035, pad=0.02)
+        axs[i, 1].set_title(f"SG {cons_titles[i]}")
+
+        im2 = axs[i, 2].imshow(f_lr, origin="lower", cmap="plasma", norm=norm, vmin=None if norm else vmin, vmax=None if norm else vmax)
+        plt.colorbar(im2, ax=axs[i, 2], fraction=0.035, pad=0.02)
+        axs[i, 2].set_title(f"LR {cons_titles[i]}")
+
+    for ax in axs.flat:
+        ax.set_xlabel(f"Timestep: {frame}")
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(temp_dir, f"frame_{frame:04d}.png"), dpi=200)
+    plt.close(fig)
+
+
+def render_frame_rho(frame, temp_dir):
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    from matplotlib.colors import LogNorm
+    import numpy as np
+    import os
+
+    fig, axs = plt.subplots(1, 3, figsize=(10, 5))
+
+    # To match original static colorbar, we compute limits from frame 0
+    vmin_hr = cg_hr_rho[0][cg_hr_rho[0] > 0].min()
+    vmax_hr = cg_hr_rho[0].max()
+    im_hr_rho = axs[0].imshow(cg_hr_rho[frame], origin="lower", cmap="plasma", norm=LogNorm(vmin=vmin_hr, vmax=vmax_hr))
+    axs[0].set_title(rf"HR (${hr_resolution[0]} \times {hr_resolution[1]}$) Density")
+    plt.colorbar(im_hr_rho, ax=axs[0], fraction=0.046, pad=0.04)
+
+    vmin_sg = rho[0][rho[0] > 0].min()
+    vmax_sg = rho[0].max()
+    im_rho = axs[1].imshow(rho[frame], origin="lower", cmap="plasma", norm=LogNorm(vmin=vmin_sg, vmax=vmax_sg))
+    axs[1].set_title(rf"SG (${resolution[0]} \times {resolution[1]}$) Density (sigma=3)")
+    plt.colorbar(im_rho, ax=axs[1], fraction=0.046, pad=0.04)
+
+    vmin_lr = lr_rho[0][lr_rho[0] > 0].min()
+    vmax_lr = lr_rho[0].max()
+    im_lr_rho = axs[2].imshow(lr_rho[frame], origin="lower", cmap="plasma", norm=LogNorm(vmin=vmin_lr, vmax=vmax_lr))
+    axs[2].set_title(rf"LR (${lr_resolution[0]} \times {lr_resolution[1]}$) Density")
+    plt.colorbar(im_lr_rho, ax=axs[2], fraction=0.046, pad=0.04)
+
+    for ax in axs.flat:
+        ax.set_xlabel(f"Timestep: {frame}")
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(temp_dir, f"frame_{frame:04d}.png"), dpi=200)
+    plt.close(fig)
+
+
+def render_frame_temp_pdf(frame, temp_dir):
+    import matplotlib
+    matplotlib.use('Agg')
+    import matplotlib.pyplot as plt
+    import numpy as np
+    import os
+
+    fig, ax = plt.subplots(figsize=(6, 5))
+    ax.set_xscale("log")
+    ax.set_yscale("log")
+    ax.set_xlabel("Temperature [K]")
+    ax.set_ylabel("PDF (volume-weighted, time-avg 10 steps)")
+    ax.set_ylim(1e-7, 1e-3)
+    ax.set_xlim(bins_pdf[0], bins_pdf[-1])
+    ax.grid(True, which="both", ls="--", alpha=0.5)
+
+    ax.set_title(f"Time step {frame + 1}")
+    end = min(frame + window, temp.shape[0])
+    h_hr, _ = np.histogram(cg_hr_temp[frame:end].ravel(), bins=bins_pdf, density=True)
+    h_lr, _ = np.histogram(lr_temp[frame:end].ravel(), bins=bins_pdf, density=True)
+    h_sg, _ = np.histogram(temp[frame:end].ravel(), bins=bins_pdf, density=True)
+
+    ax.plot(bins_pdf[:-1], h_hr, lw=2.0, label="HR")
+    ax.plot(bins_pdf[:-1], h_lr, lw=2.0, label="LR")
+    ax.plot(bins_pdf[:-1], h_sg, lw=2.0, label="SG")
+    ax.legend()
+
+    plt.tight_layout()
+    plt.savefig(os.path.join(temp_dir, f"frame_{frame:04d}.png"), dpi=200)
+    plt.close(fig)
 
 
 def divergence(f, dx, dy):
@@ -187,17 +398,19 @@ def lambda_cool(temp):
 # For time-axis plots in Myr:
 #   t_sg[i] = RESTART_TIME_MYR + i * BIN_DT_MYR
 #   t_lr[i] = RESTART_TIME_MYR + i * BIN_DT_MYR
-# =============================================================================
-
+# ========================================================================
 RESTART_TIME_MYR = 5.0   # physical time of the restart file (Myr)
 BIN_DT_MYR       = 0.01  # bin output cadence (matches bin_w_dt / bin_u_dt in config)
 
-resolution = (16, 8)
-file_path = f"/Volumes/PortableSSD/Projects/SubgridCGMModel/simulation_outputs/subgrid_model/bin"
+PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
+
+resolution = (32, 16)
+file_path = os.path.join(PROJECT_ROOT, "simulation_outputs/subgrid_model/bin")
 save_path = (
     os.path.join(os.environ.get("SG_MOCKS_DIR", "mocks/sg"), f"sc{resolution}") + "/"
 )
 os.makedirs(save_path, exist_ok=True)
+
 
 # --- subgrid_model (CNN restart, 5 → 10 Myr) ---
 # AthenaK continues file numbering from the restart checkpoint.
@@ -233,9 +446,7 @@ t_sg_myr = RESTART_TIME_MYR + np.arange(n_sg) * BIN_DT_MYR
 
 lr_resolution = resolution
 # lr_build_ism: ISM-cooling restart (5 → 10 Myr).  Frame 0 = t=5 Myr.
-lr_file_path = (
-    f"/Volumes/PortableSSD/Projects/SubgridCGMModel/simulation_outputs/lr_build_ism/bin"
-)
+lr_file_path = os.path.join(PROJECT_ROOT, "simulation_outputs/lr_build_ism/bin")
 lr_sim_data = simulation_data()
 lr_sim_data.resolution = lr_resolution
 lr_sim_data.input_data(lr_file_path, start=501)
@@ -255,18 +466,16 @@ lr_cons_ps = lr_sim_data.cons_ps[: rho.shape[0]]
 
 lr_fmcl = (lr_temp < 1e5).astype(float)
 
-hr_resolution = (512, 256)
+hr_resolution = (1024, 512)
 hr_downsample = 32
-hr_file_path = (
-    f"/Volumes/PortableSSD/Projects/SubgridCGMModel/simulation_outputs/hr_build"
-)
+hr_file_path = os.path.join(PROJECT_ROOT, "simulation_outputs/hr_build_1024")
 hr_sim_data = simulation_data()
 hr_sim_data.resolution = hr_resolution
 hr_sim_data.down_sample = hr_downsample
 # hr_sim_data.input_data(hr_file_path)
 # hr_rho = hr_sim_data.rho
 # hr_temp = hr_sim_data.temp
-hr_folder_path = f"/Volumes/PortableSSD/Projects/SubgridCGMModel/simulation_outputs/hr_build/cache/sc(512, 256)_32"
+hr_folder_path = os.path.join(PROJECT_ROOT, f"simulation_outputs/hr_build_1024/cache/sc{hr_resolution}_{hr_downsample}")
 # Memory-map the large HR arrays so the OS pages them in on demand
 # instead of loading every frame into RAM at once.
 _n = rho.shape[0]
@@ -850,11 +1059,8 @@ for i in range(6):
     f0_lr = fields_lr[i][0]
 
     arr0 = np.concatenate([f0_hr.flatten(), f0_sg.flatten(), f0_lr.flatten()])
-    vmin0 = arr0[arr0 > 0].min() if np.any(arr0 > 0) else arr0.min()
-    vmax0 = arr0.max()
-
-    use_log = (i == 0 or i == 1) and vmin0 > 0
-    norm0 = LogNorm(vmin=vmin0, vmax=vmax0) if use_log else None
+    use_log = (i == 0 or i == 1)
+    vmin0, vmax0, norm0 = compute_color_limits(arr0, use_log=use_log)
 
     axs[i, 0].imshow(f0_hr, origin="lower", cmap="plasma", norm=norm0)
     axs[i, 0].set_title(f"HR {titles[i]}")
@@ -873,72 +1079,8 @@ plt.savefig(save_path + "all_fields_snapshot.png", dpi=200)
 plt.close(fig)
 print("Saved snapshot of all fields")
 
-fig, axs = plt.subplots(6, 3, figsize=(8, 20))
-
-ims = []
-colorbars = []
-
-for i in range(6):
-    im0 = axs[i, 0].imshow(fields_hr[i][0], origin='lower', cmap='plasma')
-    axs[i, 0].set_title(f"HR {titles[i]}")
-    cb0 = plt.colorbar(im0, ax=axs[i, 0], fraction=0.035, pad=0.02)
-
-    im1 = axs[i, 1].imshow(fields_sg[i][0], origin='lower', cmap='plasma')
-    axs[i, 1].set_title(f"SG {titles[i]}")
-    cb1 = plt.colorbar(im1, ax=axs[i, 1], fraction=0.035, pad=0.02)
-
-    im2 = axs[i, 2].imshow(fields_lr[i][0], origin='lower', cmap='plasma')
-    axs[i, 2].set_title(f"LR {titles[i]}")
-    cb2 = plt.colorbar(im2, ax=axs[i, 2], fraction=0.035, pad=0.02)
-
-    ims.append([im0, im1, im2])
-    colorbars.append([cb0, cb1, cb2])
-
-def update_all(frame):
-    updated = []
-
-    for i in range(6):
-        f_hr = fields_hr[i][frame]
-        f_sg = fields_sg[i][frame]
-        f_lr = fields_lr[i][frame]
-
-        arr = np.concatenate([f_hr.flatten(), f_sg.flatten(), f_lr.flatten()])
-        vmin = arr[arr > 0].min() if np.any(arr > 0) else arr.min()
-        vmax = arr.max()
-
-        use_log = (i == 0 or i == 1) and vmin > 0
-        norm = LogNorm(vmin=vmin, vmax=vmax) if use_log else None
-
-        if norm:
-            ims[i][0].set_norm(norm)
-            ims[i][1].set_norm(norm)
-            ims[i][2].set_norm(norm)
-        else:
-            ims[i][0].set_clim(vmin, vmax)
-            ims[i][1].set_clim(vmin, vmax)
-            ims[i][2].set_clim(vmin, vmax)
-
-        ims[i][0].set_data(f_hr)
-        ims[i][1].set_data(f_sg)
-        ims[i][2].set_data(f_lr)
-
-        for cb in colorbars[i]:
-            cb.update_normal(ims[i][0])
-
-        updated.extend(ims[i])
-
-    for ax in axs.flat:
-        ax.set_xlabel(f"Timestep: {frame}")
-
-    return updated
-
-ani_all = animation.FuncAnimation(
-    fig, update_all, frames=nt, interval=100, blit=False
-)
-
-plt.tight_layout()
-ani_all.save(save_path + "all_fields_evolution.mp4", writer="ffmpeg")
-plt.close(fig)
+print("Saving all fields evolution animation...")
+parallel_save_animation(render_frame_all_fields, range(nt), save_path + "all_fields_evolution.mp4", fps=10, num_workers=16)
 print("Saved updated animation with correct dynamic colorbars")
 
 cons_fields_hr = [
@@ -970,158 +1112,22 @@ cons_titles = [
     "fmcl",
 ]
 
-fig, axs = plt.subplots(6, 3, figsize=(8, 20))
-ims = []
-cbs = []
-
-for i in range(6):
-    im0 = axs[i, 0].imshow(cons_fields_hr[i][0], origin="lower", cmap="plasma")
-    cb0 = plt.colorbar(im0, ax=axs[i, 0], fraction=0.035, pad=0.02)
-
-    im1 = axs[i, 1].imshow(cons_fields_sg[i][0], origin="lower", cmap="plasma")
-    cb1 = plt.colorbar(im1, ax=axs[i, 1], fraction=0.035, pad=0.02)
-
-    im2 = axs[i, 2].imshow(cons_fields_lr[i][0], origin="lower", cmap="plasma")
-    cb2 = plt.colorbar(im2, ax=axs[i, 2], fraction=0.035, pad=0.02)
-
-    axs[i, 0].set_title(f"HR {cons_titles[i]}")
-    axs[i, 1].set_title(f"SG {cons_titles[i]}")
-    axs[i, 2].set_title(f"LR {cons_titles[i]}")
-
-    ims.append([im0, im1, im2])
-    cbs.append([cb0, cb1, cb2])
 
 
-def update_cons(frame):
-    updated = []
 
-    for i in range(6):
-        f_hr = cons_fields_hr[i][frame]
-        f_sg = cons_fields_sg[i][frame]
-        f_lr = cons_fields_lr[i][frame]
-
-        arr = np.concatenate([f_hr.flatten(), f_sg.flatten(), f_lr.flatten()])
-        vmin = arr[arr > 0].min() if np.any(arr > 0) else arr.min()
-        vmax = arr.max()
-
-        use_log = (i == 0 or i == 3) and vmin > 0
-        norm = LogNorm(vmin=vmin, vmax=vmax) if use_log else None
-
-        if norm:
-            ims[i][0].set_norm(norm)
-            ims[i][1].set_norm(norm)
-            ims[i][2].set_norm(norm)
-        else:
-            ims[i][0].set_clim(vmin, vmax)
-            ims[i][1].set_clim(vmin, vmax)
-            ims[i][2].set_clim(vmin, vmax)
-
-        ims[i][0].set_data(f_hr)
-        ims[i][1].set_data(f_sg)
-        ims[i][2].set_data(f_lr)
-
-        for cb in cbs[i]:
-            cb.update_normal(ims[i][0])
-
-        updated.extend(ims[i])
-
-    for ax in axs.flat:
-        ax.set_xlabel(f"Timestep: {frame}")
-
-    return updated
-
-
-ani_cons = animation.FuncAnimation(
-    fig, update_cons, frames=nt, interval=100, blit=False
-)
-
-plt.tight_layout()
 print("Saving conserved-field animation...")
-with tqdm(total=nt, desc="Conserved Fields") as pbar:
-    ani_cons.save(
-        save_path + "cons_fields_evolution.mp4",
-        writer="ffmpeg",
-        progress_callback=lambda i, n: pbar.update(1),
-    )
-plt.close(fig)
-
+parallel_save_animation(render_frame_cons_fields, range(nt), save_path + "cons_fields_evolution.mp4", fps=10, num_workers=16)
 print("Saved conserved-field animation with dynamic colorbars")
 
-fig, axs = plt.subplots(1, 3, figsize=(10, 5))
-
-im_hr_rho = axs[0].imshow(cg_hr_rho[0], origin="lower", cmap="plasma", norm=LogNorm())
-axs[0].set_title(rf"HR (${hr_resolution[0]} \times {hr_resolution[1]}$) Density")
-plt.colorbar(im_hr_rho, ax=axs[0], fraction=0.046, pad=0.04)
-
-im_rho = axs[1].imshow(rho[0], origin="lower", cmap="plasma", norm=LogNorm())
-axs[1].set_title(rf"SG (${resolution[0]} \times {resolution[1]}$) Density (sigma=3)")
-plt.colorbar(im_rho, ax=axs[1], fraction=0.046, pad=0.04)
-
-im_lr_rho = axs[2].imshow(lr_rho[0], origin="lower", cmap="plasma", norm=LogNorm())
-axs[2].set_title(rf"LR (${lr_resolution[0]} \times {lr_resolution[1]}$) Density")
-plt.colorbar(im_lr_rho, ax=axs[2], fraction=0.046, pad=0.04)
-
-
-def update_rho(frame):
-    im_hr_rho.set_data(cg_hr_rho[frame])
-    im_rho.set_data(rho[frame])
-    im_lr_rho.set_data(lr_rho[frame])
-    for ax in axs.flat:
-        ax.set_xlabel(f"Timestep: {frame}")
-    return [im_rho, im_hr_rho, im_lr_rho]
-
-
-ani_rho = animation.FuncAnimation(fig, update_rho, frames=nt, interval=100, blit=True)
 print("Saving density evolution animation...")
-with tqdm(total=nt, desc="Density Evolution") as pbar:
-    ani_rho.save(
-        save_path + "density_evolution.mp4",
-        writer="ffmpeg",
-        progress_callback=lambda i, n: pbar.update(1),
-    )
-plt.close(fig)
+parallel_save_animation(render_frame_rho, range(nt), save_path + "density_evolution.mp4", fps=10, num_workers=16)
 print("Density evolution animation saved")
 
-bins = np.logspace(4, 6, 200)
+bins_pdf = np.logspace(4, 6, 200)
 window = 10
 
-fig, ax = plt.subplots(figsize=(6, 5))
-ax.set_xscale("log")
-ax.set_yscale("log")
-ax.set_xlabel("Temperature [K]")
-ax.set_ylabel("PDF (volume-weighted, time-avg 10 steps)")
-ax.set_ylim(1e-7, 1e-3)
-ax.set_xlim(bins[0], bins[-1])
-
-(line_hr,) = ax.plot([], [], lw=2.0, label="HR")
-(line_lr,) = ax.plot([], [], lw=2.0, label="LR")
-(line_sg,) = ax.plot([], [], lw=2.0, label="SG")
-ax.legend()
-
-
-def update(frame):
-    ax.set_title(f"Time step {frame + 1}")
-    end = min(frame + window, temp.shape[0])
-    h_hr, _ = np.histogram(cg_hr_temp[frame:end].ravel(), bins=bins, density=True)
-    h_lr, _ = np.histogram(lr_temp[frame:end].ravel(), bins=bins, density=True)
-    h_sg, _ = np.histogram(temp[frame:end].ravel(), bins=bins, density=True)
-    line_hr.set_data(bins[:-1], h_hr)
-    line_lr.set_data(bins[:-1], h_lr)
-    line_sg.set_data(bins[:-1], h_sg)
-    return line_hr, line_lr, line_sg
-    # return [line_sg]
-
-
-anim = FuncAnimation(fig, update, frames=nt, interval=150, blit=True)
-plt.tight_layout()
 print("Saving temperature PDF evolution animation...")
-with tqdm(total=nt, desc="Temp PDF Evolution") as pbar:
-    anim.save(
-        save_path + "temperature_pdf_evolution.mp4",
-        writer="ffmpeg",
-        progress_callback=lambda i, n: pbar.update(1),
-    )
-plt.close(fig)
+parallel_save_animation(render_frame_temp_pdf, range(nt), save_path + "temperature_pdf_evolution.mp4", fps=6.66667, num_workers=16)
 print("Temperature PDF evolution animation saved")
 
 # ============================================================

@@ -1,82 +1,1054 @@
-Authorization required, but no authorization protocol specified
-Authorization required, but no authorization protocol specified
+[2026-07-07 16:53:14] Activated venv : /home/sasi/Projects/SubgridCGMModel/venv/bin/activate
+[2026-07-07 16:53:14] Run directory  : /home/sasi/Projects/SubgridCGMModel/runs/run_20260707_165314
+[2026-07-07 16:53:14] Manifest       : /home/sasi/Projects/SubgridCGMModel/runs/run_20260707_165314/manifest.txt
+[2026-07-07 16:53:14] ========================================================================
+[2026-07-07 16:53:14] ========================================================================
+[2026-07-07 16:53:14] STEP 1: train_pdf_cnn
+[2026-07-07 16:53:14] Training data  : /home/sasi/Projects/SubgridCGMModel/simulation_outputs/hr_build_1024/bin
+[2026-07-07 16:53:14] ========================================================================
+[2026-07-07 16:53:14] ========================================================================
+[2026-07-07 16:53:14] STEP 1: train_pdf_cnn
+[2026-07-07 16:53:14] Command  : python3 /home/sasi/Projects/SubgridCGMModel/models/conv_nn/pdf_cnn.py
+[2026-07-07 16:53:14] Log file : /home/sasi/Projects/SubgridCGMModel/runs/run_20260707_165314/logs/step1_train_pdf_cnn.log
+[2026-07-07 16:53:14] ========================================================================
+Using device: cuda
+Training all fluxes model
+Input data loaded
+Calculating pixel PDFs:   0%|          | 0/500 [00:00<?, ?it/s]Calculating pixel PDFs:   3%|▎         | 16/500 [00:00<00:03, 153.24it/s]Calculating pixel PDFs:   6%|▋         | 32/500 [00:00<00:03, 153.63it/s]Calculating pixel PDFs:  10%|▉         | 48/500 [00:00<00:02, 153.53it/s]Calculating pixel PDFs:  13%|█▎        | 64/500 [00:00<00:02, 153.58it/s]Calculating pixel PDFs:  16%|█▌        | 80/500 [00:00<00:02, 153.57it/s]Calculating pixel PDFs:  19%|█▉        | 96/500 [00:00<00:02, 153.44it/s]Calculating pixel PDFs:  22%|██▏       | 112/500 [00:00<00:02, 153.20it/s]Calculating pixel PDFs:  26%|██▌       | 128/500 [00:00<00:02, 153.22it/s]Calculating pixel PDFs:  29%|██▉       | 144/500 [00:00<00:02, 153.29it/s]Calculating pixel PDFs:  32%|███▏      | 160/500 [00:01<00:02, 153.38it/s]Calculating pixel PDFs:  35%|███▌      | 176/500 [00:01<00:02, 153.27it/s]Calculating pixel PDFs:  38%|███▊      | 192/500 [00:01<00:02, 153.37it/s]Calculating pixel PDFs:  42%|████▏     | 208/500 [00:01<00:01, 153.39it/s]Calculating pixel PDFs:  45%|████▍     | 224/500 [00:01<00:01, 153.37it/s]Calculating pixel PDFs:  48%|████▊     | 240/500 [00:01<00:01, 153.27it/s]Calculating pixel PDFs:  51%|█████     | 256/500 [00:01<00:01, 153.15it/s]Calculating pixel PDFs:  54%|█████▍    | 272/500 [00:01<00:01, 153.05it/s]Calculating pixel PDFs:  58%|█████▊    | 288/500 [00:01<00:01, 153.00it/s]Calculating pixel PDFs:  61%|██████    | 304/500 [00:01<00:01, 152.99it/s]Calculating pixel PDFs:  64%|██████▍   | 320/500 [00:02<00:01, 153.19it/s]Calculating pixel PDFs:  67%|██████▋   | 336/500 [00:02<00:01, 153.33it/s]Calculating pixel PDFs:  70%|███████   | 352/500 [00:02<00:00, 153.35it/s]Calculating pixel PDFs:  74%|███████▎  | 368/500 [00:02<00:00, 153.33it/s]Calculating pixel PDFs:  77%|███████▋  | 384/500 [00:02<00:00, 153.36it/s]Calculating pixel PDFs:  80%|████████  | 400/500 [00:02<00:00, 153.38it/s]Calculating pixel PDFs:  83%|████████▎ | 416/500 [00:02<00:00, 153.44it/s]Calculating pixel PDFs:  86%|████████▋ | 432/500 [00:02<00:00, 153.39it/s]Calculating pixel PDFs:  90%|████████▉ | 448/500 [00:02<00:00, 153.53it/s]Calculating pixel PDFs:  93%|█████████▎| 464/500 [00:03<00:00, 153.58it/s]Calculating pixel PDFs:  96%|█████████▌| 480/500 [00:03<00:00, 153.65it/s]Calculating pixel PDFs:  99%|█████████▉| 496/500 [00:03<00:00, 153.65it/s]Calculating pixel PDFs: 100%|██████████| 500/500 [00:03<00:00, 153.37it/s]
+Normalizing input tensor
+Number of samples: 500
+Epoch [50/1000] Train Loss: 224.163532 | Val Loss: 225.820778
+Epoch [100/1000] Train Loss: 107.240242 | Val Loss: 120.614014
+Epoch [150/1000] Train Loss: 84.189142 | Val Loss: 103.155975
+Epoch [200/1000] Train Loss: 73.746014 | Val Loss: 94.754520
+Epoch [250/1000] Train Loss: 41.166235 | Val Loss: 59.935171
+Epoch [300/1000] Train Loss: 33.510480 | Val Loss: 52.769804
+Epoch [350/1000] Train Loss: 31.141729 | Val Loss: 52.326851
+Epoch [400/1000] Train Loss: 26.933183 | Val Loss: 49.642487
+Epoch [450/1000] Train Loss: 24.323761 | Val Loss: 48.245762
+Epoch [500/1000] Train Loss: 22.458857 | Val Loss: 46.935631
+Early stopping at epoch 520
+Test Loss: 47.547607
+[2026-07-07 16:55:57] STEP 1 COMPLETED OK: train_pdf_cnn
+[2026-07-07 16:55:57] Generating lr athinput -> /home/sasi/Projects/SubgridCGMModel/runs/run_20260707_165314/athinputs/lr_sim.athinput
+[2026-07-07 16:55:57] ========================================================================
+[2026-07-07 16:55:57] STEP 2: lr_simulation  (16×8 grid, 0 → 5 Myr)
+[2026-07-07 16:55:57] LR athinput mesh settings:
+nx1         = 16
+nx2         = 32
+nx1         = 16
+nx2         = 32
+[2026-07-07 16:55:57] LR athinput tlim:
+tlim        = 5.0
+[2026-07-07 16:55:57] LR athinput press and mu settings:
+press = 13.925145161290322 # Since mu was updated, even pressure should be updated from 8.63359
+mu = 0.62
+[2026-07-07 16:55:57] ========================================================================
+[2026-07-07 16:55:57] ========================================================================
+[2026-07-07 16:55:57] STEP 2: lr_simulation_5myr
+[2026-07-07 16:55:57] Command  : bash -c 
+        set -euo pipefail
+        cd '/home/sasi/Projects/SubgridCGMModel/builds/hr_build/src'
+        ./athena -i '/home/sasi/Projects/SubgridCGMModel/runs/run_20260707_165314/athinputs/lr_sim.athinput' -d '/home/sasi/Projects/SubgridCGMModel/simulation_outputs/lr_build'
+    
+[2026-07-07 16:55:57] Log file : /home/sasi/Projects/SubgridCGMModel/runs/run_20260707_165314/logs/step2_lr_simulation_5myr.log
+[2026-07-07 16:55:57] ========================================================================
 
-Root grid = 4 x 4 x 1 MeshBlocks
-Total number of MeshBlocks = 16
-Number of logical  levels of refinement = 2 (3 levels total)
+Root grid = 1 x 1 x 1 MeshBlocks
+Total number of MeshBlocks = 1
+Number of logical  levels of refinement = 0 (1 levels total)
 Number of physical levels of refinement = 0 (1 levels total)
-Number of parallel ranks = 16
-  Rank = 0: 1 MeshBlocks, cost = 1
-  Rank = 1: 1 MeshBlocks, cost = 1
-  Rank = 2: 1 MeshBlocks, cost = 1
-  Rank = 3: 1 MeshBlocks, cost = 1
-  Rank = 4: 1 MeshBlocks, cost = 1
-  Rank = 5: 1 MeshBlocks, cost = 1
-  Rank = 6: 1 MeshBlocks, cost = 1
-  Rank = 7: 1 MeshBlocks, cost = 1
-  Rank = 8: 1 MeshBlocks, cost = 1
-  Rank = 9: 1 MeshBlocks, cost = 1
-  Rank = 10: 1 MeshBlocks, cost = 1
-  Rank = 11: 1 MeshBlocks, cost = 1
-  Rank = 12: 1 MeshBlocks, cost = 1
-  Rank = 13: 1 MeshBlocks, cost = 1
-  Rank = 14: 1 MeshBlocks, cost = 1
-  Rank = 15: 1 MeshBlocks, cost = 1
-Load Balancing:
-  Maximum normalized cost = 1, Average = 1
+Number of parallel ranks = 1
 
 Setup complete, executing task list(s)...
 
-elapsed=9.086263e-01 cycle=0 time=0.000000e+00 dt=4.325644e-05
-elapsed=1.177088e+02 cycle=1000 time=4.324844e-02 dt=4.313289e-05
-elapsed=2.351085e+02 cycle=2000 time=8.502328e-02 dt=4.092213e-05
-elapsed=3.479127e+02 cycle=3000 time=1.256511e-01 dt=3.984104e-05
-elapsed=4.635106e+02 cycle=4000 time=1.643704e-01 dt=3.800595e-05
-elapsed=5.800826e+02 cycle=5000 time=2.017980e-01 dt=3.563100e-05
-elapsed=6.984506e+02 cycle=6000 time=2.379537e-01 dt=3.674341e-05
-elapsed=8.146926e+02 cycle=7000 time=2.746860e-01 dt=3.566116e-05
-elapsed=9.299326e+02 cycle=8000 time=3.130192e-01 dt=3.886636e-05
-elapsed=1.039954e+03 cycle=9000 time=3.508553e-01 dt=3.761241e-05
-elapsed=1.149815e+03 cycle=10000 time=3.865081e-01 dt=3.621789e-05
-elapsed=1.253755e+03 cycle=11000 time=4.219793e-01 dt=3.660155e-05
-elapsed=1.367551e+03 cycle=12000 time=4.573146e-01 dt=3.699760e-05
-elapsed=1.482441e+03 cycle=13000 time=4.914317e-01 dt=3.578679e-05
-elapsed=1.603436e+03 cycle=14000 time=5.275046e-01 dt=3.493697e-05
-elapsed=1.729123e+03 cycle=15000 time=5.634237e-01 dt=3.703794e-05
-elapsed=1.858347e+03 cycle=16000 time=5.991309e-01 dt=3.686641e-05
-elapsed=1.988097e+03 cycle=17000 time=6.347146e-01 dt=3.553555e-05
-elapsed=2.123756e+03 cycle=18000 time=6.696719e-01 dt=3.149997e-05
-elapsed=2.257640e+03 cycle=19000 time=7.023212e-01 dt=3.589912e-05
-elapsed=2.388590e+03 cycle=20000 time=7.373459e-01 dt=3.446432e-05
-elapsed=2.500487e+03 cycle=21000 time=7.715624e-01 dt=3.410690e-05
-elapsed=2.623900e+03 cycle=22000 time=8.066022e-01 dt=3.537058e-05
-elapsed=2.770863e+03 cycle=23000 time=8.399300e-01 dt=3.670566e-05
-elapsed=2.921233e+03 cycle=24000 time=8.740737e-01 dt=3.732561e-05
-elapsed=3.082487e+03 cycle=25000 time=9.096099e-01 dt=3.622952e-05
-elapsed=3.226149e+03 cycle=26000 time=9.435977e-01 dt=3.410003e-05
-elapsed=3.384959e+03 cycle=27000 time=9.776080e-01 dt=3.256815e-05
-elapsed=3.548048e+03 cycle=28000 time=1.012282e+00 dt=3.690649e-05
-elapsed=3.719584e+03 cycle=29000 time=1.046902e+00 dt=3.217425e-05
-elapsed=3.892272e+03 cycle=30000 time=1.079830e+00 dt=3.346396e-05
-elapsed=4.032419e+03 cycle=31000 time=1.114543e+00 dt=3.679939e-05
-elapsed=4.205547e+03 cycle=32000 time=1.150883e+00 dt=3.436282e-05
-elapsed=4.378614e+03 cycle=33000 time=1.185476e+00 dt=3.779046e-05
-elapsed=4.550221e+03 cycle=34000 time=1.220527e+00 dt=3.517811e-05
-elapsed=4.700929e+03 cycle=35000 time=1.257326e+00 dt=3.620971e-05
-elapsed=4.881826e+03 cycle=36000 time=1.292029e+00 dt=3.438066e-05
-elapsed=5.050276e+03 cycle=37000 time=1.326044e+00 dt=3.330240e-05
-elapsed=5.215241e+03 cycle=38000 time=1.360761e+00 dt=3.509634e-05
-elapsed=5.408167e+03 cycle=39000 time=1.395847e+00 dt=3.649820e-05
-elapsed=5.595609e+03 cycle=40000 time=1.428973e+00 dt=3.535683e-05
-elapsed=5.787737e+03 cycle=41000 time=1.464948e+00 dt=3.321960e-05
-elapsed=5.975929e+03 cycle=42000 time=1.500362e+00 dt=3.658619e-05
-elapsed=6.158882e+03 cycle=43000 time=1.536157e+00 dt=3.506324e-05
-elapsed=6.350135e+03 cycle=44000 time=1.573001e+00 dt=3.767357e-05
-elapsed=6.534921e+03 cycle=45000 time=1.610154e+00 dt=3.702830e-05
-elapsed=6.718288e+03 cycle=46000 time=1.646811e+00 dt=3.496770e-05
-elapsed=6.907382e+03 cycle=47000 time=1.684004e+00 dt=3.659321e-05
-elapsed=7.095464e+03 cycle=48000 time=1.719760e+00 dt=3.787500e-05
-elapsed=7.290381e+03 cycle=49000 time=1.757086e+00 dt=3.692942e-05
-elapsed=7.484943e+03 cycle=50000 time=1.792962e+00 dt=3.526320e-05
-elapsed=7.677900e+03 cycle=51000 time=1.828446e+00 dt=3.545328e-05
-elapsed=7.874793e+03 cycle=52000 time=1.863691e+00 dt=3.399862e-05
+elapsed=8.285587e-03 cycle=0 time=0.000000e+00 dt=1.384206e-03
+elapsed=4.759309e-02 cycle=100 time=1.385505e-01 dt=1.386242e-03
+elapsed=7.049853e-02 cycle=200 time=2.771357e-01 dt=1.385505e-03
+elapsed=9.329788e-02 cycle=300 time=4.137115e-01 dt=1.284780e-03
+elapsed=1.164487e-01 cycle=400 time=5.422979e-01 dt=1.317021e-03
+elapsed=1.385497e-01 cycle=500 time=6.767281e-01 dt=1.352588e-03
+elapsed=1.611505e-01 cycle=600 time=8.112623e-01 dt=1.317289e-03
+elapsed=1.838685e-01 cycle=700 time=9.431655e-01 dt=1.302726e-03
+elapsed=2.064140e-01 cycle=800 time=1.075283e+00 dt=1.301804e-03
+elapsed=2.288541e-01 cycle=900 time=1.207255e+00 dt=1.357986e-03
+elapsed=2.516241e-01 cycle=1000 time=1.338696e+00 dt=1.334262e-03
+elapsed=2.744421e-01 cycle=1100 time=1.466385e+00 dt=1.296826e-03
+elapsed=2.973493e-01 cycle=1200 time=1.596338e+00 dt=1.294312e-03
+elapsed=3.206187e-01 cycle=1300 time=1.730581e+00 dt=1.363192e-03
+elapsed=3.444962e-01 cycle=1400 time=1.868846e+00 dt=1.368306e-03
+elapsed=3.685338e-01 cycle=1500 time=2.005107e+00 dt=1.338647e-03
+elapsed=3.928409e-01 cycle=1600 time=2.141805e+00 dt=1.382486e-03
+elapsed=4.166214e-01 cycle=1700 time=2.279615e+00 dt=1.368349e-03
+elapsed=4.404844e-01 cycle=1800 time=2.417528e+00 dt=1.384083e-03
+elapsed=4.647509e-01 cycle=1900 time=2.555244e+00 dt=1.376398e-03
+elapsed=4.886863e-01 cycle=2000 time=2.692716e+00 dt=1.378134e-03
+elapsed=5.122695e-01 cycle=2100 time=2.830447e+00 dt=1.377216e-03
+elapsed=5.364210e-01 cycle=2200 time=2.967502e+00 dt=1.339858e-03
+elapsed=5.613995e-01 cycle=2300 time=3.101027e+00 dt=1.332590e-03
+elapsed=5.856275e-01 cycle=2400 time=3.236634e+00 dt=1.347893e-03
+elapsed=6.108386e-01 cycle=2500 time=3.370953e+00 dt=1.342664e-03
+elapsed=6.358617e-01 cycle=2600 time=3.504530e+00 dt=1.348748e-03
+elapsed=6.605557e-01 cycle=2700 time=3.639332e+00 dt=1.329175e-03
+elapsed=6.840094e-01 cycle=2800 time=3.771418e+00 dt=1.335969e-03
+elapsed=7.072545e-01 cycle=2900 time=3.907717e+00 dt=1.381033e-03
+elapsed=7.310164e-01 cycle=3000 time=4.046249e+00 dt=1.372201e-03
+elapsed=7.547142e-01 cycle=3100 time=4.181625e+00 dt=1.332337e-03
+elapsed=7.781309e-01 cycle=3200 time=4.316649e+00 dt=1.350850e-03
+elapsed=8.017354e-01 cycle=3300 time=4.454919e+00 dt=1.385149e-03
+elapsed=8.256388e-01 cycle=3400 time=4.591409e+00 dt=1.354575e-03
+elapsed=8.494622e-01 cycle=3500 time=4.728741e+00 dt=1.384894e-03
+elapsed=8.735099e-01 cycle=3600 time=4.867000e+00 dt=1.384725e-03
+elapsed=8.979377e-01 cycle=3700 time=5.000000e+00 dt=9.292161e-04
+
+Terminating on time limit
+time=5.000000e+00 cycle=3700
+tlim=5.000000e+00 nlim=-1
+
+MeshBlock-cycles = 3700
+cpu time used  = 8.896685e-01
+zone-cycles/cpu_second = 2.129332e+06
+particle-updates/cpu_second = 0.000000e+00
+[2026-07-07 16:55:58] STEP 2 COMPLETED OK: lr_simulation_5myr
+[2026-07-07 16:55:58] 5 Myr restart file confirmed: /home/sasi/Projects/SubgridCGMModel/simulation_outputs/lr_build/rst/KH.00005.rst
+[2026-07-07 16:55:58] Generating lr_build athinput -> /home/sasi/Projects/SubgridCGMModel/runs/run_20260707_165314/athinputs/lr_build_sim.athinput
+[2026-07-07 16:55:58] ========================================================================
+[2026-07-07 16:55:58] STEP 3: lr_build  (ISM cooling restart from /home/sasi/Projects/SubgridCGMModel/simulation_outputs/lr_build/rst/KH.00005.rst)
+[2026-07-07 16:55:58] lr_build athinput mesh settings:
+nx1         = 16
+nx2         = 32
+nx1         = 16
+nx2         = 32
+[2026-07-07 16:55:58] lr_build athinput tlim:
+tlim        = 10.0
+[2026-07-07 16:55:58] lr_build athinput press and mu settings:
+press = 13.925145161290322 # Since mu was updated, even pressure should be updated from 8.63359
+mu = 0.62
+[2026-07-07 16:55:58] ========================================================================
+[2026-07-07 16:55:58] ========================================================================
+[2026-07-07 16:55:58] STEP 3: lr_build_ism_restart
+[2026-07-07 16:55:58] Command  : bash -c 
+        set -euo pipefail
+        cd '/home/sasi/Projects/SubgridCGMModel/builds/hr_build/src'
+        ./athena             -i '/home/sasi/Projects/SubgridCGMModel/runs/run_20260707_165314/athinputs/lr_build_sim.athinput'             -d '/home/sasi/Projects/SubgridCGMModel/simulation_outputs/lr_build_ism'             -r '/home/sasi/Projects/SubgridCGMModel/simulation_outputs/lr_build/rst/KH.00005.rst'
+    
+[2026-07-07 16:55:58] Log file : /home/sasi/Projects/SubgridCGMModel/runs/run_20260707_165314/logs/step3_lr_build_ism_restart.log
+[2026-07-07 16:55:58] ========================================================================
+
+Root grid = 1 x 1 x 1 MeshBlocks
+Total number of MeshBlocks = 1
+Number of logical  levels of refinement = 0 (1 levels total)
+Number of physical levels of refinement = 0 (1 levels total)
+Number of parallel ranks = 1
+
+Setup complete, executing task list(s)...
+
+elapsed=2.124436e-03 cycle=3700 time=5.000000e+00 dt=1.291016e-03
+elapsed=4.721977e-02 cycle=3800 time=5.130829e+00 dt=1.331765e-03
+elapsed=7.172458e-02 cycle=3900 time=5.264664e+00 dt=1.335666e-03
+elapsed=9.677791e-02 cycle=4000 time=5.393709e+00 dt=1.287714e-03
+elapsed=1.215321e-01 cycle=4100 time=5.525226e+00 dt=1.325590e-03
+elapsed=1.465369e-01 cycle=4200 time=5.661031e+00 dt=1.337902e-03
+elapsed=1.716251e-01 cycle=4300 time=5.793594e+00 dt=1.344947e-03
+elapsed=1.971050e-01 cycle=4400 time=5.930460e+00 dt=1.387633e-03
+elapsed=2.223189e-01 cycle=4500 time=6.069003e+00 dt=1.365689e-03
+elapsed=2.475030e-01 cycle=4600 time=6.203295e+00 dt=1.335087e-03
+elapsed=2.726923e-01 cycle=4700 time=6.337892e+00 dt=1.382479e-03
+elapsed=2.978627e-01 cycle=4800 time=6.475549e+00 dt=1.355575e-03
+elapsed=3.282094e-01 cycle=4900 time=6.612668e+00 dt=1.376837e-03
+elapsed=3.534747e-01 cycle=5000 time=6.748579e+00 dt=1.362209e-03
+elapsed=3.789804e-01 cycle=5100 time=6.882472e+00 dt=1.324572e-03
+elapsed=4.042337e-01 cycle=5200 time=7.016664e+00 dt=1.366678e-03
+elapsed=4.293881e-01 cycle=5300 time=7.150140e+00 dt=1.324640e-03
+elapsed=4.542744e-01 cycle=5400 time=7.282266e+00 dt=1.324534e-03
+elapsed=4.791617e-01 cycle=5500 time=7.415172e+00 dt=1.347300e-03
+elapsed=5.038221e-01 cycle=5600 time=7.552630e+00 dt=1.388207e-03
+elapsed=5.282494e-01 cycle=5700 time=7.690906e+00 dt=1.370059e-03
+elapsed=5.525257e-01 cycle=5800 time=7.826258e+00 dt=1.340079e-03
+elapsed=5.774143e-01 cycle=5900 time=7.961513e+00 dt=1.356331e-03
+elapsed=6.019992e-01 cycle=6000 time=8.096942e+00 dt=1.358604e-03
+elapsed=6.263560e-01 cycle=6100 time=8.232027e+00 dt=1.347067e-03
+elapsed=6.506448e-01 cycle=6200 time=8.364919e+00 dt=1.321668e-03
+elapsed=6.750683e-01 cycle=6300 time=8.498587e+00 dt=1.343286e-03
+elapsed=6.995766e-01 cycle=6400 time=8.633078e+00 dt=1.367908e-03
+elapsed=7.235857e-01 cycle=6500 time=8.770825e+00 dt=1.385889e-03
+elapsed=7.472960e-01 cycle=6600 time=8.908956e+00 dt=1.367964e-03
+elapsed=7.712640e-01 cycle=6700 time=9.044762e+00 dt=1.373178e-03
+elapsed=7.961388e-01 cycle=6800 time=9.179294e+00 dt=1.346007e-03
+elapsed=8.212583e-01 cycle=6900 time=9.310240e+00 dt=1.312254e-03
+elapsed=8.464871e-01 cycle=7000 time=9.443782e+00 dt=1.357919e-03
+elapsed=8.712689e-01 cycle=7100 time=9.579916e+00 dt=1.384568e-03
+elapsed=8.956193e-01 cycle=7200 time=9.715664e+00 dt=1.308898e-03
+elapsed=9.199075e-01 cycle=7300 time=9.841854e+00 dt=1.227697e-03
+elapsed=9.439881e-01 cycle=7400 time=9.966750e+00 dt=1.254191e-03
+
+Terminating on time limit
+time=1.000000e+01 cycle=7427
+tlim=1.000000e+01 nlim=-1
+
+MeshBlock-cycles = 3727
+cpu time used  = 9.484870e-01
+zone-cycles/cpu_second = 2.011861e+06
+particle-updates/cpu_second = 0.000000e+00
+[2026-07-07 16:55:59] STEP 3 COMPLETED OK: lr_build_ism_restart
+[2026-07-07 16:55:59] Generating sg athinput -> /home/sasi/Projects/SubgridCGMModel/runs/run_20260707_165314/athinputs/sg_sim.athinput
+[2026-07-07 16:55:59] ========================================================================
+[2026-07-07 16:55:59] STEP 4: subgrid_model  (CNN restart from /home/sasi/Projects/SubgridCGMModel/simulation_outputs/lr_build/rst/KH.00005.rst)
+[2026-07-07 16:55:59] SG athinput mesh settings:
+nx1         = 16
+nx2         = 32
+nx1         = 16
+nx2         = 32
+[2026-07-07 16:55:59] SG athinput tlim:
+tlim        = 10.0
+[2026-07-07 16:55:59] SG athinput press and mu settings:
+press = 13.925145161290322 # Since mu was updated, even pressure should be updated from 8.63359
+mu = 0.62
+[2026-07-07 16:55:59] ========================================================================
+[2026-07-07 16:55:59] ========================================================================
+[2026-07-07 16:55:59] STEP 4: subgrid_model_cnn_restart
+[2026-07-07 16:55:59] Command  : bash -c 
+        set -euo pipefail
+        cd '/home/sasi/Projects/SubgridCGMModel/builds/subgrid_model/src'
+
+        # Activate venv and set PYTHONPATH for the embedded Python source module
+        source '/home/sasi/Projects/SubgridCGMModel/venv/bin/activate'
+        VENV='/home/sasi/Projects/SubgridCGMModel/venv'
+        SITE_PACKAGES="$VENV/lib/python3.14/site-packages"
+        export PYTHONPATH="$PWD:$SITE_PACKAGES${PYTHONPATH:+:$PYTHONPATH}"
+
+        ./athena             -i '/home/sasi/Projects/SubgridCGMModel/runs/run_20260707_165314/athinputs/sg_sim.athinput'             -d '/home/sasi/Projects/SubgridCGMModel/simulation_outputs/subgrid_model'             -r '/home/sasi/Projects/SubgridCGMModel/simulation_outputs/lr_build/rst/KH.00005.rst'
+    
+[2026-07-07 16:55:59] Log file : /home/sasi/Projects/SubgridCGMModel/runs/run_20260707_165314/logs/step4_subgrid_model_cnn_restart.log
+[2026-07-07 16:55:59] ========================================================================
+
+Root grid = 1 x 1 x 1 MeshBlocks
+Total number of MeshBlocks = 1
+Number of logical  levels of refinement = 0 (1 levels total)
+Number of physical levels of refinement = 0 (1 levels total)
+Number of parallel ranks = 1
+
+Setup complete, executing task list(s)...
+
+elapsed=6.185474e-03 cycle=3700 time=5.000000e+00 dt=1.291016e-03
+elapsed=1.745392e+00 cycle=3705 time=5.006458e+00 dt=1.292985e-03
+elapsed=2.089623e+00 cycle=3710 time=5.012931e+00 dt=1.297650e-03
+elapsed=2.416780e+00 cycle=3715 time=5.019436e+00 dt=1.307752e-03
+elapsed=2.748473e+00 cycle=3720 time=5.026006e+00 dt=1.323812e-03
+elapsed=3.077621e+00 cycle=3725 time=5.032640e+00 dt=1.324734e-03
+elapsed=3.411722e+00 cycle=3730 time=5.039253e+00 dt=1.319474e-03
+elapsed=3.741920e+00 cycle=3735 time=5.045842e+00 dt=1.315491e-03
+elapsed=4.081292e+00 cycle=3740 time=5.052409e+00 dt=1.311091e-03
+elapsed=4.414014e+00 cycle=3745 time=5.058968e+00 dt=1.315118e-03
+elapsed=4.748808e+00 cycle=3750 time=5.065566e+00 dt=1.326182e-03
+elapsed=5.082870e+00 cycle=3755 time=5.072196e+00 dt=1.324579e-03
+elapsed=5.420692e+00 cycle=3760 time=5.078816e+00 dt=1.324322e-03
+elapsed=5.755484e+00 cycle=3765 time=5.085441e+00 dt=1.326473e-03
+elapsed=6.092182e+00 cycle=3770 time=5.092069e+00 dt=1.323161e-03
+elapsed=6.418916e+00 cycle=3775 time=5.098680e+00 dt=1.321859e-03
+elapsed=6.759660e+00 cycle=3780 time=5.105292e+00 dt=1.323461e-03
+elapsed=7.077902e+00 cycle=3785 time=5.111912e+00 dt=1.324868e-03
+elapsed=7.414023e+00 cycle=3790 time=5.118537e+00 dt=1.325485e-03
+elapsed=7.753299e+00 cycle=3795 time=5.125175e+00 dt=1.331778e-03
+elapsed=8.087270e+00 cycle=3800 time=5.131855e+00 dt=1.342859e-03
+elapsed=8.424481e+00 cycle=3805 time=5.138584e+00 dt=1.346767e-03
+elapsed=8.743481e+00 cycle=3810 time=5.145315e+00 dt=1.346176e-03
+elapsed=9.064171e+00 cycle=3815 time=5.152051e+00 dt=1.349383e-03
+elapsed=9.389600e+00 cycle=3820 time=5.158812e+00 dt=1.356585e-03
+elapsed=9.710288e+00 cycle=3825 time=5.165602e+00 dt=1.360512e-03
+elapsed=1.003321e+01 cycle=3830 time=5.172409e+00 dt=1.361398e-03
+elapsed=1.035447e+01 cycle=3835 time=5.179214e+00 dt=1.360977e-03
+elapsed=1.067054e+01 cycle=3840 time=5.186021e+00 dt=1.361616e-03
+elapsed=1.099291e+01 cycle=3845 time=5.192828e+00 dt=1.361760e-03
+elapsed=1.131051e+01 cycle=3850 time=5.199643e+00 dt=1.365610e-03
+elapsed=1.164114e+01 cycle=3855 time=5.206482e+00 dt=1.370520e-03
+elapsed=1.197375e+01 cycle=3860 time=5.213336e+00 dt=1.369540e-03
+elapsed=1.231046e+01 cycle=3865 time=5.220178e+00 dt=1.367169e-03
+elapsed=1.264739e+01 cycle=3870 time=5.227016e+00 dt=1.369750e-03
+elapsed=1.297861e+01 cycle=3875 time=5.233882e+00 dt=1.379656e-03
+elapsed=1.330031e+01 cycle=3880 time=5.240797e+00 dt=1.384474e-03
+elapsed=1.362538e+01 cycle=3885 time=5.247720e+00 dt=1.384696e-03
+elapsed=1.395264e+01 cycle=3890 time=5.254643e+00 dt=1.384420e-03
+elapsed=1.427000e+01 cycle=3895 time=5.261564e+00 dt=1.384276e-03
+elapsed=1.459093e+01 cycle=3900 time=5.268486e+00 dt=1.384476e-03
+elapsed=1.490679e+01 cycle=3905 time=5.275409e+00 dt=1.384582e-03
+elapsed=1.522737e+01 cycle=3910 time=5.282331e+00 dt=1.384313e-03
+elapsed=1.554371e+01 cycle=3915 time=5.289250e+00 dt=1.382278e-03
+elapsed=1.586012e+01 cycle=3920 time=5.296156e+00 dt=1.380314e-03
+elapsed=1.618298e+01 cycle=3925 time=5.303058e+00 dt=1.380735e-03
+elapsed=1.650150e+01 cycle=3930 time=5.309965e+00 dt=1.382540e-03
+elapsed=1.681864e+01 cycle=3935 time=5.316882e+00 dt=1.383973e-03
+elapsed=1.714488e+01 cycle=3940 time=5.323802e+00 dt=1.384238e-03
+elapsed=1.747530e+01 cycle=3945 time=5.330724e+00 dt=1.384715e-03
+elapsed=1.779207e+01 cycle=3950 time=5.337649e+00 dt=1.385419e-03
+elapsed=1.810225e+01 cycle=3955 time=5.344577e+00 dt=1.385479e-03
+elapsed=1.843856e+01 cycle=3960 time=5.351504e+00 dt=1.385234e-03
+elapsed=1.877892e+01 cycle=3965 time=5.358430e+00 dt=1.385270e-03
+elapsed=1.911670e+01 cycle=3970 time=5.365349e+00 dt=1.381599e-03
+elapsed=1.945510e+01 cycle=3975 time=5.372251e+00 dt=1.379120e-03
+elapsed=1.979127e+01 cycle=3980 time=5.379142e+00 dt=1.376679e-03
+elapsed=2.011883e+01 cycle=3985 time=5.386021e+00 dt=1.374617e-03
+elapsed=2.044382e+01 cycle=3990 time=5.392893e+00 dt=1.374416e-03
+elapsed=2.077215e+01 cycle=3995 time=5.399766e+00 dt=1.375179e-03
+elapsed=2.109547e+01 cycle=4000 time=5.406645e+00 dt=1.376834e-03
+elapsed=2.141581e+01 cycle=4005 time=5.413526e+00 dt=1.374987e-03
+elapsed=2.173836e+01 cycle=4010 time=5.420395e+00 dt=1.370776e-03
+elapsed=2.206008e+01 cycle=4015 time=5.427240e+00 dt=1.367098e-03
+elapsed=2.238337e+01 cycle=4020 time=5.434067e+00 dt=1.362222e-03
+elapsed=2.270039e+01 cycle=4025 time=5.440868e+00 dt=1.357699e-03
+elapsed=2.301618e+01 cycle=4030 time=5.447651e+00 dt=1.354465e-03
+elapsed=2.334036e+01 cycle=4035 time=5.454417e+00 dt=1.351855e-03
+elapsed=2.366666e+01 cycle=4040 time=5.461172e+00 dt=1.349248e-03
+elapsed=2.398367e+01 cycle=4045 time=5.467912e+00 dt=1.346191e-03
+elapsed=2.430031e+01 cycle=4050 time=5.474633e+00 dt=1.340968e-03
+elapsed=2.462044e+01 cycle=4055 time=5.481329e+00 dt=1.336796e-03
+elapsed=2.495055e+01 cycle=4060 time=5.488006e+00 dt=1.332346e-03
+elapsed=2.527606e+01 cycle=4065 time=5.494656e+00 dt=1.328441e-03
+elapsed=2.559857e+01 cycle=4070 time=5.501299e+00 dt=1.328832e-03
+elapsed=2.592260e+01 cycle=4075 time=5.507946e+00 dt=1.331047e-03
+elapsed=2.624734e+01 cycle=4080 time=5.514602e+00 dt=1.330306e-03
+elapsed=2.656873e+01 cycle=4085 time=5.521252e+00 dt=1.329411e-03
+elapsed=2.689889e+01 cycle=4090 time=5.527899e+00 dt=1.331272e-03
+elapsed=2.723686e+01 cycle=4095 time=5.534567e+00 dt=1.335557e-03
+elapsed=2.756209e+01 cycle=4100 time=5.541245e+00 dt=1.335459e-03
+elapsed=2.788894e+01 cycle=4105 time=5.547924e+00 dt=1.336238e-03
+elapsed=2.822463e+01 cycle=4110 time=5.554606e+00 dt=1.336787e-03
+elapsed=2.856363e+01 cycle=4115 time=5.561292e+00 dt=1.337903e-03
+elapsed=2.892931e+01 cycle=4120 time=5.567983e+00 dt=1.338559e-03
+elapsed=2.926581e+01 cycle=4125 time=5.574675e+00 dt=1.338155e-03
+elapsed=2.960233e+01 cycle=4130 time=5.581366e+00 dt=1.338533e-03
+elapsed=2.993729e+01 cycle=4135 time=5.588061e+00 dt=1.340046e-03
+elapsed=3.027650e+01 cycle=4140 time=5.594766e+00 dt=1.342533e-03
+elapsed=3.061652e+01 cycle=4145 time=5.601483e+00 dt=1.344471e-03
+elapsed=3.095205e+01 cycle=4150 time=5.608208e+00 dt=1.345615e-03
+elapsed=3.128618e+01 cycle=4155 time=5.614937e+00 dt=1.345922e-03
+elapsed=3.161599e+01 cycle=4160 time=5.621666e+00 dt=1.345977e-03
+elapsed=3.194446e+01 cycle=4165 time=5.628398e+00 dt=1.347148e-03
+elapsed=3.227919e+01 cycle=4170 time=5.635143e+00 dt=1.353550e-03
+elapsed=3.261382e+01 cycle=4175 time=5.641921e+00 dt=1.357396e-03
+elapsed=3.295002e+01 cycle=4180 time=5.648711e+00 dt=1.359255e-03
+elapsed=3.328723e+01 cycle=4185 time=5.655510e+00 dt=1.360412e-03
+elapsed=3.361113e+01 cycle=4190 time=5.662312e+00 dt=1.360949e-03
+elapsed=3.393323e+01 cycle=4195 time=5.669121e+00 dt=1.363231e-03
+elapsed=3.426623e+01 cycle=4200 time=5.675945e+00 dt=1.367216e-03
+elapsed=3.460427e+01 cycle=4205 time=5.682789e+00 dt=1.371336e-03
+elapsed=3.494251e+01 cycle=4210 time=5.689654e+00 dt=1.375596e-03
+elapsed=3.527851e+01 cycle=4215 time=5.696542e+00 dt=1.381150e-03
+elapsed=3.561515e+01 cycle=4220 time=5.703458e+00 dt=1.384477e-03
+elapsed=3.594822e+01 cycle=4225 time=5.710379e+00 dt=1.383894e-03
+elapsed=3.628194e+01 cycle=4230 time=5.717299e+00 dt=1.384038e-03
+elapsed=3.661305e+01 cycle=4235 time=5.724219e+00 dt=1.384293e-03
+elapsed=3.694546e+01 cycle=4240 time=5.731141e+00 dt=1.384246e-03
+elapsed=3.728091e+01 cycle=4245 time=5.738062e+00 dt=1.384275e-03
+elapsed=3.760397e+01 cycle=4250 time=5.744984e+00 dt=1.384528e-03
+elapsed=3.793806e+01 cycle=4255 time=5.751907e+00 dt=1.384566e-03
+elapsed=3.825987e+01 cycle=4260 time=5.758829e+00 dt=1.384065e-03
+elapsed=3.859541e+01 cycle=4265 time=5.765746e+00 dt=1.381519e-03
+elapsed=3.893017e+01 cycle=4270 time=5.772645e+00 dt=1.377517e-03
+elapsed=3.924642e+01 cycle=4275 time=5.779527e+00 dt=1.374962e-03
+elapsed=3.957348e+01 cycle=4280 time=5.786399e+00 dt=1.373323e-03
+elapsed=3.989675e+01 cycle=4285 time=5.793261e+00 dt=1.371378e-03
+elapsed=4.021847e+01 cycle=4290 time=5.800115e+00 dt=1.370187e-03
+elapsed=4.054057e+01 cycle=4295 time=5.806965e+00 dt=1.370174e-03
+elapsed=4.087525e+01 cycle=4300 time=5.813815e+00 dt=1.369191e-03
+elapsed=4.120249e+01 cycle=4305 time=5.820658e+00 dt=1.367918e-03
+elapsed=4.152480e+01 cycle=4310 time=5.827497e+00 dt=1.367244e-03
+elapsed=4.185648e+01 cycle=4315 time=5.834331e+00 dt=1.366339e-03
+elapsed=4.218342e+01 cycle=4320 time=5.841160e+00 dt=1.364717e-03
+elapsed=4.250296e+01 cycle=4325 time=5.847991e+00 dt=1.366096e-03
+elapsed=4.283388e+01 cycle=4330 time=5.854817e+00 dt=1.364305e-03
+elapsed=4.317061e+01 cycle=4335 time=5.861636e+00 dt=1.362582e-03
+elapsed=4.350575e+01 cycle=4340 time=5.868445e+00 dt=1.360233e-03
+elapsed=4.383897e+01 cycle=4345 time=5.875239e+00 dt=1.356800e-03
+elapsed=4.416354e+01 cycle=4350 time=5.882015e+00 dt=1.352684e-03
+elapsed=4.449388e+01 cycle=4355 time=5.888770e+00 dt=1.348920e-03
+elapsed=4.483089e+01 cycle=4360 time=5.895509e+00 dt=1.345825e-03
+elapsed=4.516604e+01 cycle=4365 time=5.902232e+00 dt=1.343113e-03
+elapsed=4.549863e+01 cycle=4370 time=5.908944e+00 dt=1.341408e-03
+elapsed=4.583462e+01 cycle=4375 time=5.915649e+00 dt=1.340155e-03
+elapsed=4.616354e+01 cycle=4380 time=5.922345e+00 dt=1.337957e-03
+elapsed=4.650102e+01 cycle=4385 time=5.929030e+00 dt=1.335702e-03
+elapsed=4.683452e+01 cycle=4390 time=5.935707e+00 dt=1.335364e-03
+elapsed=4.716674e+01 cycle=4395 time=5.942386e+00 dt=1.336276e-03
+elapsed=4.748431e+01 cycle=4400 time=5.949070e+00 dt=1.337655e-03
+elapsed=4.781099e+01 cycle=4405 time=5.955760e+00 dt=1.338758e-03
+elapsed=4.813159e+01 cycle=4410 time=5.962457e+00 dt=1.340093e-03
+elapsed=4.844904e+01 cycle=4415 time=5.969160e+00 dt=1.341383e-03
+elapsed=4.877104e+01 cycle=4420 time=5.975869e+00 dt=1.342824e-03
+elapsed=4.909505e+01 cycle=4425 time=5.982587e+00 dt=1.344530e-03
+elapsed=4.941370e+01 cycle=4430 time=5.989313e+00 dt=1.346299e-03
+elapsed=4.973384e+01 cycle=4435 time=5.996049e+00 dt=1.348727e-03
+elapsed=5.005271e+01 cycle=4440 time=6.002798e+00 dt=1.351112e-03
+elapsed=5.038522e+01 cycle=4445 time=6.009556e+00 dt=1.351880e-03
+elapsed=5.071897e+01 cycle=4450 time=6.016315e+00 dt=1.351968e-03
+elapsed=5.105182e+01 cycle=4455 time=6.023076e+00 dt=1.352239e-03
+elapsed=5.138575e+01 cycle=4460 time=6.029837e+00 dt=1.352633e-03
+elapsed=5.171886e+01 cycle=4465 time=6.036603e+00 dt=1.354119e-03
+elapsed=5.205278e+01 cycle=4470 time=6.043377e+00 dt=1.355505e-03
+elapsed=5.238588e+01 cycle=4475 time=6.050158e+00 dt=1.357392e-03
+elapsed=5.271919e+01 cycle=4480 time=6.056948e+00 dt=1.359153e-03
+elapsed=5.305261e+01 cycle=4485 time=6.063747e+00 dt=1.360551e-03
+elapsed=5.338633e+01 cycle=4490 time=6.070552e+00 dt=1.361388e-03
+elapsed=5.371980e+01 cycle=4495 time=6.077361e+00 dt=1.362693e-03
+elapsed=5.405218e+01 cycle=4500 time=6.084177e+00 dt=1.364196e-03
+elapsed=5.438793e+01 cycle=4505 time=6.091002e+00 dt=1.366355e-03
+elapsed=5.472146e+01 cycle=4510 time=6.097840e+00 dt=1.369344e-03
+elapsed=5.505460e+01 cycle=4515 time=6.104692e+00 dt=1.372154e-03
+elapsed=5.538788e+01 cycle=4520 time=6.111557e+00 dt=1.373974e-03
+elapsed=5.572151e+01 cycle=4525 time=6.118430e+00 dt=1.375161e-03
+elapsed=5.605376e+01 cycle=4530 time=6.125307e+00 dt=1.375698e-03
+elapsed=5.638606e+01 cycle=4535 time=6.132185e+00 dt=1.375605e-03
+elapsed=5.671914e+01 cycle=4540 time=6.139063e+00 dt=1.375385e-03
+elapsed=5.705269e+01 cycle=4545 time=6.145940e+00 dt=1.375452e-03
+elapsed=5.738666e+01 cycle=4550 time=6.152817e+00 dt=1.375074e-03
+elapsed=5.772052e+01 cycle=4555 time=6.159690e+00 dt=1.374084e-03
+elapsed=5.805335e+01 cycle=4560 time=6.166559e+00 dt=1.373047e-03
+elapsed=5.838684e+01 cycle=4565 time=6.173422e+00 dt=1.371881e-03
+elapsed=5.871925e+01 cycle=4570 time=6.180280e+00 dt=1.371094e-03
+elapsed=5.905152e+01 cycle=4575 time=6.187133e+00 dt=1.369896e-03
+elapsed=5.938632e+01 cycle=4580 time=6.193980e+00 dt=1.368670e-03
+elapsed=5.971950e+01 cycle=4585 time=6.200821e+00 dt=1.367591e-03
+elapsed=6.005229e+01 cycle=4590 time=6.207656e+00 dt=1.366074e-03
+elapsed=6.038486e+01 cycle=4595 time=6.214483e+00 dt=1.363936e-03
+elapsed=6.071730e+01 cycle=4600 time=6.221298e+00 dt=1.362122e-03
+elapsed=6.104957e+01 cycle=4605 time=6.228107e+00 dt=1.361571e-03
+elapsed=6.138137e+01 cycle=4610 time=6.234914e+00 dt=1.361112e-03
+elapsed=6.171362e+01 cycle=4615 time=6.241720e+00 dt=1.361181e-03
+elapsed=6.207111e+01 cycle=4620 time=6.248525e+00 dt=1.360746e-03
+elapsed=6.240454e+01 cycle=4625 time=6.255325e+00 dt=1.359161e-03
+elapsed=6.273713e+01 cycle=4630 time=6.262120e+00 dt=1.358590e-03
+elapsed=6.307038e+01 cycle=4635 time=6.268910e+00 dt=1.357022e-03
+elapsed=6.340139e+01 cycle=4640 time=6.275693e+00 dt=1.355444e-03
+elapsed=6.373532e+01 cycle=4645 time=6.282466e+00 dt=1.353295e-03
+elapsed=6.406764e+01 cycle=4650 time=6.289228e+00 dt=1.351070e-03
+elapsed=6.439123e+01 cycle=4655 time=6.295974e+00 dt=1.346374e-03
+elapsed=6.472393e+01 cycle=4660 time=6.302696e+00 dt=1.341677e-03
+elapsed=6.505679e+01 cycle=4665 time=6.309398e+00 dt=1.338797e-03
+elapsed=6.539031e+01 cycle=4670 time=6.316090e+00 dt=1.337598e-03
+elapsed=6.572365e+01 cycle=4675 time=6.322773e+00 dt=1.334912e-03
+elapsed=6.605595e+01 cycle=4680 time=6.329441e+00 dt=1.331859e-03
+elapsed=6.638778e+01 cycle=4685 time=6.336098e+00 dt=1.331202e-03
+elapsed=6.671925e+01 cycle=4690 time=6.342755e+00 dt=1.331364e-03
+elapsed=6.705217e+01 cycle=4695 time=6.349410e+00 dt=1.330901e-03
+elapsed=6.738474e+01 cycle=4700 time=6.356066e+00 dt=1.331669e-03
+elapsed=6.771824e+01 cycle=4705 time=6.362726e+00 dt=1.332574e-03
+elapsed=6.804960e+01 cycle=4710 time=6.369390e+00 dt=1.332785e-03
+elapsed=6.838205e+01 cycle=4715 time=6.376054e+00 dt=1.332974e-03
+elapsed=6.871524e+01 cycle=4720 time=6.382720e+00 dt=1.333476e-03
+elapsed=6.904735e+01 cycle=4725 time=6.389387e+00 dt=1.333251e-03
+elapsed=6.937961e+01 cycle=4730 time=6.396052e+00 dt=1.332790e-03
+elapsed=6.971584e+01 cycle=4735 time=6.402718e+00 dt=1.333835e-03
+elapsed=7.004776e+01 cycle=4740 time=6.409390e+00 dt=1.335250e-03
+elapsed=7.038398e+01 cycle=4745 time=6.416068e+00 dt=1.336240e-03
+elapsed=7.071900e+01 cycle=4750 time=6.422752e+00 dt=1.337913e-03
+elapsed=7.105267e+01 cycle=4755 time=6.429445e+00 dt=1.339736e-03
+elapsed=7.138526e+01 cycle=4760 time=6.436144e+00 dt=1.339853e-03
+elapsed=7.171991e+01 cycle=4765 time=6.442845e+00 dt=1.340424e-03
+elapsed=7.205232e+01 cycle=4770 time=6.449548e+00 dt=1.341072e-03
+elapsed=7.238452e+01 cycle=4775 time=6.456256e+00 dt=1.342326e-03
+elapsed=7.271659e+01 cycle=4780 time=6.462970e+00 dt=1.343878e-03
+elapsed=7.304909e+01 cycle=4785 time=6.469692e+00 dt=1.345158e-03
+elapsed=7.338089e+01 cycle=4790 time=6.476421e+00 dt=1.346159e-03
+elapsed=7.371595e+01 cycle=4795 time=6.483152e+00 dt=1.346354e-03
+elapsed=7.404762e+01 cycle=4800 time=6.489885e+00 dt=1.347042e-03
+elapsed=7.438074e+01 cycle=4805 time=6.496621e+00 dt=1.347589e-03
+elapsed=7.471350e+01 cycle=4810 time=6.503359e+00 dt=1.347617e-03
+elapsed=7.504569e+01 cycle=4815 time=6.510098e+00 dt=1.348110e-03
+elapsed=7.537719e+01 cycle=4820 time=6.516841e+00 dt=1.349476e-03
+elapsed=7.571181e+01 cycle=4825 time=6.523592e+00 dt=1.351384e-03
+elapsed=7.604340e+01 cycle=4830 time=6.530352e+00 dt=1.352396e-03
+elapsed=7.637594e+01 cycle=4835 time=6.537114e+00 dt=1.352209e-03
+elapsed=7.670844e+01 cycle=4840 time=6.543874e+00 dt=1.351759e-03
+elapsed=7.704173e+01 cycle=4845 time=6.550632e+00 dt=1.351210e-03
+elapsed=7.737364e+01 cycle=4850 time=6.557387e+00 dt=1.351114e-03
+elapsed=7.770966e+01 cycle=4855 time=6.564143e+00 dt=1.350859e-03
+elapsed=7.804149e+01 cycle=4860 time=6.570896e+00 dt=1.350685e-03
+elapsed=7.837413e+01 cycle=4865 time=6.577650e+00 dt=1.351084e-03
+elapsed=7.870801e+01 cycle=4870 time=6.584407e+00 dt=1.351434e-03
+elapsed=7.904390e+01 cycle=4875 time=6.591164e+00 dt=1.351168e-03
+elapsed=7.937720e+01 cycle=4880 time=6.597918e+00 dt=1.349843e-03
+elapsed=7.971082e+01 cycle=4885 time=6.604667e+00 dt=1.350008e-03
+elapsed=8.004295e+01 cycle=4890 time=6.611418e+00 dt=1.350429e-03
+elapsed=8.037499e+01 cycle=4895 time=6.618167e+00 dt=1.348448e-03
+elapsed=8.070687e+01 cycle=4900 time=6.624905e+00 dt=1.346171e-03
+elapsed=8.104059e+01 cycle=4905 time=6.631633e+00 dt=1.345651e-03
+elapsed=8.137216e+01 cycle=4910 time=6.638363e+00 dt=1.346211e-03
+elapsed=8.170597e+01 cycle=4915 time=6.645094e+00 dt=1.346199e-03
+elapsed=8.203666e+01 cycle=4920 time=6.651824e+00 dt=1.345200e-03
+elapsed=8.236928e+01 cycle=4925 time=6.658548e+00 dt=1.344772e-03
+elapsed=8.270150e+01 cycle=4930 time=6.665273e+00 dt=1.345246e-03
+elapsed=8.303423e+01 cycle=4935 time=6.671997e+00 dt=1.344045e-03
+elapsed=8.336587e+01 cycle=4940 time=6.678716e+00 dt=1.343634e-03
+elapsed=8.370147e+01 cycle=4945 time=6.685433e+00 dt=1.342879e-03
+elapsed=8.403272e+01 cycle=4950 time=6.692146e+00 dt=1.342016e-03
+elapsed=8.436574e+01 cycle=4955 time=6.698855e+00 dt=1.341529e-03
+elapsed=8.469967e+01 cycle=4960 time=6.705562e+00 dt=1.341510e-03
+elapsed=8.503370e+01 cycle=4965 time=6.712270e+00 dt=1.341544e-03
+elapsed=8.536744e+01 cycle=4970 time=6.718978e+00 dt=1.341828e-03
+elapsed=8.570183e+01 cycle=4975 time=6.725685e+00 dt=1.340145e-03
+elapsed=8.603455e+01 cycle=4980 time=6.732383e+00 dt=1.339595e-03
+elapsed=8.636760e+01 cycle=4985 time=6.739083e+00 dt=1.340780e-03
+elapsed=8.670088e+01 cycle=4990 time=6.745793e+00 dt=1.343721e-03
+elapsed=8.703363e+01 cycle=4995 time=6.752515e+00 dt=1.344938e-03
+elapsed=8.736778e+01 cycle=5000 time=6.759239e+00 dt=1.344796e-03
+elapsed=8.770301e+01 cycle=5005 time=6.765963e+00 dt=1.345174e-03
+elapsed=8.803532e+01 cycle=5010 time=6.772692e+00 dt=1.346415e-03
+elapsed=8.836846e+01 cycle=5015 time=6.779425e+00 dt=1.346604e-03
+elapsed=8.870117e+01 cycle=5020 time=6.786158e+00 dt=1.346744e-03
+elapsed=8.903442e+01 cycle=5025 time=6.792893e+00 dt=1.347686e-03
+elapsed=8.936644e+01 cycle=5030 time=6.799633e+00 dt=1.348193e-03
+elapsed=8.970268e+01 cycle=5035 time=6.806375e+00 dt=1.349151e-03
+elapsed=9.003581e+01 cycle=5040 time=6.813124e+00 dt=1.350376e-03
+elapsed=9.036896e+01 cycle=5045 time=6.819878e+00 dt=1.351791e-03
+elapsed=9.070118e+01 cycle=5050 time=6.826640e+00 dt=1.352784e-03
+elapsed=9.103606e+01 cycle=5055 time=6.833404e+00 dt=1.352901e-03
+elapsed=9.136860e+01 cycle=5060 time=6.840167e+00 dt=1.352212e-03
+elapsed=9.170389e+01 cycle=5065 time=6.846926e+00 dt=1.350593e-03
+elapsed=9.203649e+01 cycle=5070 time=6.853676e+00 dt=1.349423e-03
+elapsed=9.237143e+01 cycle=5075 time=6.860424e+00 dt=1.349786e-03
+elapsed=9.270586e+01 cycle=5080 time=6.867174e+00 dt=1.350379e-03
+elapsed=9.304170e+01 cycle=5085 time=6.873927e+00 dt=1.350791e-03
+elapsed=9.337473e+01 cycle=5090 time=6.880681e+00 dt=1.351232e-03
+elapsed=9.371058e+01 cycle=5095 time=6.887438e+00 dt=1.351484e-03
+elapsed=9.404720e+01 cycle=5100 time=6.894196e+00 dt=1.351513e-03
+elapsed=9.438250e+01 cycle=5105 time=6.900954e+00 dt=1.351772e-03
+elapsed=9.471530e+01 cycle=5110 time=6.907713e+00 dt=1.352166e-03
+elapsed=9.505012e+01 cycle=5115 time=6.914475e+00 dt=1.352410e-03
+elapsed=9.538225e+01 cycle=5120 time=6.921235e+00 dt=1.351301e-03
+elapsed=9.574179e+01 cycle=5125 time=6.927988e+00 dt=1.349776e-03
+elapsed=9.607468e+01 cycle=5130 time=6.934736e+00 dt=1.349250e-03
+elapsed=9.640867e+01 cycle=5135 time=6.941482e+00 dt=1.349326e-03
+elapsed=9.674043e+01 cycle=5140 time=6.948229e+00 dt=1.349537e-03
+elapsed=9.707428e+01 cycle=5145 time=6.954975e+00 dt=1.348683e-03
+elapsed=9.740698e+01 cycle=5150 time=6.961716e+00 dt=1.347194e-03
+elapsed=9.774146e+01 cycle=5155 time=6.968448e+00 dt=1.345301e-03
+elapsed=9.807433e+01 cycle=5160 time=6.975171e+00 dt=1.343699e-03
+elapsed=9.840776e+01 cycle=5165 time=6.981888e+00 dt=1.343254e-03
+elapsed=9.873942e+01 cycle=5170 time=6.988605e+00 dt=1.343544e-03
+elapsed=9.907182e+01 cycle=5175 time=6.995323e+00 dt=1.343386e-03
+elapsed=9.940459e+01 cycle=5180 time=7.002039e+00 dt=1.342825e-03
+elapsed=9.974009e+01 cycle=5185 time=7.008752e+00 dt=1.342200e-03
+elapsed=1.000753e+02 cycle=5190 time=7.015461e+00 dt=1.341641e-03
+elapsed=1.004091e+02 cycle=5195 time=7.022168e+00 dt=1.340971e-03
+elapsed=1.007423e+02 cycle=5200 time=7.028872e+00 dt=1.340377e-03
+elapsed=1.010689e+02 cycle=5205 time=7.035573e+00 dt=1.340298e-03
+elapsed=1.014011e+02 cycle=5210 time=7.042275e+00 dt=1.340465e-03
+elapsed=1.017357e+02 cycle=5215 time=7.048978e+00 dt=1.341087e-03
+elapsed=1.020686e+02 cycle=5220 time=7.055686e+00 dt=1.342009e-03
+elapsed=1.024023e+02 cycle=5225 time=7.062396e+00 dt=1.341714e-03
+elapsed=1.027342e+02 cycle=5230 time=7.069104e+00 dt=1.341408e-03
+elapsed=1.030673e+02 cycle=5235 time=7.075810e+00 dt=1.340895e-03
+elapsed=1.034010e+02 cycle=5240 time=7.082513e+00 dt=1.340143e-03
+elapsed=1.037343e+02 cycle=5245 time=7.089212e+00 dt=1.339636e-03
+elapsed=1.040664e+02 cycle=5250 time=7.095910e+00 dt=1.339398e-03
+elapsed=1.043993e+02 cycle=5255 time=7.102606e+00 dt=1.339160e-03
+elapsed=1.047308e+02 cycle=5260 time=7.109301e+00 dt=1.338872e-03
+elapsed=1.050636e+02 cycle=5265 time=7.115996e+00 dt=1.338922e-03
+elapsed=1.053951e+02 cycle=5270 time=7.122690e+00 dt=1.338264e-03
+elapsed=1.057286e+02 cycle=5275 time=7.129379e+00 dt=1.337225e-03
+elapsed=1.060609e+02 cycle=5280 time=7.136064e+00 dt=1.336611e-03
+elapsed=1.063934e+02 cycle=5285 time=7.142746e+00 dt=1.336481e-03
+elapsed=1.067243e+02 cycle=5290 time=7.149428e+00 dt=1.336466e-03
+elapsed=1.070562e+02 cycle=5295 time=7.156111e+00 dt=1.336865e-03
+elapsed=1.073877e+02 cycle=5300 time=7.162797e+00 dt=1.337393e-03
+elapsed=1.077203e+02 cycle=5305 time=7.169485e+00 dt=1.337966e-03
+elapsed=1.080517e+02 cycle=5310 time=7.176176e+00 dt=1.338569e-03
+elapsed=1.083848e+02 cycle=5315 time=7.182870e+00 dt=1.338854e-03
+elapsed=1.087168e+02 cycle=5320 time=7.189564e+00 dt=1.338737e-03
+elapsed=1.090489e+02 cycle=5325 time=7.196258e+00 dt=1.339462e-03
+elapsed=1.093817e+02 cycle=5330 time=7.202958e+00 dt=1.340834e-03
+elapsed=1.097159e+02 cycle=5335 time=7.209665e+00 dt=1.342049e-03
+elapsed=1.100472e+02 cycle=5340 time=7.216378e+00 dt=1.343522e-03
+elapsed=1.103804e+02 cycle=5345 time=7.223098e+00 dt=1.344732e-03
+elapsed=1.107151e+02 cycle=5350 time=7.229823e+00 dt=1.345238e-03
+elapsed=1.110503e+02 cycle=5355 time=7.236551e+00 dt=1.345807e-03
+elapsed=1.113830e+02 cycle=5360 time=7.243281e+00 dt=1.346596e-03
+elapsed=1.117183e+02 cycle=5365 time=7.250014e+00 dt=1.346551e-03
+elapsed=1.120505e+02 cycle=5370 time=7.256747e+00 dt=1.346573e-03
+elapsed=1.123829e+02 cycle=5375 time=7.263481e+00 dt=1.347439e-03
+elapsed=1.127146e+02 cycle=5380 time=7.270220e+00 dt=1.348132e-03
+elapsed=1.130417e+02 cycle=5385 time=7.276961e+00 dt=1.348422e-03
+elapsed=1.133738e+02 cycle=5390 time=7.283705e+00 dt=1.349551e-03
+elapsed=1.137084e+02 cycle=5395 time=7.290456e+00 dt=1.350965e-03
+elapsed=1.140411e+02 cycle=5400 time=7.297213e+00 dt=1.351969e-03
+elapsed=1.143746e+02 cycle=5405 time=7.303973e+00 dt=1.351994e-03
+elapsed=1.147070e+02 cycle=5410 time=7.310732e+00 dt=1.351608e-03
+elapsed=1.150394e+02 cycle=5415 time=7.317491e+00 dt=1.351844e-03
+elapsed=1.153732e+02 cycle=5420 time=7.324251e+00 dt=1.352630e-03
+elapsed=1.157083e+02 cycle=5425 time=7.331016e+00 dt=1.353481e-03
+elapsed=1.160413e+02 cycle=5430 time=7.337784e+00 dt=1.353796e-03
+elapsed=1.163747e+02 cycle=5435 time=7.344554e+00 dt=1.353994e-03
+elapsed=1.167069e+02 cycle=5440 time=7.351325e+00 dt=1.354635e-03
+elapsed=1.170405e+02 cycle=5445 time=7.358099e+00 dt=1.355485e-03
+elapsed=1.173732e+02 cycle=5450 time=7.364879e+00 dt=1.356318e-03
+elapsed=1.177081e+02 cycle=5455 time=7.371663e+00 dt=1.357915e-03
+elapsed=1.180403e+02 cycle=5460 time=7.378455e+00 dt=1.358682e-03
+elapsed=1.183738e+02 cycle=5465 time=7.385250e+00 dt=1.360211e-03
+elapsed=1.187060e+02 cycle=5470 time=7.392056e+00 dt=1.362308e-03
+elapsed=1.190393e+02 cycle=5475 time=7.398870e+00 dt=1.363347e-03
+elapsed=1.193714e+02 cycle=5480 time=7.405688e+00 dt=1.364030e-03
+elapsed=1.197065e+02 cycle=5485 time=7.412509e+00 dt=1.364183e-03
+elapsed=1.200383e+02 cycle=5490 time=7.419329e+00 dt=1.363956e-03
+elapsed=1.203722e+02 cycle=5495 time=7.426149e+00 dt=1.364274e-03
+elapsed=1.207054e+02 cycle=5500 time=7.432972e+00 dt=1.364896e-03
+elapsed=1.210385e+02 cycle=5505 time=7.439798e+00 dt=1.366018e-03
+elapsed=1.213706e+02 cycle=5510 time=7.446632e+00 dt=1.367738e-03
+elapsed=1.217042e+02 cycle=5515 time=7.453472e+00 dt=1.368438e-03
+elapsed=1.220372e+02 cycle=5520 time=7.460315e+00 dt=1.368390e-03
+elapsed=1.223705e+02 cycle=5525 time=7.467156e+00 dt=1.367658e-03
+elapsed=1.227042e+02 cycle=5530 time=7.473991e+00 dt=1.366357e-03
+elapsed=1.230383e+02 cycle=5535 time=7.480821e+00 dt=1.365391e-03
+elapsed=1.233707e+02 cycle=5540 time=7.487647e+00 dt=1.365012e-03
+elapsed=1.237054e+02 cycle=5545 time=7.494470e+00 dt=1.364077e-03
+elapsed=1.240380e+02 cycle=5550 time=7.501288e+00 dt=1.362343e-03
+elapsed=1.243709e+02 cycle=5555 time=7.508095e+00 dt=1.360438e-03
+elapsed=1.247042e+02 cycle=5560 time=7.514894e+00 dt=1.358920e-03
+elapsed=1.250372e+02 cycle=5565 time=7.521687e+00 dt=1.357949e-03
+elapsed=1.253691e+02 cycle=5570 time=7.528475e+00 dt=1.356867e-03
+elapsed=1.257048e+02 cycle=5575 time=7.535257e+00 dt=1.355796e-03
+elapsed=1.260382e+02 cycle=5580 time=7.542034e+00 dt=1.354948e-03
+elapsed=1.263717e+02 cycle=5585 time=7.548808e+00 dt=1.354495e-03
+elapsed=1.267043e+02 cycle=5590 time=7.555580e+00 dt=1.354265e-03
+elapsed=1.270366e+02 cycle=5595 time=7.562350e+00 dt=1.353967e-03
+elapsed=1.273687e+02 cycle=5600 time=7.569119e+00 dt=1.353564e-03
+elapsed=1.277034e+02 cycle=5605 time=7.575886e+00 dt=1.353168e-03
+elapsed=1.280377e+02 cycle=5610 time=7.582651e+00 dt=1.352756e-03
+elapsed=1.283712e+02 cycle=5615 time=7.589414e+00 dt=1.353778e-03
+elapsed=1.287041e+02 cycle=5620 time=7.596196e+00 dt=1.358221e-03
+elapsed=1.290383e+02 cycle=5625 time=7.602989e+00 dt=1.359308e-03
+elapsed=1.293967e+02 cycle=5630 time=7.609787e+00 dt=1.359805e-03
+elapsed=1.297314e+02 cycle=5635 time=7.616588e+00 dt=1.360371e-03
+elapsed=1.300656e+02 cycle=5640 time=7.623389e+00 dt=1.360223e-03
+elapsed=1.303991e+02 cycle=5645 time=7.630190e+00 dt=1.360316e-03
+elapsed=1.307322e+02 cycle=5650 time=7.636992e+00 dt=1.360712e-03
+elapsed=1.310663e+02 cycle=5655 time=7.643797e+00 dt=1.361643e-03
+elapsed=1.313985e+02 cycle=5660 time=7.650609e+00 dt=1.363310e-03
+elapsed=1.317330e+02 cycle=5665 time=7.657428e+00 dt=1.364464e-03
+elapsed=1.320693e+02 cycle=5670 time=7.664253e+00 dt=1.365896e-03
+elapsed=1.324031e+02 cycle=5675 time=7.671086e+00 dt=1.367489e-03
+elapsed=1.327374e+02 cycle=5680 time=7.677927e+00 dt=1.369243e-03
+elapsed=1.330719e+02 cycle=5685 time=7.684776e+00 dt=1.370487e-03
+elapsed=1.334055e+02 cycle=5690 time=7.691630e+00 dt=1.371179e-03
+elapsed=1.337406e+02 cycle=5695 time=7.698487e+00 dt=1.371615e-03
+elapsed=1.340751e+02 cycle=5700 time=7.705347e+00 dt=1.372770e-03
+elapsed=1.344093e+02 cycle=5705 time=7.712213e+00 dt=1.373708e-03
+elapsed=1.347429e+02 cycle=5710 time=7.719082e+00 dt=1.373600e-03
+elapsed=1.350768e+02 cycle=5715 time=7.725949e+00 dt=1.373290e-03
+elapsed=1.354094e+02 cycle=5720 time=7.732815e+00 dt=1.372764e-03
+elapsed=1.357428e+02 cycle=5725 time=7.739677e+00 dt=1.371995e-03
+elapsed=1.360758e+02 cycle=5730 time=7.746536e+00 dt=1.371308e-03
+elapsed=1.364114e+02 cycle=5735 time=7.753391e+00 dt=1.370976e-03
+elapsed=1.367448e+02 cycle=5740 time=7.760247e+00 dt=1.371173e-03
+elapsed=1.370812e+02 cycle=5745 time=7.767103e+00 dt=1.371313e-03
+elapsed=1.374160e+02 cycle=5750 time=7.773957e+00 dt=1.370242e-03
+elapsed=1.377530e+02 cycle=5755 time=7.780807e+00 dt=1.369523e-03
+elapsed=1.380877e+02 cycle=5760 time=7.787653e+00 dt=1.368693e-03
+elapsed=1.384206e+02 cycle=5765 time=7.794495e+00 dt=1.367949e-03
+elapsed=1.387535e+02 cycle=5770 time=7.801333e+00 dt=1.367334e-03
+elapsed=1.390878e+02 cycle=5775 time=7.808169e+00 dt=1.366812e-03
+elapsed=1.394210e+02 cycle=5780 time=7.815001e+00 dt=1.366033e-03
+elapsed=1.397559e+02 cycle=5785 time=7.821830e+00 dt=1.365349e-03
+elapsed=1.400916e+02 cycle=5790 time=7.828656e+00 dt=1.364619e-03
+elapsed=1.404257e+02 cycle=5795 time=7.835477e+00 dt=1.363722e-03
+elapsed=1.407590e+02 cycle=5800 time=7.842293e+00 dt=1.362600e-03
+elapsed=1.410939e+02 cycle=5805 time=7.849104e+00 dt=1.361378e-03
+elapsed=1.414266e+02 cycle=5810 time=7.855908e+00 dt=1.360126e-03
+elapsed=1.417608e+02 cycle=5815 time=7.862707e+00 dt=1.358957e-03
+elapsed=1.420941e+02 cycle=5820 time=7.869499e+00 dt=1.357932e-03
+elapsed=1.424291e+02 cycle=5825 time=7.876287e+00 dt=1.357146e-03
+elapsed=1.427632e+02 cycle=5830 time=7.883071e+00 dt=1.356052e-03
+elapsed=1.430981e+02 cycle=5835 time=7.889849e+00 dt=1.354826e-03
+elapsed=1.434313e+02 cycle=5840 time=7.896621e+00 dt=1.353948e-03
+elapsed=1.437649e+02 cycle=5845 time=7.903389e+00 dt=1.353218e-03
+elapsed=1.441005e+02 cycle=5850 time=7.910154e+00 dt=1.352366e-03
+elapsed=1.444350e+02 cycle=5855 time=7.916913e+00 dt=1.351218e-03
+elapsed=1.447694e+02 cycle=5860 time=7.923667e+00 dt=1.350204e-03
+elapsed=1.451038e+02 cycle=5865 time=7.930417e+00 dt=1.349360e-03
+elapsed=1.454369e+02 cycle=5870 time=7.937162e+00 dt=1.349015e-03
+elapsed=1.457723e+02 cycle=5875 time=7.943908e+00 dt=1.349112e-03
+elapsed=1.461074e+02 cycle=5880 time=7.950653e+00 dt=1.349047e-03
+elapsed=1.464411e+02 cycle=5885 time=7.957398e+00 dt=1.348732e-03
+elapsed=1.467757e+02 cycle=5890 time=7.964141e+00 dt=1.348535e-03
+elapsed=1.471096e+02 cycle=5895 time=7.970884e+00 dt=1.348568e-03
+elapsed=1.474430e+02 cycle=5900 time=7.977627e+00 dt=1.348685e-03
+elapsed=1.477774e+02 cycle=5905 time=7.984371e+00 dt=1.348840e-03
+elapsed=1.481116e+02 cycle=5910 time=7.991115e+00 dt=1.349067e-03
+elapsed=1.484466e+02 cycle=5915 time=7.997861e+00 dt=1.349315e-03
+elapsed=1.487814e+02 cycle=5920 time=8.004608e+00 dt=1.349587e-03
+elapsed=1.491157e+02 cycle=5925 time=8.011357e+00 dt=1.349937e-03
+elapsed=1.494491e+02 cycle=5930 time=8.018106e+00 dt=1.349932e-03
+elapsed=1.497855e+02 cycle=5935 time=8.024856e+00 dt=1.350006e-03
+elapsed=1.501213e+02 cycle=5940 time=8.031607e+00 dt=1.350219e-03
+elapsed=1.504553e+02 cycle=5945 time=8.038357e+00 dt=1.349617e-03
+elapsed=1.507900e+02 cycle=5950 time=8.045104e+00 dt=1.349054e-03
+elapsed=1.511252e+02 cycle=5955 time=8.051849e+00 dt=1.349468e-03
+elapsed=1.514590e+02 cycle=5960 time=8.058598e+00 dt=1.349814e-03
+elapsed=1.517943e+02 cycle=5965 time=8.065347e+00 dt=1.350249e-03
+elapsed=1.521300e+02 cycle=5970 time=8.072100e+00 dt=1.351170e-03
+elapsed=1.524645e+02 cycle=5975 time=8.078859e+00 dt=1.353312e-03
+elapsed=1.527989e+02 cycle=5980 time=8.085628e+00 dt=1.353726e-03
+elapsed=1.531344e+02 cycle=5985 time=8.092396e+00 dt=1.353601e-03
+elapsed=1.534676e+02 cycle=5990 time=8.099162e+00 dt=1.352804e-03
+elapsed=1.538027e+02 cycle=5995 time=8.105926e+00 dt=1.352358e-03
+elapsed=1.541368e+02 cycle=6000 time=8.112686e+00 dt=1.351372e-03
+elapsed=1.544705e+02 cycle=6005 time=8.119440e+00 dt=1.350035e-03
+elapsed=1.548046e+02 cycle=6010 time=8.126187e+00 dt=1.348888e-03
+elapsed=1.551386e+02 cycle=6015 time=8.132931e+00 dt=1.348851e-03
+elapsed=1.554721e+02 cycle=6020 time=8.139677e+00 dt=1.349420e-03
+elapsed=1.558066e+02 cycle=6025 time=8.146425e+00 dt=1.349750e-03
+elapsed=1.561432e+02 cycle=6030 time=8.153174e+00 dt=1.349741e-03
+elapsed=1.564777e+02 cycle=6035 time=8.159921e+00 dt=1.348923e-03
+elapsed=1.568112e+02 cycle=6040 time=8.166664e+00 dt=1.348178e-03
+elapsed=1.571452e+02 cycle=6045 time=8.173405e+00 dt=1.348387e-03
+elapsed=1.574773e+02 cycle=6050 time=8.180146e+00 dt=1.347957e-03
+elapsed=1.578119e+02 cycle=6055 time=8.186885e+00 dt=1.347653e-03
+elapsed=1.581465e+02 cycle=6060 time=8.193623e+00 dt=1.347618e-03
+elapsed=1.584797e+02 cycle=6065 time=8.200361e+00 dt=1.347321e-03
+elapsed=1.588125e+02 cycle=6070 time=8.207097e+00 dt=1.346745e-03
+elapsed=1.591466e+02 cycle=6075 time=8.213828e+00 dt=1.345726e-03
+elapsed=1.594796e+02 cycle=6080 time=8.220555e+00 dt=1.344582e-03
+elapsed=1.598136e+02 cycle=6085 time=8.227275e+00 dt=1.343473e-03
+elapsed=1.601477e+02 cycle=6090 time=8.233990e+00 dt=1.342071e-03
+elapsed=1.604813e+02 cycle=6095 time=8.240697e+00 dt=1.340588e-03
+elapsed=1.608147e+02 cycle=6100 time=8.247397e+00 dt=1.338739e-03
+elapsed=1.611478e+02 cycle=6105 time=8.254087e+00 dt=1.337214e-03
+elapsed=1.614806e+02 cycle=6110 time=8.260770e+00 dt=1.335611e-03
+elapsed=1.618133e+02 cycle=6115 time=8.267445e+00 dt=1.333922e-03
+elapsed=1.621466e+02 cycle=6120 time=8.274111e+00 dt=1.332506e-03
+elapsed=1.624799e+02 cycle=6125 time=8.280772e+00 dt=1.331705e-03
+elapsed=1.628141e+02 cycle=6130 time=8.287430e+00 dt=1.331389e-03
+elapsed=1.631738e+02 cycle=6135 time=8.294086e+00 dt=1.331000e-03
+elapsed=1.635064e+02 cycle=6140 time=8.300741e+00 dt=1.330607e-03
+elapsed=1.638403e+02 cycle=6145 time=8.307392e+00 dt=1.330044e-03
+elapsed=1.641740e+02 cycle=6150 time=8.314043e+00 dt=1.330899e-03
+elapsed=1.645071e+02 cycle=6155 time=8.320705e+00 dt=1.333723e-03
+elapsed=1.648398e+02 cycle=6160 time=8.327372e+00 dt=1.333161e-03
+elapsed=1.651729e+02 cycle=6165 time=8.334036e+00 dt=1.332530e-03
+elapsed=1.655052e+02 cycle=6170 time=8.340698e+00 dt=1.332450e-03
+elapsed=1.658373e+02 cycle=6175 time=8.347360e+00 dt=1.331997e-03
+elapsed=1.661709e+02 cycle=6180 time=8.354019e+00 dt=1.331584e-03
+elapsed=1.665033e+02 cycle=6185 time=8.360678e+00 dt=1.332435e-03
+elapsed=1.668357e+02 cycle=6190 time=8.367343e+00 dt=1.333560e-03
+elapsed=1.671688e+02 cycle=6195 time=8.374012e+00 dt=1.334338e-03
+elapsed=1.675016e+02 cycle=6200 time=8.380685e+00 dt=1.334760e-03
+elapsed=1.678358e+02 cycle=6205 time=8.387359e+00 dt=1.334639e-03
+elapsed=1.681702e+02 cycle=6210 time=8.394031e+00 dt=1.334354e-03
+elapsed=1.685030e+02 cycle=6215 time=8.400702e+00 dt=1.334003e-03
+elapsed=1.688365e+02 cycle=6220 time=8.407371e+00 dt=1.333510e-03
+elapsed=1.691706e+02 cycle=6225 time=8.414038e+00 dt=1.333022e-03
+elapsed=1.695024e+02 cycle=6230 time=8.420703e+00 dt=1.333350e-03
+elapsed=1.698374e+02 cycle=6235 time=8.427371e+00 dt=1.334002e-03
+elapsed=1.701713e+02 cycle=6240 time=8.434043e+00 dt=1.334710e-03
+elapsed=1.705033e+02 cycle=6245 time=8.440718e+00 dt=1.335332e-03
+elapsed=1.708368e+02 cycle=6250 time=8.447395e+00 dt=1.335852e-03
+elapsed=1.711711e+02 cycle=6255 time=8.454075e+00 dt=1.336297e-03
+elapsed=1.715037e+02 cycle=6260 time=8.460758e+00 dt=1.336628e-03
+elapsed=1.718374e+02 cycle=6265 time=8.467442e+00 dt=1.337048e-03
+elapsed=1.721711e+02 cycle=6270 time=8.474127e+00 dt=1.336968e-03
+elapsed=1.725053e+02 cycle=6275 time=8.480811e+00 dt=1.336531e-03
+elapsed=1.728321e+02 cycle=6280 time=8.487494e+00 dt=1.337047e-03
+elapsed=1.731649e+02 cycle=6285 time=8.494181e+00 dt=1.337486e-03
+elapsed=1.734973e+02 cycle=6290 time=8.500868e+00 dt=1.337706e-03
+elapsed=1.738305e+02 cycle=6295 time=8.507558e+00 dt=1.338077e-03
+elapsed=1.741634e+02 cycle=6300 time=8.514249e+00 dt=1.338525e-03
+elapsed=1.744959e+02 cycle=6305 time=8.520943e+00 dt=1.339117e-03
+elapsed=1.748286e+02 cycle=6310 time=8.527638e+00 dt=1.338796e-03
+elapsed=1.751579e+02 cycle=6315 time=8.534331e+00 dt=1.338642e-03
+elapsed=1.754910e+02 cycle=6320 time=8.541025e+00 dt=1.338873e-03
+elapsed=1.758256e+02 cycle=6325 time=8.547720e+00 dt=1.339041e-03
+elapsed=1.761599e+02 cycle=6330 time=8.554414e+00 dt=1.338588e-03
+elapsed=1.764949e+02 cycle=6335 time=8.561107e+00 dt=1.338281e-03
+elapsed=1.768293e+02 cycle=6340 time=8.567798e+00 dt=1.338301e-03
+elapsed=1.771630e+02 cycle=6345 time=8.574489e+00 dt=1.338298e-03
+elapsed=1.774959e+02 cycle=6350 time=8.581181e+00 dt=1.337891e-03
+elapsed=1.778294e+02 cycle=6355 time=8.587868e+00 dt=1.336849e-03
+elapsed=1.781630e+02 cycle=6360 time=8.594551e+00 dt=1.336839e-03
+elapsed=1.784962e+02 cycle=6365 time=8.601237e+00 dt=1.337234e-03
+elapsed=1.788281e+02 cycle=6370 time=8.607923e+00 dt=1.337379e-03
+elapsed=1.791612e+02 cycle=6375 time=8.614610e+00 dt=1.337358e-03
+elapsed=1.794936e+02 cycle=6380 time=8.621296e+00 dt=1.337033e-03
+elapsed=1.798271e+02 cycle=6385 time=8.627980e+00 dt=1.336310e-03
+elapsed=1.801607e+02 cycle=6390 time=8.634660e+00 dt=1.335504e-03
+elapsed=1.804937e+02 cycle=6395 time=8.641336e+00 dt=1.334680e-03
+elapsed=1.808261e+02 cycle=6400 time=8.648008e+00 dt=1.334333e-03
+elapsed=1.811593e+02 cycle=6405 time=8.654680e+00 dt=1.333662e-03
+elapsed=1.814923e+02 cycle=6410 time=8.661344e+00 dt=1.332038e-03
+elapsed=1.818265e+02 cycle=6415 time=8.668004e+00 dt=1.331674e-03
+elapsed=1.821606e+02 cycle=6420 time=8.674661e+00 dt=1.331492e-03
+elapsed=1.824933e+02 cycle=6425 time=8.681320e+00 dt=1.331941e-03
+elapsed=1.828252e+02 cycle=6430 time=8.687981e+00 dt=1.332799e-03
+elapsed=1.831585e+02 cycle=6435 time=8.694648e+00 dt=1.334471e-03
+elapsed=1.834926e+02 cycle=6440 time=8.701324e+00 dt=1.336790e-03
+elapsed=1.838270e+02 cycle=6445 time=8.708013e+00 dt=1.338355e-03
+elapsed=1.841618e+02 cycle=6450 time=8.714703e+00 dt=1.337133e-03
+elapsed=1.844961e+02 cycle=6455 time=8.721386e+00 dt=1.335827e-03
+elapsed=1.848327e+02 cycle=6460 time=8.728063e+00 dt=1.334839e-03
+elapsed=1.851710e+02 cycle=6465 time=8.734736e+00 dt=1.334642e-03
+elapsed=1.855055e+02 cycle=6470 time=8.741410e+00 dt=1.334822e-03
+elapsed=1.858401e+02 cycle=6475 time=8.748084e+00 dt=1.334968e-03
+elapsed=1.861733e+02 cycle=6480 time=8.754760e+00 dt=1.335402e-03
+elapsed=1.865062e+02 cycle=6485 time=8.761437e+00 dt=1.335413e-03
+elapsed=1.868385e+02 cycle=6490 time=8.768113e+00 dt=1.334944e-03
+elapsed=1.871729e+02 cycle=6495 time=8.774786e+00 dt=1.334116e-03
+elapsed=1.875057e+02 cycle=6500 time=8.781456e+00 dt=1.333483e-03
+elapsed=1.878403e+02 cycle=6505 time=8.788122e+00 dt=1.332992e-03
+elapsed=1.881749e+02 cycle=6510 time=8.794786e+00 dt=1.332672e-03
+elapsed=1.885093e+02 cycle=6515 time=8.801450e+00 dt=1.332753e-03
+elapsed=1.888421e+02 cycle=6520 time=8.808114e+00 dt=1.332983e-03
+elapsed=1.891755e+02 cycle=6525 time=8.814779e+00 dt=1.332918e-03
+elapsed=1.895090e+02 cycle=6530 time=8.821443e+00 dt=1.332973e-03
+elapsed=1.898436e+02 cycle=6535 time=8.828109e+00 dt=1.333137e-03
+elapsed=1.901785e+02 cycle=6540 time=8.834775e+00 dt=1.333327e-03
+elapsed=1.905153e+02 cycle=6545 time=8.841442e+00 dt=1.333800e-03
+elapsed=1.908500e+02 cycle=6550 time=8.848113e+00 dt=1.334616e-03
+elapsed=1.911861e+02 cycle=6555 time=8.854787e+00 dt=1.335401e-03
+elapsed=1.915197e+02 cycle=6560 time=8.861465e+00 dt=1.335889e-03
+elapsed=1.918547e+02 cycle=6565 time=8.868146e+00 dt=1.336467e-03
+elapsed=1.921896e+02 cycle=6570 time=8.874829e+00 dt=1.336512e-03
+elapsed=1.925233e+02 cycle=6575 time=8.881510e+00 dt=1.336068e-03
+elapsed=1.928564e+02 cycle=6580 time=8.888191e+00 dt=1.336136e-03
+elapsed=1.931913e+02 cycle=6585 time=8.894872e+00 dt=1.336578e-03
+elapsed=1.935246e+02 cycle=6590 time=8.901556e+00 dt=1.337130e-03
+elapsed=1.938592e+02 cycle=6595 time=8.908243e+00 dt=1.337643e-03
+elapsed=1.941951e+02 cycle=6600 time=8.914931e+00 dt=1.337338e-03
+elapsed=1.945286e+02 cycle=6605 time=8.921618e+00 dt=1.337411e-03
+elapsed=1.948623e+02 cycle=6610 time=8.928306e+00 dt=1.337909e-03
+elapsed=1.951960e+02 cycle=6615 time=8.934996e+00 dt=1.338285e-03
+elapsed=1.955292e+02 cycle=6620 time=8.941688e+00 dt=1.338463e-03
+elapsed=1.958632e+02 cycle=6625 time=8.948381e+00 dt=1.338714e-03
+elapsed=1.961987e+02 cycle=6630 time=8.955074e+00 dt=1.338802e-03
+elapsed=1.965327e+02 cycle=6635 time=8.961768e+00 dt=1.338369e-03
+elapsed=1.968930e+02 cycle=6640 time=8.968459e+00 dt=1.338307e-03
+elapsed=1.972278e+02 cycle=6645 time=8.975151e+00 dt=1.338432e-03
+elapsed=1.975614e+02 cycle=6650 time=8.981843e+00 dt=1.338299e-03
+elapsed=1.978951e+02 cycle=6655 time=8.988535e+00 dt=1.338854e-03
+elapsed=1.982302e+02 cycle=6660 time=8.995231e+00 dt=1.339857e-03
+elapsed=1.985647e+02 cycle=6665 time=9.001932e+00 dt=1.340505e-03
+elapsed=1.989001e+02 cycle=6670 time=9.008636e+00 dt=1.341155e-03
+elapsed=1.992360e+02 cycle=6675 time=9.015343e+00 dt=1.341966e-03
+elapsed=1.995701e+02 cycle=6680 time=9.022055e+00 dt=1.342915e-03
+elapsed=1.999042e+02 cycle=6685 time=9.028771e+00 dt=1.343741e-03
+elapsed=2.002381e+02 cycle=6690 time=9.035490e+00 dt=1.343761e-03
+elapsed=2.005719e+02 cycle=6695 time=9.042209e+00 dt=1.343849e-03
+elapsed=2.009057e+02 cycle=6700 time=9.048928e+00 dt=1.343499e-03
+elapsed=2.012428e+02 cycle=6705 time=9.055643e+00 dt=1.342510e-03
+elapsed=2.015776e+02 cycle=6710 time=9.062355e+00 dt=1.341988e-03
+elapsed=2.019140e+02 cycle=6715 time=9.069064e+00 dt=1.341574e-03
+elapsed=2.022490e+02 cycle=6720 time=9.075771e+00 dt=1.340982e-03
+elapsed=2.025861e+02 cycle=6725 time=9.082475e+00 dt=1.340584e-03
+elapsed=2.029196e+02 cycle=6730 time=9.089177e+00 dt=1.340380e-03
+elapsed=2.032535e+02 cycle=6735 time=9.095879e+00 dt=1.340459e-03
+elapsed=2.035859e+02 cycle=6740 time=9.102582e+00 dt=1.340506e-03
+elapsed=2.039199e+02 cycle=6745 time=9.109284e+00 dt=1.339917e-03
+elapsed=2.042540e+02 cycle=6750 time=9.115981e+00 dt=1.338794e-03
+elapsed=2.045866e+02 cycle=6755 time=9.122673e+00 dt=1.338173e-03
+elapsed=2.049198e+02 cycle=6760 time=9.129362e+00 dt=1.337377e-03
+elapsed=2.052547e+02 cycle=6765 time=9.136049e+00 dt=1.337344e-03
+elapsed=2.055875e+02 cycle=6770 time=9.142735e+00 dt=1.336995e-03
+elapsed=2.059214e+02 cycle=6775 time=9.149420e+00 dt=1.336723e-03
+elapsed=2.062545e+02 cycle=6780 time=9.156104e+00 dt=1.337008e-03
+elapsed=2.065875e+02 cycle=6785 time=9.162790e+00 dt=1.337614e-03
+elapsed=2.069197e+02 cycle=6790 time=9.169479e+00 dt=1.337887e-03
+elapsed=2.072521e+02 cycle=6795 time=9.176167e+00 dt=1.337443e-03
+elapsed=2.075841e+02 cycle=6800 time=9.182855e+00 dt=1.337779e-03
+elapsed=2.079165e+02 cycle=6805 time=9.189543e+00 dt=1.337456e-03
+elapsed=2.082510e+02 cycle=6810 time=9.196231e+00 dt=1.337616e-03
+elapsed=2.085849e+02 cycle=6815 time=9.202919e+00 dt=1.337822e-03
+elapsed=2.089170e+02 cycle=6820 time=9.209609e+00 dt=1.338161e-03
+elapsed=2.092490e+02 cycle=6825 time=9.216300e+00 dt=1.338218e-03
+elapsed=2.095816e+02 cycle=6830 time=9.222991e+00 dt=1.338051e-03
+elapsed=2.099146e+02 cycle=6835 time=9.229681e+00 dt=1.338139e-03
+elapsed=2.102487e+02 cycle=6840 time=9.236373e+00 dt=1.338499e-03
+elapsed=2.105822e+02 cycle=6845 time=9.243066e+00 dt=1.338780e-03
+elapsed=2.109156e+02 cycle=6850 time=9.249759e+00 dt=1.338046e-03
+elapsed=2.112495e+02 cycle=6855 time=9.256447e+00 dt=1.337027e-03
+elapsed=2.115809e+02 cycle=6860 time=9.263130e+00 dt=1.335965e-03
+elapsed=2.119149e+02 cycle=6865 time=9.269808e+00 dt=1.335491e-03
+elapsed=2.122504e+02 cycle=6870 time=9.276486e+00 dt=1.335739e-03
+elapsed=2.125846e+02 cycle=6875 time=9.283166e+00 dt=1.336427e-03
+elapsed=2.129183e+02 cycle=6880 time=9.289849e+00 dt=1.336768e-03
+elapsed=2.132523e+02 cycle=6885 time=9.296533e+00 dt=1.336900e-03
+elapsed=2.135870e+02 cycle=6890 time=9.303217e+00 dt=1.336559e-03
+elapsed=2.139236e+02 cycle=6895 time=9.309899e+00 dt=1.335912e-03
+elapsed=2.142579e+02 cycle=6900 time=9.316576e+00 dt=1.334690e-03
+elapsed=2.145930e+02 cycle=6905 time=9.323247e+00 dt=1.333416e-03
+elapsed=2.149286e+02 cycle=6910 time=9.329912e+00 dt=1.332749e-03
+elapsed=2.152631e+02 cycle=6915 time=9.336576e+00 dt=1.332854e-03
+elapsed=2.155970e+02 cycle=6920 time=9.343238e+00 dt=1.331782e-03
+elapsed=2.159311e+02 cycle=6925 time=9.349896e+00 dt=1.331368e-03
+elapsed=2.162653e+02 cycle=6930 time=9.356553e+00 dt=1.331486e-03
+elapsed=2.165989e+02 cycle=6935 time=9.363210e+00 dt=1.331295e-03
+elapsed=2.169329e+02 cycle=6940 time=9.369866e+00 dt=1.331147e-03
+elapsed=2.172654e+02 cycle=6945 time=9.376523e+00 dt=1.332251e-03
+elapsed=2.175997e+02 cycle=6950 time=9.383189e+00 dt=1.334571e-03
+elapsed=2.179358e+02 cycle=6955 time=9.389863e+00 dt=1.334601e-03
+elapsed=2.182702e+02 cycle=6960 time=9.396535e+00 dt=1.333984e-03
+elapsed=2.185961e+02 cycle=6965 time=9.403204e+00 dt=1.333480e-03
+elapsed=2.189306e+02 cycle=6970 time=9.409871e+00 dt=1.333247e-03
+elapsed=2.192675e+02 cycle=6975 time=9.416536e+00 dt=1.332672e-03
+elapsed=2.196013e+02 cycle=6980 time=9.423198e+00 dt=1.332204e-03
+elapsed=2.199344e+02 cycle=6985 time=9.429859e+00 dt=1.332043e-03
+elapsed=2.202692e+02 cycle=6990 time=9.436519e+00 dt=1.331925e-03
+elapsed=2.206062e+02 cycle=6995 time=9.443177e+00 dt=1.331402e-03
+elapsed=2.209430e+02 cycle=7000 time=9.449836e+00 dt=1.331895e-03
+elapsed=2.212785e+02 cycle=7005 time=9.456495e+00 dt=1.331973e-03
+elapsed=2.216145e+02 cycle=7010 time=9.463156e+00 dt=1.332187e-03
+elapsed=2.219536e+02 cycle=7015 time=9.469817e+00 dt=1.332142e-03
+elapsed=2.222922e+02 cycle=7020 time=9.476476e+00 dt=1.331556e-03
+elapsed=2.226296e+02 cycle=7025 time=9.483134e+00 dt=1.331893e-03
+elapsed=2.229667e+02 cycle=7030 time=9.489796e+00 dt=1.332769e-03
+elapsed=2.233046e+02 cycle=7035 time=9.496460e+00 dt=1.332991e-03
+elapsed=2.236417e+02 cycle=7040 time=9.503125e+00 dt=1.332956e-03
+elapsed=2.239787e+02 cycle=7045 time=9.509790e+00 dt=1.333004e-03
+elapsed=2.243133e+02 cycle=7050 time=9.516456e+00 dt=1.333501e-03
+elapsed=2.246476e+02 cycle=7055 time=9.523125e+00 dt=1.334359e-03
+elapsed=2.249817e+02 cycle=7060 time=9.529799e+00 dt=1.335312e-03
+elapsed=2.253161e+02 cycle=7065 time=9.536476e+00 dt=1.335634e-03
+elapsed=2.256514e+02 cycle=7070 time=9.543154e+00 dt=1.335679e-03
+elapsed=2.259850e+02 cycle=7075 time=9.549833e+00 dt=1.335745e-03
+elapsed=2.263186e+02 cycle=7080 time=9.556511e+00 dt=1.335425e-03
+elapsed=2.266525e+02 cycle=7085 time=9.563187e+00 dt=1.334841e-03
+elapsed=2.269879e+02 cycle=7090 time=9.569860e+00 dt=1.334537e-03
+elapsed=2.273237e+02 cycle=7095 time=9.576534e+00 dt=1.334965e-03
+elapsed=2.276577e+02 cycle=7100 time=9.583209e+00 dt=1.335232e-03
+elapsed=2.279906e+02 cycle=7105 time=9.589885e+00 dt=1.335146e-03
+elapsed=2.283239e+02 cycle=7110 time=9.596561e+00 dt=1.335211e-03
+elapsed=2.286586e+02 cycle=7115 time=9.603237e+00 dt=1.335320e-03
+elapsed=2.289922e+02 cycle=7120 time=9.609915e+00 dt=1.336062e-03
+elapsed=2.293277e+02 cycle=7125 time=9.616598e+00 dt=1.337668e-03
+elapsed=2.296607e+02 cycle=7130 time=9.623291e+00 dt=1.338546e-03
+elapsed=2.299938e+02 cycle=7135 time=9.629981e+00 dt=1.337826e-03
+elapsed=2.303530e+02 cycle=7140 time=9.636670e+00 dt=1.337685e-03
+elapsed=2.306857e+02 cycle=7145 time=9.643358e+00 dt=1.337548e-03
+elapsed=2.310185e+02 cycle=7150 time=9.650046e+00 dt=1.337515e-03
+elapsed=2.313509e+02 cycle=7155 time=9.656734e+00 dt=1.337692e-03
+elapsed=2.316845e+02 cycle=7160 time=9.663423e+00 dt=1.338291e-03
+elapsed=2.320192e+02 cycle=7165 time=9.670115e+00 dt=1.338250e-03
+elapsed=2.323531e+02 cycle=7170 time=9.676806e+00 dt=1.337945e-03
+elapsed=2.326878e+02 cycle=7175 time=9.683495e+00 dt=1.337548e-03
+elapsed=2.330221e+02 cycle=7180 time=9.690182e+00 dt=1.337581e-03
+elapsed=2.333574e+02 cycle=7185 time=9.696871e+00 dt=1.337573e-03
+elapsed=2.336915e+02 cycle=7190 time=9.703557e+00 dt=1.336886e-03
+elapsed=2.340260e+02 cycle=7195 time=9.710241e+00 dt=1.336757e-03
+elapsed=2.343590e+02 cycle=7200 time=9.716926e+00 dt=1.337265e-03
+elapsed=2.346933e+02 cycle=7205 time=9.723613e+00 dt=1.337957e-03
+elapsed=2.350265e+02 cycle=7210 time=9.730305e+00 dt=1.339455e-03
+elapsed=2.353606e+02 cycle=7215 time=9.737004e+00 dt=1.340153e-03
+elapsed=2.356937e+02 cycle=7220 time=9.743705e+00 dt=1.340085e-03
+elapsed=2.360280e+02 cycle=7225 time=9.750405e+00 dt=1.339467e-03
+elapsed=2.363617e+02 cycle=7230 time=9.757101e+00 dt=1.338763e-03
+elapsed=2.366947e+02 cycle=7235 time=9.763794e+00 dt=1.338501e-03
+elapsed=2.370313e+02 cycle=7240 time=9.770486e+00 dt=1.338638e-03
+elapsed=2.373608e+02 cycle=7245 time=9.777180e+00 dt=1.338727e-03
+elapsed=2.376951e+02 cycle=7250 time=9.783874e+00 dt=1.339119e-03
+elapsed=2.380314e+02 cycle=7255 time=9.790570e+00 dt=1.339398e-03
+elapsed=2.383691e+02 cycle=7260 time=9.797267e+00 dt=1.339384e-03
+elapsed=2.387061e+02 cycle=7265 time=9.803964e+00 dt=1.339239e-03
+elapsed=2.390424e+02 cycle=7270 time=9.810660e+00 dt=1.339176e-03
+elapsed=2.393789e+02 cycle=7275 time=9.817353e+00 dt=1.337709e-03
+elapsed=2.397145e+02 cycle=7280 time=9.824039e+00 dt=1.336613e-03
+elapsed=2.400504e+02 cycle=7285 time=9.830721e+00 dt=1.336008e-03
+elapsed=2.403853e+02 cycle=7290 time=9.837400e+00 dt=1.335870e-03
+elapsed=2.407203e+02 cycle=7295 time=9.844079e+00 dt=1.335443e-03
+elapsed=2.410544e+02 cycle=7300 time=9.850755e+00 dt=1.334655e-03
+elapsed=2.413891e+02 cycle=7305 time=9.857426e+00 dt=1.333638e-03
+elapsed=2.417233e+02 cycle=7310 time=9.864092e+00 dt=1.332663e-03
+elapsed=2.420576e+02 cycle=7315 time=9.870754e+00 dt=1.332055e-03
+elapsed=2.423903e+02 cycle=7320 time=9.877414e+00 dt=1.331537e-03
+elapsed=2.427250e+02 cycle=7325 time=9.884069e+00 dt=1.330089e-03
+elapsed=2.430598e+02 cycle=7330 time=9.890716e+00 dt=1.328102e-03
+elapsed=2.433963e+02 cycle=7335 time=9.897353e+00 dt=1.326713e-03
+elapsed=2.437317e+02 cycle=7340 time=9.903984e+00 dt=1.325531e-03
+elapsed=2.440691e+02 cycle=7345 time=9.910610e+00 dt=1.324922e-03
+elapsed=2.444028e+02 cycle=7350 time=9.917233e+00 dt=1.324004e-03
+elapsed=2.447376e+02 cycle=7355 time=9.923851e+00 dt=1.322643e-03
+elapsed=2.450713e+02 cycle=7360 time=9.930462e+00 dt=1.321551e-03
+elapsed=2.454051e+02 cycle=7365 time=9.937068e+00 dt=1.320748e-03
+elapsed=2.457390e+02 cycle=7370 time=9.943670e+00 dt=1.320021e-03
+elapsed=2.460730e+02 cycle=7375 time=9.950269e+00 dt=1.319508e-03
+elapsed=2.464060e+02 cycle=7380 time=9.956865e+00 dt=1.318849e-03
+elapsed=2.467396e+02 cycle=7385 time=9.963458e+00 dt=1.317963e-03
+elapsed=2.470753e+02 cycle=7390 time=9.970046e+00 dt=1.317041e-03
+elapsed=2.474101e+02 cycle=7395 time=9.976629e+00 dt=1.315891e-03
+elapsed=2.477431e+02 cycle=7400 time=9.983206e+00 dt=1.314727e-03
+elapsed=2.480779e+02 cycle=7405 time=9.989777e+00 dt=1.313826e-03
+elapsed=2.484124e+02 cycle=7410 time=9.996346e+00 dt=1.313784e-03
+Using device: cuda
+
+Terminating on time limit
+time=1.000000e+01 cycle=7413
+tlim=1.000000e+01 nlim=-1
+
+MeshBlock-cycles = 3713
+cpu time used  = 2.487152e+02
+zone-cycles/cpu_second = 7.643507e+03
+particle-updates/cpu_second = 0.000000e+00
+[2026-07-07 17:00:08] STEP 4 COMPLETED OK: subgrid_model_cnn_restart
+[2026-07-07 17:00:08] ========================================================================
+[2026-07-07 17:00:08] STEP 5: diagnostic_plots  (mock_sg.py)
+[2026-07-07 17:00:08] ========================================================================
+[2026-07-07 17:00:08] ========================================================================
+[2026-07-07 17:00:08] STEP 5: diagnostic_plots
+[2026-07-07 17:00:08] Command  : bash -c cd '/home/sasi/Projects/SubgridCGMModel/data/mocks' && python3 mock_sg.py
+[2026-07-07 17:00:08] Log file : /home/sasi/Projects/SubgridCGMModel/runs/run_20260707_165314/logs/step5_diagnostic_plots.log
+[2026-07-07 17:00:08] ========================================================================
+Loading data:   0%|          | 0/500 [00:00<?, ?it/s]Loading data:  21%|██▏       | 107/500 [00:00<00:00, 1067.15it/s]Loading data:  43%|████▎     | 214/500 [00:00<00:00, 1065.69it/s]Loading data:  64%|██████▍   | 321/500 [00:00<00:00, 1064.09it/s]Loading data:  86%|████████▌ | 428/500 [00:00<00:00, 1061.43it/s]Loading data: 100%|██████████| 500/500 [00:00<00:00, 1060.01it/s]
+Loading cons data:   0%|          | 0/500 [00:00<?, ?it/s]Loading cons data:  25%|██▌       | 127/500 [00:00<00:00, 1266.04it/s]Loading cons data:  51%|█████     | 254/500 [00:00<00:00, 1267.02it/s]Loading cons data:  76%|███████▌  | 381/500 [00:00<00:00, 1267.98it/s]Loading cons data: 100%|██████████| 500/500 [00:00<00:00, 1267.39it/s]
+Loading data:   0%|          | 0/500 [00:00<?, ?it/s]Loading data:  21%|██▏       | 107/500 [00:00<00:00, 1069.84it/s]Loading data:  43%|████▎     | 215/500 [00:00<00:00, 1070.81it/s]Loading data:  65%|██████▍   | 323/500 [00:00<00:00, 1070.75it/s]Loading data:  86%|████████▌ | 431/500 [00:00<00:00, 1071.18it/s]Loading data: 100%|██████████| 500/500 [00:00<00:00, 1071.20it/s]
+Loading cons data:   0%|          | 0/500 [00:00<?, ?it/s]Loading cons data:  26%|██▌       | 128/500 [00:00<00:00, 1275.91it/s]Loading cons data:  51%|█████     | 256/500 [00:00<00:00, 1275.63it/s]Loading cons data:  77%|███████▋  | 384/500 [00:00<00:00, 1272.51it/s]Loading cons data: 100%|██████████| 500/500 [00:00<00:00, 1272.58it/s]
+Calculating CG HR:   0%|          | 0/500 [00:00<?, ?it/s]Calculating CG HR:   4%|▍         | 19/500 [00:00<00:02, 182.54it/s]Calculating CG HR:   8%|▊         | 38/500 [00:00<00:02, 185.29it/s]Calculating CG HR:  11%|█▏        | 57/500 [00:00<00:02, 186.23it/s]Calculating CG HR:  15%|█▌        | 76/500 [00:00<00:02, 187.11it/s]Calculating CG HR:  19%|█▉        | 95/500 [00:00<00:02, 187.85it/s]Calculating CG HR:  23%|██▎       | 114/500 [00:00<00:02, 188.57it/s]Calculating CG HR:  27%|██▋       | 134/500 [00:00<00:01, 189.21it/s]Calculating CG HR:  31%|███       | 153/500 [00:00<00:01, 189.33it/s]Calculating CG HR:  35%|███▍      | 173/500 [00:00<00:01, 189.70it/s]Calculating CG HR:  39%|███▊      | 193/500 [00:01<00:01, 189.98it/s]Calculating CG HR:  43%|████▎     | 213/500 [00:01<00:01, 190.36it/s]Calculating CG HR:  47%|████▋     | 233/500 [00:01<00:01, 190.22it/s]Calculating CG HR:  51%|█████     | 253/500 [00:01<00:01, 190.69it/s]Calculating CG HR:  55%|█████▍    | 273/500 [00:01<00:01, 190.53it/s]Calculating CG HR:  59%|█████▊    | 293/500 [00:01<00:01, 190.55it/s]Calculating CG HR:  63%|██████▎   | 313/500 [00:01<00:00, 190.51it/s]Calculating CG HR:  67%|██████▋   | 333/500 [00:01<00:00, 190.47it/s]Calculating CG HR:  71%|███████   | 353/500 [00:01<00:00, 190.31it/s]Calculating CG HR:  75%|███████▍  | 373/500 [00:01<00:00, 190.62it/s]Calculating CG HR:  79%|███████▊  | 393/500 [00:02<00:00, 190.87it/s]Calculating CG HR:  83%|████████▎ | 413/500 [00:02<00:00, 190.99it/s]Calculating CG HR:  87%|████████▋ | 433/500 [00:02<00:00, 190.93it/s]Calculating CG HR:  91%|█████████ | 453/500 [00:02<00:00, 190.96it/s]Calculating CG HR:  95%|█████████▍| 473/500 [00:02<00:00, 191.06it/s]Calculating CG HR:  99%|█████████▊| 493/500 [00:02<00:00, 190.88it/s]Calculating CG HR: 100%|██████████| 500/500 [00:02<00:00, 189.93it/s]
+profiles_mean_with_std_all.png saved
+conserved_quantities_mean_with_std.png saved
+derived_quantities_mean_with_std.png saved
+CG HR Fluxes:   0%|          | 0/500 [00:00<?, ?it/s]CG HR Fluxes:   3%|▎         | 14/500 [00:00<00:03, 137.92it/s]CG HR Fluxes:   6%|▌         | 29/500 [00:00<00:03, 139.55it/s]CG HR Fluxes:   9%|▉         | 44/500 [00:00<00:03, 140.12it/s]CG HR Fluxes:  12%|█▏        | 59/500 [00:00<00:03, 140.83it/s]CG HR Fluxes:  15%|█▍        | 74/500 [00:00<00:03, 141.39it/s]CG HR Fluxes:  18%|█▊        | 89/500 [00:00<00:02, 141.62it/s]CG HR Fluxes:  21%|██        | 104/500 [00:00<00:02, 141.65it/s]CG HR Fluxes:  24%|██▍       | 119/500 [00:00<00:02, 141.65it/s]CG HR Fluxes:  27%|██▋       | 134/500 [00:00<00:02, 141.71it/s]CG HR Fluxes:  30%|██▉       | 149/500 [00:01<00:02, 141.48it/s]CG HR Fluxes:  33%|███▎      | 164/500 [00:01<00:02, 141.31it/s]CG HR Fluxes:  36%|███▌      | 179/500 [00:01<00:02, 141.02it/s]CG HR Fluxes:  39%|███▉      | 194/500 [00:01<00:02, 141.07it/s]CG HR Fluxes:  42%|████▏     | 209/500 [00:01<00:02, 141.19it/s]CG HR Fluxes:  45%|████▍     | 224/500 [00:01<00:01, 141.19it/s]CG HR Fluxes:  48%|████▊     | 239/500 [00:01<00:01, 141.31it/s]CG HR Fluxes:  51%|█████     | 254/500 [00:01<00:01, 141.29it/s]CG HR Fluxes:  54%|█████▍    | 269/500 [00:01<00:01, 141.21it/s]CG HR Fluxes:  57%|█████▋    | 284/500 [00:02<00:01, 140.84it/s]CG HR Fluxes:  60%|█████▉    | 299/500 [00:02<00:01, 140.92it/s]CG HR Fluxes:  63%|██████▎   | 314/500 [00:02<00:01, 140.89it/s]CG HR Fluxes:  66%|██████▌   | 329/500 [00:02<00:01, 140.92it/s]CG HR Fluxes:  69%|██████▉   | 344/500 [00:02<00:01, 140.93it/s]CG HR Fluxes:  72%|███████▏  | 359/500 [00:02<00:00, 141.13it/s]CG HR Fluxes:  75%|███████▍  | 374/500 [00:02<00:00, 141.10it/s]CG HR Fluxes:  78%|███████▊  | 389/500 [00:02<00:00, 141.14it/s]CG HR Fluxes:  81%|████████  | 404/500 [00:02<00:00, 141.03it/s]CG HR Fluxes:  84%|████████▍ | 419/500 [00:02<00:00, 141.11it/s]CG HR Fluxes:  87%|████████▋ | 434/500 [00:03<00:00, 141.10it/s]CG HR Fluxes:  90%|████████▉ | 449/500 [00:03<00:00, 141.10it/s]CG HR Fluxes:  93%|█████████▎| 464/500 [00:03<00:00, 141.13it/s]CG HR Fluxes:  96%|█████████▌| 479/500 [00:03<00:00, 141.19it/s]CG HR Fluxes:  99%|█████████▉| 494/500 [00:03<00:00, 141.26it/s]CG HR Fluxes: 100%|██████████| 500/500 [00:03<00:00, 141.11it/s]
+(500, 32, 16) (500, 32, 16) (500, 32, 16)
+(500, 32, 16) (500, 32, 16) (500, 32, 16)
+fluxes_mean_std.png saved
+Divergence Fluxes:   0%|          | 0/500 [00:00<?, ?it/s]Divergence Fluxes:  96%|█████████▌| 478/500 [00:00<00:00, 4779.53it/s]Divergence Fluxes: 100%|██████████| 500/500 [00:00<00:00, 4775.97it/s]
+divergence_fluxes_mean_std.png saved
+Cold mass evolution plot saved (with fit slopes)
+Saved snapshot of all fields
+Saving all fields evolution animation...
+all_fields_evolution.mp4:   0%|          | 0/500 [00:00<?, ?it/s]all_fields_evolution.mp4:   0%|          | 1/500 [00:01<12:15,  1.47s/it]all_fields_evolution.mp4:   0%|          | 2/500 [00:02<11:22,  1.37s/it]all_fields_evolution.mp4:   4%|▍         | 20/500 [00:02<00:43, 11.08it/s]all_fields_evolution.mp4:   6%|▌         | 29/500 [00:06<01:34,  4.97it/s]all_fields_evolution.mp4:   8%|▊         | 41/500 [00:06<01:00,  7.59it/s]all_fields_evolution.mp4:  10%|▉         | 48/500 [00:07<00:52,  8.64it/s]all_fields_evolution.mp4:  10%|█         | 52/500 [00:09<01:24,  5.30it/s]all_fields_evolution.mp4:  11%|█         | 56/500 [00:09<01:10,  6.31it/s]all_fields_evolution.mp4:  13%|█▎        | 65/500 [00:10<00:53,  8.13it/s]all_fields_evolution.mp4:  14%|█▍        | 72/500 [00:10<00:45,  9.44it/s]all_fields_evolution.mp4:  15%|█▍        | 74/500 [00:12<01:22,  5.15it/s]all_fields_evolution.mp4:  18%|█▊        | 89/500 [00:13<00:52,  7.88it/s]all_fields_evolution.mp4:  19%|█▉        | 96/500 [00:13<00:43,  9.26it/s]all_fields_evolution.mp4:  20%|█▉        | 98/500 [00:15<01:12,  5.52it/s]all_fields_evolution.mp4:  23%|██▎       | 113/500 [00:16<00:51,  7.54it/s]all_fields_evolution.mp4:  23%|██▎       | 115/500 [00:16<00:48,  7.95it/s]all_fields_evolution.mp4:  24%|██▍       | 120/500 [00:18<01:04,  5.93it/s]all_fields_evolution.mp4:  24%|██▍       | 122/500 [00:18<01:00,  6.25it/s]all_fields_evolution.mp4:  27%|██▋       | 136/500 [00:18<00:30, 11.86it/s]all_fields_evolution.mp4:  28%|██▊       | 139/500 [00:21<01:13,  4.94it/s]all_fields_evolution.mp4:  31%|███       | 154/500 [00:21<00:37,  9.14it/s]all_fields_evolution.mp4:  32%|███▏      | 160/500 [00:22<00:32, 10.57it/s]all_fields_evolution.mp4:  33%|███▎      | 163/500 [00:24<01:07,  5.02it/s]all_fields_evolution.mp4:  35%|███▌      | 177/500 [00:25<00:37,  8.66it/s]all_fields_evolution.mp4:  36%|███▌      | 180/500 [00:25<00:35,  9.11it/s]all_fields_evolution.mp4:  37%|███▋      | 184/500 [00:25<00:31,  9.92it/s]all_fields_evolution.mp4:  37%|███▋      | 186/500 [00:27<01:08,  4.56it/s]all_fields_evolution.mp4:  40%|████      | 201/500 [00:28<00:36,  8.20it/s]all_fields_evolution.mp4:  41%|████      | 203/500 [00:28<00:34,  8.56it/s]all_fields_evolution.mp4:  41%|████      | 206/500 [00:28<00:30,  9.61it/s]all_fields_evolution.mp4:  42%|████▏     | 208/500 [00:28<00:32,  9.06it/s]all_fields_evolution.mp4:  42%|████▏     | 210/500 [00:30<01:06,  4.39it/s]all_fields_evolution.mp4:  42%|████▏     | 212/500 [00:30<00:59,  4.85it/s]all_fields_evolution.mp4:  45%|████▌     | 225/500 [00:31<00:35,  7.81it/s]all_fields_evolution.mp4:  46%|████▌     | 228/500 [00:32<00:31,  8.64it/s]all_fields_evolution.mp4:  46%|████▌     | 231/500 [00:33<00:51,  5.18it/s]all_fields_evolution.mp4:  47%|████▋     | 234/500 [00:33<00:43,  6.06it/s]all_fields_evolution.mp4:  48%|████▊     | 240/500 [00:33<00:28,  8.99it/s]all_fields_evolution.mp4:  50%|████▉     | 249/500 [00:35<00:31,  8.08it/s]all_fields_evolution.mp4:  50%|█████     | 252/500 [00:36<00:48,  5.07it/s]all_fields_evolution.mp4:  51%|█████     | 255/500 [00:36<00:40,  6.06it/s]all_fields_evolution.mp4:  54%|█████▎    | 268/500 [00:37<00:18, 12.83it/s]all_fields_evolution.mp4:  55%|█████▍    | 273/500 [00:39<00:39,  5.69it/s]all_fields_evolution.mp4:  55%|█████▌    | 277/500 [00:39<00:35,  6.20it/s]all_fields_evolution.mp4:  58%|█████▊    | 289/500 [00:41<00:29,  7.09it/s]all_fields_evolution.mp4:  60%|█████▉    | 298/500 [00:42<00:29,  6.82it/s]all_fields_evolution.mp4:  60%|██████    | 300/500 [00:42<00:28,  7.10it/s]all_fields_evolution.mp4:  60%|██████    | 302/500 [00:43<00:26,  7.50it/s]all_fields_evolution.mp4:  63%|██████▎   | 313/500 [00:44<00:22,  8.26it/s]all_fields_evolution.mp4:  64%|██████▍   | 321/500 [00:45<00:24,  7.17it/s]all_fields_evolution.mp4:  65%|██████▍   | 323/500 [00:46<00:25,  6.82it/s]all_fields_evolution.mp4:  67%|██████▋   | 336/500 [00:47<00:21,  7.71it/s]all_fields_evolution.mp4:  69%|██████▉   | 344/500 [00:49<00:22,  6.91it/s]all_fields_evolution.mp4:  69%|██████▉   | 347/500 [00:49<00:20,  7.37it/s]all_fields_evolution.mp4:  72%|███████▏  | 360/500 [00:50<00:16,  8.45it/s]all_fields_evolution.mp4:  73%|███████▎  | 364/500 [00:52<00:23,  5.84it/s]all_fields_evolution.mp4:  74%|███████▎  | 368/500 [00:52<00:18,  6.96it/s]all_fields_evolution.mp4:  74%|███████▍  | 372/500 [00:52<00:15,  8.44it/s]all_fields_evolution.mp4:  76%|███████▌  | 378/500 [00:52<00:12, 10.08it/s]all_fields_evolution.mp4:  77%|███████▋  | 384/500 [00:53<00:11,  9.97it/s]all_fields_evolution.mp4:  77%|███████▋  | 386/500 [00:55<00:22,  5.15it/s]all_fields_evolution.mp4:  78%|███████▊  | 388/500 [00:55<00:22,  4.90it/s]all_fields_evolution.mp4:  80%|████████  | 401/500 [00:56<00:13,  7.23it/s]all_fields_evolution.mp4:  82%|████████▏ | 410/500 [00:58<00:13,  6.51it/s]all_fields_evolution.mp4:  82%|████████▏ | 411/500 [00:58<00:14,  6.19it/s]all_fields_evolution.mp4:  85%|████████▌ | 425/500 [00:59<00:08,  8.62it/s]all_fields_evolution.mp4:  87%|████████▋ | 433/500 [01:01<00:09,  6.83it/s]all_fields_evolution.mp4:  87%|████████▋ | 436/500 [01:01<00:09,  6.99it/s]all_fields_evolution.mp4:  90%|████████▉ | 448/500 [01:03<00:06,  7.93it/s]all_fields_evolution.mp4:  91%|█████████▏| 457/500 [01:04<00:06,  6.74it/s]all_fields_evolution.mp4:  92%|█████████▏| 459/500 [01:05<00:05,  7.00it/s]all_fields_evolution.mp4:  94%|█████████▍| 471/500 [01:06<00:03,  8.43it/s]all_fields_evolution.mp4:  95%|█████████▌| 476/500 [01:06<00:02,  9.14it/s]all_fields_evolution.mp4:  96%|█████████▌| 480/500 [01:07<00:02,  6.70it/s]all_fields_evolution.mp4:  96%|█████████▌| 481/500 [01:08<00:03,  6.10it/s]all_fields_evolution.mp4:  99%|█████████▉| 496/500 [01:08<00:00, 13.23it/s]all_fields_evolution.mp4: 100%|██████████| 500/500 [01:09<00:00,  8.91it/s]all_fields_evolution.mp4: 100%|██████████| 500/500 [01:09<00:00,  7.20it/s]
+Saved updated animation with correct dynamic colorbars
+Saving conserved-field animation...
+cons_fields_evolution.mp4:   0%|          | 0/500 [00:00<?, ?it/s]cons_fields_evolution.mp4:   0%|          | 1/500 [00:01<12:45,  1.53s/it]cons_fields_evolution.mp4:   1%|          | 3/500 [00:02<07:14,  1.14it/s]cons_fields_evolution.mp4:   2%|▏         | 12/500 [00:02<01:21,  6.01it/s]cons_fields_evolution.mp4:   3%|▎         | 17/500 [00:03<00:55,  8.66it/s]cons_fields_evolution.mp4:   5%|▌         | 25/500 [00:05<01:44,  4.55it/s]cons_fields_evolution.mp4:   8%|▊         | 41/500 [00:06<00:50,  9.03it/s]cons_fields_evolution.mp4:   9%|▉         | 44/500 [00:06<00:46,  9.79it/s]cons_fields_evolution.mp4:  10%|▉         | 49/500 [00:08<01:25,  5.28it/s]cons_fields_evolution.mp4:  13%|█▎        | 65/500 [00:09<00:51,  8.43it/s]cons_fields_evolution.mp4:  15%|█▍        | 73/500 [00:11<01:05,  6.51it/s]cons_fields_evolution.mp4:  15%|█▌        | 76/500 [00:11<01:02,  6.82it/s]cons_fields_evolution.mp4:  18%|█▊        | 88/500 [00:12<00:46,  8.86it/s]cons_fields_evolution.mp4:  18%|█▊        | 90/500 [00:12<00:44,  9.14it/s]cons_fields_evolution.mp4:  18%|█▊        | 92/500 [00:13<00:43,  9.28it/s]cons_fields_evolution.mp4:  19%|█▉        | 97/500 [00:14<01:11,  5.63it/s]cons_fields_evolution.mp4:  21%|██        | 103/500 [00:14<00:49,  8.02it/s]cons_fields_evolution.mp4:  21%|██        | 106/500 [00:15<00:50,  7.87it/s]cons_fields_evolution.mp4:  23%|██▎       | 113/500 [00:16<01:02,  6.16it/s]cons_fields_evolution.mp4:  24%|██▍       | 119/500 [00:17<00:58,  6.51it/s]cons_fields_evolution.mp4:  25%|██▍       | 123/500 [00:17<00:50,  7.42it/s]cons_fields_evolution.mp4:  27%|██▋       | 136/500 [00:19<00:49,  7.38it/s]cons_fields_evolution.mp4:  28%|██▊       | 138/500 [00:20<01:05,  5.50it/s]cons_fields_evolution.mp4:  28%|██▊       | 141/500 [00:21<00:55,  6.43it/s]cons_fields_evolution.mp4:  31%|███       | 153/500 [00:21<00:32, 10.81it/s]cons_fields_evolution.mp4:  31%|███▏      | 157/500 [00:22<00:47,  7.19it/s]cons_fields_evolution.mp4:  32%|███▏      | 162/500 [00:23<00:56,  6.02it/s]cons_fields_evolution.mp4:  35%|███▌      | 177/500 [00:25<00:45,  7.05it/s]cons_fields_evolution.mp4:  37%|███▋      | 186/500 [00:26<00:41,  7.49it/s]cons_fields_evolution.mp4:  38%|███▊      | 188/500 [00:27<00:41,  7.44it/s]cons_fields_evolution.mp4:  40%|████      | 201/500 [00:28<00:42,  7.11it/s]cons_fields_evolution.mp4:  42%|████▏     | 209/500 [00:29<00:39,  7.38it/s]cons_fields_evolution.mp4:  43%|████▎     | 214/500 [00:30<00:33,  8.59it/s]cons_fields_evolution.mp4:  45%|████▍     | 224/500 [00:30<00:22, 12.10it/s]cons_fields_evolution.mp4:  45%|████▌     | 227/500 [00:31<00:36,  7.40it/s]cons_fields_evolution.mp4:  47%|████▋     | 233/500 [00:32<00:40,  6.61it/s]cons_fields_evolution.mp4:  47%|████▋     | 235/500 [00:33<00:37,  7.16it/s]cons_fields_evolution.mp4:  50%|████▉     | 248/500 [00:34<00:34,  7.27it/s]cons_fields_evolution.mp4:  50%|█████     | 250/500 [00:35<00:43,  5.77it/s]cons_fields_evolution.mp4:  50%|█████     | 251/500 [00:35<00:42,  5.91it/s]cons_fields_evolution.mp4:  51%|█████     | 255/500 [00:36<00:34,  7.19it/s]cons_fields_evolution.mp4:  53%|█████▎    | 267/500 [00:36<00:17, 13.66it/s]cons_fields_evolution.mp4:  54%|█████▍    | 272/500 [00:37<00:29,  7.74it/s]cons_fields_evolution.mp4:  55%|█████▍    | 274/500 [00:39<00:41,  5.49it/s]cons_fields_evolution.mp4:  56%|█████▌    | 278/500 [00:39<00:31,  6.94it/s]cons_fields_evolution.mp4:  56%|█████▌    | 280/500 [00:39<00:29,  7.58it/s]cons_fields_evolution.mp4:  58%|█████▊    | 289/500 [00:41<00:34,  6.09it/s]cons_fields_evolution.mp4:  60%|█████▉    | 298/500 [00:42<00:29,  6.79it/s]cons_fields_evolution.mp4:  60%|██████    | 302/500 [00:42<00:25,  7.90it/s]cons_fields_evolution.mp4:  63%|██████▎   | 313/500 [00:43<00:24,  7.48it/s]cons_fields_evolution.mp4:  64%|██████▍   | 321/500 [00:45<00:23,  7.48it/s]cons_fields_evolution.mp4:  65%|██████▍   | 323/500 [00:45<00:24,  7.10it/s]cons_fields_evolution.mp4:  67%|██████▋   | 337/500 [00:46<00:20,  7.93it/s]cons_fields_evolution.mp4:  69%|██████▉   | 345/500 [00:48<00:21,  7.30it/s]cons_fields_evolution.mp4:  72%|███████▏  | 359/500 [00:48<00:11, 11.96it/s]cons_fields_evolution.mp4:  73%|███████▎  | 363/500 [00:50<00:19,  7.15it/s]cons_fields_evolution.mp4:  73%|███████▎  | 367/500 [00:51<00:20,  6.41it/s]cons_fields_evolution.mp4:  74%|███████▍  | 369/500 [00:51<00:19,  6.57it/s]cons_fields_evolution.mp4:  76%|███████▌  | 380/500 [00:51<00:10, 11.51it/s]cons_fields_evolution.mp4:  77%|███████▋  | 384/500 [00:53<00:17,  6.80it/s]cons_fields_evolution.mp4:  77%|███████▋  | 387/500 [00:54<00:20,  5.42it/s]cons_fields_evolution.mp4:  78%|███████▊  | 389/500 [00:54<00:19,  5.59it/s]cons_fields_evolution.mp4:  80%|████████  | 401/500 [00:54<00:09, 10.55it/s]cons_fields_evolution.mp4:  81%|████████  | 404/500 [00:56<00:14,  6.61it/s]cons_fields_evolution.mp4:  82%|████████▏ | 410/500 [00:57<00:15,  5.77it/s]cons_fields_evolution.mp4:  82%|████████▏ | 412/500 [00:57<00:14,  6.12it/s]cons_fields_evolution.mp4:  85%|████████▌ | 425/500 [00:59<00:11,  6.67it/s]cons_fields_evolution.mp4:  87%|████████▋ | 434/500 [01:00<00:09,  7.22it/s]cons_fields_evolution.mp4:  87%|████████▋ | 436/500 [01:00<00:08,  7.45it/s]cons_fields_evolution.mp4:  90%|████████▉ | 449/500 [01:02<00:06,  7.70it/s]cons_fields_evolution.mp4:  91%|█████████▏| 457/500 [01:03<00:06,  7.08it/s]cons_fields_evolution.mp4:  94%|█████████▍| 472/500 [01:05<00:03,  7.70it/s]cons_fields_evolution.mp4:  96%|█████████▌| 479/500 [01:06<00:02,  7.41it/s]cons_fields_evolution.mp4:  96%|█████████▌| 480/500 [01:06<00:02,  7.07it/s]cons_fields_evolution.mp4:  97%|█████████▋| 487/500 [01:06<00:01,  9.61it/s]cons_fields_evolution.mp4:  99%|█████████▉| 495/500 [01:07<00:00, 12.51it/s]cons_fields_evolution.mp4: 100%|█████████▉| 498/500 [01:08<00:00,  8.37it/s]cons_fields_evolution.mp4: 100%|██████████| 500/500 [01:08<00:00,  7.33it/s]
+Saved conserved-field animation with dynamic colorbars
+Saving density evolution animation...
+density_evolution.mp4:   0%|          | 0/500 [00:00<?, ?it/s]density_evolution.mp4:   0%|          | 1/500 [00:00<03:31,  2.36it/s]density_evolution.mp4:   0%|          | 2/500 [00:00<03:21,  2.47it/s]density_evolution.mp4:   3%|▎         | 17/500 [00:00<00:17, 27.25it/s]density_evolution.mp4:   5%|▌         | 25/500 [00:01<00:29, 15.84it/s]density_evolution.mp4:   8%|▊         | 42/500 [00:01<00:14, 31.28it/s]density_evolution.mp4:  10%|█         | 50/500 [00:02<00:20, 21.53it/s]density_evolution.mp4:  11%|█         | 56/500 [00:02<00:17, 24.81it/s]density_evolution.mp4:  13%|█▎        | 66/500 [00:02<00:13, 32.50it/s]density_evolution.mp4:  15%|█▍        | 73/500 [00:03<00:20, 20.95it/s]density_evolution.mp4:  18%|█▊        | 89/500 [00:03<00:13, 29.83it/s]density_evolution.mp4:  19%|█▉        | 97/500 [00:04<00:16, 24.10it/s]density_evolution.mp4:  20%|██        | 101/500 [00:04<00:16, 24.43it/s]density_evolution.mp4:  23%|██▎       | 113/500 [00:04<00:11, 33.18it/s]density_evolution.mp4:  24%|██▍       | 121/500 [00:05<00:16, 22.71it/s]density_evolution.mp4:  27%|██▋       | 137/500 [00:05<00:11, 30.98it/s]density_evolution.mp4:  29%|██▉       | 145/500 [00:06<00:15, 22.59it/s]density_evolution.mp4:  32%|███▏      | 161/500 [00:06<00:11, 30.06it/s]density_evolution.mp4:  33%|███▎      | 166/500 [00:07<00:15, 21.59it/s]density_evolution.mp4:  37%|███▋      | 185/500 [00:07<00:09, 31.92it/s]density_evolution.mp4:  38%|███▊      | 190/500 [00:07<00:12, 24.47it/s]density_evolution.mp4:  41%|████      | 204/500 [00:07<00:08, 34.80it/s]density_evolution.mp4:  42%|████▏     | 211/500 [00:08<00:13, 20.79it/s]density_evolution.mp4:  46%|████▌     | 229/500 [00:08<00:08, 33.53it/s]density_evolution.mp4:  48%|████▊     | 238/500 [00:09<00:11, 23.11it/s]density_evolution.mp4:  50%|█████     | 250/500 [00:09<00:08, 29.65it/s]density_evolution.mp4:  51%|█████▏    | 257/500 [00:10<00:12, 20.03it/s]density_evolution.mp4:  55%|█████▍    | 274/500 [00:10<00:07, 29.59it/s]density_evolution.mp4:  56%|█████▌    | 281/500 [00:11<00:09, 22.27it/s]density_evolution.mp4:  59%|█████▉    | 297/500 [00:11<00:06, 32.33it/s]density_evolution.mp4:  61%|██████    | 304/500 [00:11<00:05, 33.16it/s]density_evolution.mp4:  62%|██████▏   | 310/500 [00:12<00:07, 23.99it/s]density_evolution.mp4:  64%|██████▍   | 321/500 [00:12<00:06, 29.67it/s]density_evolution.mp4:  65%|██████▌   | 326/500 [00:12<00:06, 28.23it/s]density_evolution.mp4:  66%|██████▌   | 330/500 [00:13<00:08, 19.80it/s]density_evolution.mp4:  69%|██████▉   | 345/500 [00:13<00:05, 29.66it/s]density_evolution.mp4:  70%|███████   | 350/500 [00:14<00:07, 19.09it/s]density_evolution.mp4:  74%|███████▍  | 369/500 [00:14<00:04, 29.61it/s]density_evolution.mp4:  75%|███████▍  | 374/500 [00:14<00:05, 21.20it/s]density_evolution.mp4:  78%|███████▊  | 389/500 [00:15<00:04, 24.22it/s]density_evolution.mp4:  79%|███████▉  | 395/500 [00:15<00:04, 22.70it/s]density_evolution.mp4:  80%|███████▉  | 398/500 [00:15<00:04, 23.13it/s]density_evolution.mp4:  83%|████████▎ | 415/500 [00:16<00:02, 30.92it/s]density_evolution.mp4:  84%|████████▍ | 419/500 [00:16<00:03, 25.79it/s]density_evolution.mp4:  85%|████████▌ | 425/500 [00:16<00:02, 29.64it/s]density_evolution.mp4:  87%|████████▋ | 434/500 [00:17<00:02, 27.29it/s]density_evolution.mp4:  88%|████████▊ | 441/500 [00:17<00:02, 21.91it/s]density_evolution.mp4:  91%|█████████▏| 457/500 [00:17<00:01, 26.01it/s]density_evolution.mp4:  93%|█████████▎| 464/500 [00:18<00:01, 24.04it/s]density_evolution.mp4:  94%|█████████▍| 471/500 [00:18<00:01, 28.06it/s]density_evolution.mp4:  97%|█████████▋| 483/500 [00:18<00:00, 36.14it/s]density_evolution.mp4:  98%|█████████▊| 488/500 [00:19<00:00, 25.62it/s]density_evolution.mp4: 100%|██████████| 500/500 [00:19<00:00, 26.10it/s]
+Density evolution animation saved
+Saving temperature PDF evolution animation...
+temperature_pdf_evolution.mp4:   0%|          | 0/500 [00:00<?, ?it/s]temperature_pdf_evolution.mp4:   0%|          | 1/500 [00:00<01:59,  4.17it/s]temperature_pdf_evolution.mp4:   1%|          | 3/500 [00:00<01:08,  7.22it/s]temperature_pdf_evolution.mp4:   5%|▌         | 25/500 [00:00<00:14, 33.72it/s]temperature_pdf_evolution.mp4:   8%|▊         | 41/500 [00:01<00:08, 51.44it/s]temperature_pdf_evolution.mp4:  10%|▉         | 49/500 [00:01<00:12, 35.66it/s]temperature_pdf_evolution.mp4:  13%|█▎        | 65/500 [00:01<00:08, 50.83it/s]temperature_pdf_evolution.mp4:  15%|█▍        | 73/500 [00:01<00:10, 41.74it/s]temperature_pdf_evolution.mp4:  18%|█▊        | 88/500 [00:02<00:08, 48.96it/s]temperature_pdf_evolution.mp4:  19%|█▉        | 96/500 [00:02<00:08, 44.96it/s]temperature_pdf_evolution.mp4:  22%|██▏       | 108/500 [00:02<00:09, 42.05it/s]temperature_pdf_evolution.mp4:  23%|██▎       | 115/500 [00:02<00:09, 38.58it/s]temperature_pdf_evolution.mp4:  26%|██▌       | 129/500 [00:03<00:08, 46.09it/s]temperature_pdf_evolution.mp4:  28%|██▊       | 142/500 [00:03<00:07, 48.37it/s]temperature_pdf_evolution.mp4:  31%|███       | 153/500 [00:03<00:06, 49.66it/s]temperature_pdf_evolution.mp4:  33%|███▎      | 163/500 [00:03<00:07, 47.45it/s]temperature_pdf_evolution.mp4:  35%|███▌      | 175/500 [00:04<00:06, 49.56it/s]temperature_pdf_evolution.mp4:  37%|███▋      | 185/500 [00:04<00:07, 41.28it/s]temperature_pdf_evolution.mp4:  40%|███▉      | 199/500 [00:04<00:06, 47.24it/s]temperature_pdf_evolution.mp4:  42%|████▏     | 209/500 [00:04<00:06, 47.13it/s]temperature_pdf_evolution.mp4:  43%|████▎     | 217/500 [00:05<00:06, 43.58it/s]temperature_pdf_evolution.mp4:  47%|████▋     | 233/500 [00:05<00:05, 51.95it/s]temperature_pdf_evolution.mp4:  49%|████▉     | 247/500 [00:05<00:04, 55.12it/s]temperature_pdf_evolution.mp4:  51%|█████     | 253/500 [00:05<00:06, 41.14it/s]temperature_pdf_evolution.mp4:  53%|█████▎    | 265/500 [00:05<00:04, 50.44it/s]temperature_pdf_evolution.mp4:  54%|█████▍    | 271/500 [00:06<00:04, 51.52it/s]temperature_pdf_evolution.mp4:  55%|█████▌    | 277/500 [00:06<00:05, 39.34it/s]temperature_pdf_evolution.mp4:  58%|█████▊    | 288/500 [00:06<00:04, 46.99it/s]temperature_pdf_evolution.mp4:  60%|█████▉    | 299/500 [00:06<00:04, 47.82it/s]temperature_pdf_evolution.mp4:  63%|██████▎   | 313/500 [00:06<00:03, 51.93it/s]temperature_pdf_evolution.mp4:  64%|██████▍   | 321/500 [00:07<00:03, 47.58it/s]temperature_pdf_evolution.mp4:  67%|██████▋   | 333/500 [00:07<00:03, 48.60it/s]temperature_pdf_evolution.mp4:  68%|██████▊   | 340/500 [00:07<00:04, 38.18it/s]temperature_pdf_evolution.mp4:  71%|███████   | 353/500 [00:07<00:02, 49.70it/s]temperature_pdf_evolution.mp4:  72%|███████▏  | 360/500 [00:07<00:02, 52.01it/s]temperature_pdf_evolution.mp4:  74%|███████▍  | 369/500 [00:08<00:02, 49.25it/s]temperature_pdf_evolution.mp4:  75%|███████▌  | 377/500 [00:08<00:02, 43.70it/s]temperature_pdf_evolution.mp4:  77%|███████▋  | 387/500 [00:08<00:02, 44.78it/s]temperature_pdf_evolution.mp4:  80%|████████  | 401/500 [00:08<00:01, 49.74it/s]temperature_pdf_evolution.mp4:  82%|████████▏ | 411/500 [00:09<00:02, 42.96it/s]temperature_pdf_evolution.mp4:  85%|████████▍ | 423/500 [00:09<00:01, 44.76it/s]temperature_pdf_evolution.mp4:  87%|████████▋ | 433/500 [00:09<00:01, 42.85it/s]temperature_pdf_evolution.mp4:  89%|████████▉ | 446/500 [00:09<00:01, 48.72it/s]temperature_pdf_evolution.mp4:  91%|█████████ | 456/500 [00:10<00:00, 49.59it/s]temperature_pdf_evolution.mp4:  94%|█████████▎| 468/500 [00:10<00:00, 49.58it/s]temperature_pdf_evolution.mp4:  95%|█████████▌| 475/500 [00:10<00:00, 39.58it/s]temperature_pdf_evolution.mp4:  98%|█████████▊| 489/500 [00:10<00:00, 50.36it/s]temperature_pdf_evolution.mp4: 100%|█████████▉| 499/500 [00:10<00:00, 57.19it/s]temperature_pdf_evolution.mp4: 100%|██████████| 500/500 [00:10<00:00, 46.11it/s]
+Temperature PDF evolution animation saved
+temperature_pdfs_all_weightings.png saved
+emissivity_profile_vs_y.png saved
+Gas mass evolution plot saved
+[2026-07-07 17:03:40] STEP 5 COMPLETED OK: diagnostic_plots
+[2026-07-07 17:03:40] ========================================================================
+[2026-07-07 17:03:40] ALL PIPELINE STEPS COMPLETED SUCCESSFULLY
+[2026-07-07 17:03:40] ========================================================================
+[2026-07-07 17:03:40] 
+[2026-07-07 17:03:40] Run directory    : /home/sasi/Projects/SubgridCGMModel/runs/run_20260707_165314
+[2026-07-07 17:03:40] Master log       : /home/sasi/Projects/SubgridCGMModel/runs/run_20260707_165314/pipeline.log
+[2026-07-07 17:03:40] Manifest         : /home/sasi/Projects/SubgridCGMModel/runs/run_20260707_165314/manifest.txt
+[2026-07-07 17:03:40] 
+[2026-07-07 17:03:40] Cached athinputs (this run):
+[2026-07-07 17:03:40]   LR (0→5 Myr)    → /home/sasi/Projects/SubgridCGMModel/runs/run_20260707_165314/athinputs/lr_sim.athinput
+[2026-07-07 17:03:40]   lr_build (ISM)  → /home/sasi/Projects/SubgridCGMModel/runs/run_20260707_165314/athinputs/lr_build_sim.athinput
+[2026-07-07 17:03:40]   subgrid_model   → /home/sasi/Projects/SubgridCGMModel/runs/run_20260707_165314/athinputs/sg_sim.athinput
+[2026-07-07 17:03:40] 
+[2026-07-07 17:03:40] Step logs:
+[2026-07-07 17:03:40]   /home/sasi/Projects/SubgridCGMModel/runs/run_20260707_165314/logs/step1_train_pdf_cnn.log
+[2026-07-07 17:03:40]   /home/sasi/Projects/SubgridCGMModel/runs/run_20260707_165314/logs/step2_lr_simulation_5myr.log
+[2026-07-07 17:03:40]   /home/sasi/Projects/SubgridCGMModel/runs/run_20260707_165314/logs/step3_lr_build_ism_restart.log
+[2026-07-07 17:03:40]   /home/sasi/Projects/SubgridCGMModel/runs/run_20260707_165314/logs/step4_subgrid_model_cnn_restart.log
+[2026-07-07 17:03:40]   /home/sasi/Projects/SubgridCGMModel/runs/run_20260707_165314/logs/step5_diagnostic_plots.log
+[2026-07-07 17:03:40] 
+[2026-07-07 17:03:40] Key output directories:
+[2026-07-07 17:03:40]   LR sim (0→5 Myr)      : /home/sasi/Projects/SubgridCGMModel/simulation_outputs/lr_build
+[2026-07-07 17:03:40]   lr_build (ISM restart) : /home/sasi/Projects/SubgridCGMModel/simulation_outputs/lr_build_ism
+[2026-07-07 17:03:40]   subgrid_model (CNN)    : /home/sasi/Projects/SubgridCGMModel/simulation_outputs/subgrid_model
+[2026-07-07 17:03:40]   Model weights          : /home/sasi/Projects/SubgridCGMModel/runs/run_20260707_165314/model_saves
+[2026-07-07 17:03:40]   PDF mock               : /home/sasi/Projects/SubgridCGMModel/runs/run_20260707_165314/pdf_mocks
+[2026-07-07 17:03:40]   SG mock                : /home/sasi/Projects/SubgridCGMModel/runs/run_20260707_165314/sg_mocks
+[2026-07-07 17:03:40] ========================================================================

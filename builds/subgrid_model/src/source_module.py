@@ -64,7 +64,7 @@ from scipy.ndimage import gaussian_filter, sobel
 
 np.random.seed(10)
 resolution = (1024, 512)
-downsample = 64
+downsample = 32
 shape = (resolution[0] // downsample, resolution[1] // downsample)
 layer_size4 = 256
 layer_size5 = 512
@@ -123,7 +123,20 @@ def source_func(rho, pres, ux, uy, ps, fmcl):
         ux=cg["cg_ux"],
         uy=cg["cg_uy"],
         ps=cg["cg_ps"],
+        fine_resolution=resolution,
+        downsample=downsample,
     )
+
+    # # Testing the generalizability
+    # pdf = snapshot_pred_16x8(
+    #     rho=cg["cg_rho"][:, ::-1],
+    #     temp=cg["cg_temp"][:, ::-1],
+    #     ux=cg["cg_ux"][:, ::-1],
+    #     uy=cg["cg_uy"][:, ::-1],
+    #     ps=cg["cg_ps"][:, ::-1],
+    #     fine_resolution=resolution,
+    #     downsample=downsample,
+    # )
 
     # ------------------------------------------------------------
     # Cell sizes
@@ -138,26 +151,32 @@ def source_func(rho, pres, ux, uy, ps, fmcl):
         dx = total_width / rho.shape[1]
 
     # ------------------------------------------------------------
-    # Cooling source term
+    # Cooling source term (Corrected for Code Units + Isobaric)
     # ------------------------------------------------------------
-
-    kb = 1.380649e-16
+    # Physics constants matching your simulation scales
+    T_unit = 115.797      # derived from (1.59916e-14 / 1.381e-16)
+    mu = 0.62             # mean molecular weight
+    unit_fix = 1.975e27   # grouped conversion factor for code units
 
     nb = out_channels
-
     temp_bins = np.logspace(3, 7, nb + 1)
-
     temp_centers = np.sqrt(temp_bins[:-1] * temp_bins[1:])
-
     T = temp_centers[:, None, None]
 
-    P = np.transpose(pres)[None, :, :]
+    # Pressure is in Code Units
+    P_code = np.transpose(pres)[None, :, :]
 
-    n = P / (kb * T)
+    # 1. Isobaric Density Reconstruction (IN CODE UNITS)
+    rho_per_bin = P_code * (T_unit / T)
+    n_code_per_bin = rho_per_bin / mu
 
-    cool = lambda_cool(T, mask=True) * n**2
+    # 2. Emissivity per bin (converted back to Code Units)
+    lam = lambda_cool(T, mask=True)
+    cool_per_bin = lam * (n_code_per_bin**2) * unit_fix
 
-    cool_rate = np.sum(pdf * cool, axis=0)
+    # 3. Integrate across the predicted subgrid PDF
+    cool_rate = np.sum(pdf * cool_per_bin, axis=0)
+    #cool_rate = cool_rate[:, ::-1]
 
     # energy source term
     source_term[3] = -cool_rate

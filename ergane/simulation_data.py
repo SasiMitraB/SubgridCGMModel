@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import bisect
 import dataclasses
+import re
 from pathlib import Path
 from typing import List, Optional
 
@@ -104,6 +105,13 @@ def _resolve_all(raw_fields: dict) -> dict[str, np.ndarray]:
             if src in raw_fields:
                 out[key] = raw_fields[src]
 
+    # Passive scalars — Athena output uses s_00, s_01, ... for primitive scalars
+    # and r_00, r_01, ... for conserved scalar mass densities.
+    for key, arr in raw_fields.items():
+        m = re.fullmatch(r"[sr]_(\d+)", key)
+        if m:
+            out[f"scalar_{int(m.group(1)):02d}"] = arr
+
     # B-fields — may come as vector "Bcc" or separate scalars
     if "Bcc" in raw_fields:
         b = raw_fields["Bcc"]
@@ -145,6 +153,7 @@ class Frame:
     bx:       Optional[np.ndarray] = None
     by:       Optional[np.ndarray] = None
     bz:       Optional[np.ndarray] = None
+    scalars:  dict[str, np.ndarray] = dataclasses.field(default_factory=dict, repr=False)
 
     @property
     def xc(self) -> np.ndarray:
@@ -155,6 +164,12 @@ class Frame:
     def yc(self) -> np.ndarray:
         """Cell center coordinates along X2 (y-axis)."""
         return 0.5 * (self.y[:-1] + self.y[1:])
+
+    def __getattr__(self, name: str):
+        scalars = self.__dict__.get("scalars", {})
+        if name in scalars:
+            return scalars[name]
+        raise AttributeError(f"{type(self).__name__!s} object has no attribute {name!r}")
 
     @property
     def temperature(self) -> Optional[np.ndarray]:
@@ -175,6 +190,7 @@ class Frame:
             k for k in ("density", "pressure", "temperature", "velx", "vely", "velz", "bx", "by", "bz")
             if getattr(self, k) is not None
         ]
+        available.extend(sorted(self.scalars))
         return (
             f"<Frame #{self.number}  t={self.time:.4f} [{self.units.system}]"
             f"  fields={available}>"
@@ -352,6 +368,7 @@ class SimulationData:
 
         # Lazy field accessor singletons
         self._accessors: dict[str, _FieldAccessor] = {}
+        self._scalar_fields: list[str] = self._infer_scalar_fields()
 
     # ── Internal: file discovery ──────────────────────────────────────────────
 
@@ -453,6 +470,14 @@ class SimulationData:
                             merged[k] = val
 
             return _resolve_all(merged), time_val, x_code, y_code
+
+    def _infer_scalar_fields(self) -> list[str]:
+        """Discover scalar field names from the first available frame."""
+        if not self._frame_numbers:
+            return []
+        first = self._frame_numbers[0]
+        raw_fields, _, _, _ = self._load_raw_frame(first)
+        return sorted(k for k in raw_fields if k.startswith("scalar_"))
 
     def _peek_grid(self) -> dict:
         """Cache grid metadata (ncx, ncy, x, y) from the first frame."""
@@ -575,6 +600,7 @@ class SimulationData:
             base += ["bx", "by"]
         if "density" in base and "pressure" in base:
             base.append("temperature")
+        base.extend(self._scalar_fields)
         return base
 
     # Grid — prefer athinput values; fall back to first VTK frame
@@ -721,6 +747,8 @@ class SimulationData:
             for k, arr in raw_fields.items()
         }
 
+        scalar_fields = {k: v for k, v in scaled_fields.items() if k.startswith("scalar_")}
+
         return Frame(
             number=num,
             time=time_code * u.time,
@@ -728,7 +756,8 @@ class SimulationData:
             y=y_code * u.length,
             units=u,
             **{k: scaled_fields.get(k)
-               for k in ("density", "pressure", "velx", "vely", "velz", "bx", "by", "bz")}
+               for k in ("density", "pressure", "velx", "vely", "velz", "bx", "by", "bz")},
+            scalars=scalar_fields,
         )
 
     # ── Time-based frame queries ──────────────────────────────────────────────

@@ -11,13 +11,14 @@
     "iprob": 1, "amp": 0.01, "sigma": 0.25,
     "vx_hot": 28.2653, "vx_cold": -2.8265,
     "a_char": 0.0625, "rho_cold": 0.1, "rho_hot": 0.001,
-    "press": 8.63359, "cold_frac": 0.5,
+    "press": 13.925145161290322, "cold_frac": 0.5,
+    "mu": 0.62,
     "length_cgs": 3.08568e18, "mass_cgs": 4.91417e31, "time_cgs": 3.15576e13,
     "hst_dt": 0.0005, "bin_w_dt": 0.01, "bin_u_dt": 0.01, "rst_dt": 1.0
   },
   "hr": {
-    "nx1": 256, "nx2": 512,
-    "mb_nx1": 32, "mb_nx2": 512,
+    "nx1": 512, "nx2": 1024,
+    "mb_nx1": 64, "mb_nx2": 1024,
     "ndiag": 100,
     "nscalars": 1,
     "ism_cooling": true,
@@ -25,7 +26,7 @@
   },
   "lr": {
     "downsample_factor": 32,
-    "mb_nx1": 8, "mb_nx2": 16,
+    "mb_nx1": 16, "mb_nx2": 32,
     "ndiag": 100,
     "nscalars": 2,
     "ism_cooling": true,
@@ -33,8 +34,8 @@
     "tlim": 5.0
   },
   "lr_build": {
-    "nx1": 8, "nx2": 16,
-    "mb_nx1": 8, "mb_nx2": 16,
+    "nx1": 16, "nx2": 32,
+    "mb_nx1": 16, "mb_nx2": 32,
     "ndiag": 100,
     "nscalars": 2,
     "ism_cooling": true,
@@ -42,8 +43,8 @@
     "tlim": 10.0
   },
   "sg": {
-    "nx1": 8, "nx2": 16,
-    "mb_nx1": 8, "mb_nx2": 16,
+    "nx1": 16, "nx2": 32,
+    "mb_nx1": 16, "mb_nx2": 32,
     "ndiag": 5,
     "nscalars": 2,
     "ism_cooling": false,

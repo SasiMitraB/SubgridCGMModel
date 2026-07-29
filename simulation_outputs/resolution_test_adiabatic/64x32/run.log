@@ -1,0 +1,39 @@
+Authorization required, but no authorization protocol specified
+Authorization required, but no authorization protocol specified
+
+Root grid = 2 x 8 x 1 MeshBlocks
+Total number of MeshBlocks = 16
+Number of logical  levels of refinement = 3 (4 levels total)
+Number of physical levels of refinement = 0 (1 levels total)
+Number of parallel ranks = 2
+  Rank = 0: 8 MeshBlocks, cost = 8
+  Rank = 1: 8 MeshBlocks, cost = 8
+Load Balancing:
+  Maximum normalized cost = 1, Average = 1
+
+Setup complete, executing task list(s)...
+
+elapsed=4.891003e-03 cycle=0 time=0.000000e+00 dt=6.921031e-04
+elapsed=5.050087e-01 cycle=1000 time=6.902513e-01 dt=6.900986e-04
+elapsed=9.885066e-01 cycle=2000 time=1.379442e+00 dt=6.867907e-04
+elapsed=1.463387e+00 cycle=3000 time=2.063493e+00 dt=6.793410e-04
+elapsed=1.937277e+00 cycle=4000 time=2.735807e+00 dt=6.685109e-04
+elapsed=2.415085e+00 cycle=5000 time=3.406523e+00 dt=6.793407e-04
+elapsed=2.908617e+00 cycle=6000 time=4.087291e+00 dt=6.842372e-04
+elapsed=3.386793e+00 cycle=7000 time=4.774032e+00 dt=6.852519e-04
+elapsed=3.856760e+00 cycle=8000 time=5.453168e+00 dt=6.750724e-04
+elapsed=4.327181e+00 cycle=9000 time=6.130483e+00 dt=6.783053e-04
+elapsed=4.795037e+00 cycle=10000 time=6.813600e+00 dt=6.844193e-04
+elapsed=5.270928e+00 cycle=11000 time=7.496482e+00 dt=6.793750e-04
+elapsed=5.747061e+00 cycle=12000 time=8.176533e+00 dt=6.834579e-04
+elapsed=6.216702e+00 cycle=13000 time=8.862963e+00 dt=6.867101e-04
+elapsed=6.695456e+00 cycle=14000 time=9.548319e+00 dt=6.850463e-04
+
+Terminating on time limit
+time=1.000000e+01 cycle=14659
+tlim=1.000000e+01 nlim=-1
+
+MeshBlock-cycles = 234544
+cpu time used  = 7.000459e+00
+zone-cycles/cpu_second = 4.288523e+06
+particle-updates/cpu_second = 0.000000e+00

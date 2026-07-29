@@ -41,6 +41,7 @@ _DEFAULT_CMAPS: dict[str, str] = {
     "velx":     "seismic",
     "vely":     "seismic",
     "velz":     "seismic",
+    "scalar_00": "viridis",
     "bx":       "bwr",
     "by":       "bwr",
     "bz":       "bwr",
@@ -53,10 +54,18 @@ _TITLES: dict[str, str] = {
     "velx":     "$v_x$",
     "vely":     "$v_y$",
     "velz":     "$v_z$",
+    "scalar_00": "Passive Scalar",
     "bx":       "$B_x$",
     "by":       "$B_y$",
     "bz":       "$B_z$",
 }
+
+
+def _field_title(field_name: str) -> str:
+    if field_name.startswith("scalar_"):
+        suffix = field_name.split("_", 1)[1]
+        return f"Passive Scalar {suffix}"
+    return _TITLES.get(field_name, field_name)
 
 
 # ── Layout helper ─────────────────────────────────────────────────────────────
@@ -207,7 +216,7 @@ class FastplotlibVisualization(Visualization):
             for c in range(cols):
                 idx = r * cols + c
                 if idx < n:
-                    row_names.append(_TITLES.get(self._fields[idx], self._fields[idx]))
+                    row_names.append(_field_title(self._fields[idx]))
                 else:
                     row_names.append("")
             names.append(row_names)
@@ -385,7 +394,7 @@ class MatplotlibVisualization(Visualization):
             cmap = self._cmaps.get(field_name, "inferno")
             # We use origin='lower' as standard for simulation output grids
             im = ax.imshow(data, cmap=cmap, origin='lower')
-            ax.set_title(_TITLES.get(field_name, field_name))
+            ax.set_title(_field_title(field_name))
             self.figure.colorbar(im, ax=ax)
             
             self._images[field_name] = im
