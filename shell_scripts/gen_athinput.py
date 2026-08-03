@@ -23,14 +23,18 @@ def main():
     # Step-specific params
     step_params = config.get(args.step, {})
     
-    # Apply LR downsampling if needed before overriding with step params
-    if args.step == "lr":
-        downsample = step_params.get("downsample_factor", 1)
-        params["nx1"] = hr_params.get("nx1", 256) // downsample
-        params["nx2"] = hr_params.get("nx2", 512) // downsample
-        # By default, scale meshblock down too, unless explicitly overriden
-        params["mb_nx1"] = max(1, hr_params.get("mb_nx1", 32) // downsample)
-        params["mb_nx2"] = max(1, hr_params.get("mb_nx2", 512) // downsample)
+    # Apply LR downsampling for any step that runs on the coarse grid
+    if args.step in ("lr", "lr_build", "sg"):
+        lr_params = config.get("lr", {})
+        downsample = lr_params.get("downsample_factor", 1)
+        params["nx1"] = hr_params.get("nx1", 512) // downsample
+        params["nx2"] = hr_params.get("nx2", 1024) // downsample
+        # Scale meshblock down, then clamp to mesh size so mb never exceeds nx.
+        # Prefer any explicit mb_nx overrides in the lr config section.
+        derived_mb_nx1 = min(max(1, hr_params.get("mb_nx1", 64) // downsample), params["nx1"])
+        derived_mb_nx2 = min(max(1, hr_params.get("mb_nx2", 1024) // downsample), params["nx2"])
+        params["mb_nx1"] = lr_params.get("mb_nx1", derived_mb_nx1)
+        params["mb_nx2"] = lr_params.get("mb_nx2", derived_mb_nx2)
 
     # Override with step specific
     for k, v in step_params.items():

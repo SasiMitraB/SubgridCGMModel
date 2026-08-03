@@ -402,9 +402,39 @@ def lambda_cool(temp):
 RESTART_TIME_MYR = 5.0   # physical time of the restart file (Myr)
 BIN_DT_MYR       = 0.01  # bin output cadence (matches bin_w_dt / bin_u_dt in config)
 
+# --- Physical Constants & Unit Conversions ---
+m_H = 1.6726219e-24   # Hydrogen mass in g
+k_B = 1.380649e-16    # Boltzmann constant in erg/K
+M_sun = 1.98847e33    # Solar mass in g
+yr = 3.15576e7        # Year in seconds
+pc = 3.08568e18       # Parsec in cm
+kpc = 3.08568e21      # Kiloparsec in cm
+
+# --- Code Units ---
+L_cgs = 3.08568e18    # length unit (1 pc)
+M_cgs = 4.91417e31    # mass unit
+T_cgs = 3.15576e13    # time unit (1 Myr)
+mu = 0.62
+
+# --- Derived Unit Conversions ---
+V_cgs = L_cgs / T_cgs                                                # Velocity unit in cm/s (~9.778 km/s)
+RHO_cgs = M_cgs / (L_cgs**3)                                         # Density unit in g/cm^3 (~1.67e-24 g/cm^3)
+P_cgs = RHO_cgs * V_cgs**2                                           # Pressure unit in dyn/cm^2 or erg/cm^3
+
+len_to_pc = L_cgs / pc                                               # 1.0 pc per code length
+n_to_cm3 = RHO_cgs / (mu * m_H)                                      # ~1.61 cm^-3 per code density
+T_to_K = V_cgs**2 * mu * m_H / k_B                                   # ~71.8 K per code temperature
+P_over_kB_to_K_cm3 = P_cgs / k_B                                     # P/k_B in K cm^-3 per code pressure
+vel_to_km_s = V_cgs / 1e5                                            # Velocity in km/s per code velocity (~ 9.778 km/s)
+mflux_to_Msun_yr_kpc2 = (RHO_cgs * V_cgs) / (M_sun / (yr * kpc**2))   # ~0.0247 M_sun/yr/kpc^2 per code mass flux
+
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 
-resolution = (32, 16)
+# Derive LR/SG resolution from the same env vars used by the rest of the pipeline.
+# PDF_CNN_RESOLUTION = "hr_nx1,hr_nx2"; arrays are stored as (nx2, nx1) in bin files.
+_cnn_res = os.environ.get("PDF_CNN_RESOLUTION", "1024,512").split(",")
+_cnn_ds  = int(os.environ.get("PDF_CNN_DOWNSAMPLE", "64"))
+resolution = (int(_cnn_res[0]) // _cnn_ds, int(_cnn_res[1]) // _cnn_ds)
 file_path = os.path.join(PROJECT_ROOT, "simulation_outputs/subgrid_model/bin")
 save_path = (
     os.path.join(os.environ.get("SG_MOCKS_DIR", "mocks/sg"), f"sc{resolution}") + "/"
@@ -612,43 +642,39 @@ def compute_mean_std(arr, logspace=False):
 
 
 quantities = [
-    ("Density", cg_hr_rho, cg_hr_temp, rho, temp, lr_rho),
-    ("Temperature", cg_hr_temp, cg_hr_temp, temp, temp, lr_temp),
-    ("Pressure", cg_hr_pres, cg_hr_temp, pres, temp, lr_pres),
-    ("Ux Velocity", cg_hr_ux, cg_hr_temp, ux, temp, lr_ux),
-    ("Uy Velocity", cg_hr_uy, cg_hr_temp, uy, temp, lr_uy),
+    ("Density", cg_hr_rho * n_to_cm3, rho * n_to_cm3, lr_rho * n_to_cm3, r"$\log_{10}(n \ [\mathrm{cm}^{-3}])$", True),
+    ("Temperature", cg_hr_temp, temp, lr_temp, r"$\log_{10}(T \ [\mathrm{K}])$", True),
+    ("Pressure", cg_hr_pres * P_over_kB_to_K_cm3, pres * P_over_kB_to_K_cm3, lr_pres * P_over_kB_to_K_cm3, r"$P/k_B \ [\mathrm{K} \ \mathrm{cm}^{-3}]$", False),
+    ("Ux Velocity", cg_hr_ux * vel_to_km_s, ux * vel_to_km_s, lr_ux * vel_to_km_s, r"$u_x \ [\mathrm{km} \ \mathrm{s}^{-1}]$", False),
+    ("Uy Velocity", cg_hr_uy * vel_to_km_s, uy * vel_to_km_s, lr_uy * vel_to_km_s, r"$u_y \ [\mathrm{km} \ \mathrm{s}^{-1}]$", False),
 ]
 
 fig, axs = plt.subplots(5, 1, figsize=(9, 20))
 plt.subplots_adjust(hspace=0.35)
 
-for idx, (title, hr_arr, _, sg_arr, _, lr_arr) in enumerate(quantities):
-    is_log = title in ("Density", "Temperature")
-
+for idx, (title, hr_arr, sg_arr, lr_arr, ylabel, is_log) in enumerate(quantities):
     hr_mean, hr_std = compute_mean_std(hr_arr, logspace=is_log)
     sg_mean, sg_std = compute_mean_std(sg_arr, logspace=is_log)
     lr_mean, lr_std = compute_mean_std(lr_arr, logspace=is_log)
 
+    y_hr = np.linspace(0, sim_data.total_length, len(hr_mean))
+    y_sg = np.linspace(0, sim_data.total_length, len(sg_mean))
+    y_lr = np.linspace(0, sim_data.total_length, len(lr_mean))
+
     ax = axs[idx]
 
-    ax.plot(hr_mean, lw=2, label=f"HR ({hr_resolution[0]}×{hr_resolution[1]})")
-    ax.fill_between(
-        np.arange(len(hr_mean)), hr_mean - hr_std, hr_mean + hr_std, alpha=0.25
-    )
+    ax.plot(y_hr, hr_mean, lw=2, label=f"HR ({hr_resolution[0]}×{hr_resolution[1]})")
+    ax.fill_between(y_hr, hr_mean - hr_std, hr_mean + hr_std, alpha=0.25)
 
-    ax.plot(sg_mean, lw=2, label=f"SG ({resolution[0]}×{resolution[1]})")
-    ax.fill_between(
-        np.arange(len(sg_mean)), sg_mean - sg_std, sg_mean + sg_std, alpha=0.25
-    )
+    ax.plot(y_sg, sg_mean, lw=2, label=f"SG ({resolution[0]}×{resolution[1]})")
+    ax.fill_between(y_sg, sg_mean - sg_std, sg_mean + sg_std, alpha=0.25)
 
-    ax.plot(lr_mean, lw=2, label=f"LR ({lr_resolution[0]}×{lr_resolution[1]})")
-    ax.fill_between(
-        np.arange(len(lr_mean)), lr_mean - lr_std, lr_mean + lr_std, alpha=0.25
-    )
+    ax.plot(y_lr, lr_mean, lw=2, label=f"LR ({lr_resolution[0]}×{lr_resolution[1]})")
+    ax.fill_between(y_lr, lr_mean - lr_std, lr_mean + lr_std, alpha=0.25)
 
     ax.set_title(f"{title} (Avg over X) — Mean ± 1σ")
-    ax.set_xlabel("Y")
-    ax.set_ylabel(("log10 " if is_log else "") + title)
+    ax.set_xlabel(r"$y \ [\mathrm{pc}]$")
+    ax.set_ylabel(ylabel)
 
     if is_log:
         ax.set_yscale("linear")  # already plotting log(mean), so keep linear scale
@@ -662,42 +688,40 @@ plt.close(fig)
 print("profiles_mean_with_std_all.png saved")
 
 quantities_cons = [
-    ("Conserved Density", cg_hr_cons_rho, cons_rho, lr_cons_rho),
-    ("Conserved MomX", cg_hr_cons_momx, cons_momx, lr_cons_momx),
-    ("Conserved MomY", cg_hr_cons_momy, cons_momy, lr_cons_momy),
-    ("Conserved Energy", cg_hr_cons_ener, cons_ener, lr_cons_ener),
-    ("Passive Scalar", cg_hr_cons_ps, cons_ps, lr_cons_ps),
-    ("fmcl (T < 1e5)", cg_hr_fmcl, fmcl, lr_fmcl),
+    ("Conserved Density", cg_hr_cons_rho * n_to_cm3, cons_rho * n_to_cm3, lr_cons_rho * n_to_cm3, r"$n \ [\mathrm{cm}^{-3}]$"),
+    ("Conserved MomX", cg_hr_cons_momx * mflux_to_Msun_yr_kpc2, cons_momx * mflux_to_Msun_yr_kpc2, lr_cons_momx * mflux_to_Msun_yr_kpc2, r"$\rho u_x \ [M_\odot \ \mathrm{yr}^{-1} \ \mathrm{kpc}^{-2}]$"),
+    ("Conserved MomY", cg_hr_cons_momy * mflux_to_Msun_yr_kpc2, cons_momy * mflux_to_Msun_yr_kpc2, lr_cons_momy * mflux_to_Msun_yr_kpc2, r"$\rho u_y \ [M_\odot \ \mathrm{yr}^{-1} \ \mathrm{kpc}^{-2}]$"),
+    ("Conserved Energy", cg_hr_cons_ener * P_cgs, cons_ener * P_cgs, lr_cons_ener * P_cgs, r"$E \ [\mathrm{erg} \ \mathrm{cm}^{-3}]$"),
+    ("Passive Scalar", cg_hr_cons_ps, cons_ps, lr_cons_ps, "Passive Scalar"),
+    ("fmcl (T < 1e5)", cg_hr_fmcl, fmcl, lr_fmcl, r"$f_{\mathrm{mcl}} \ (T < 10^5 \ \mathrm{K})$"),
 ]
 
 fig, axs = plt.subplots(6, 1, figsize=(9, 24))
 plt.subplots_adjust(hspace=0.4)
 
-for idx, (title, hr_arr, sg_arr, lr_arr) in enumerate(quantities_cons):
+for idx, (title, hr_arr, sg_arr, lr_arr, ylabel) in enumerate(quantities_cons):
     hr_mean, hr_std = compute_mean_std(hr_arr)
     sg_mean, sg_std = compute_mean_std(sg_arr)
     lr_mean, lr_std = compute_mean_std(lr_arr)
 
+    y_hr = np.linspace(0, sim_data.total_length, len(hr_mean))
+    y_sg = np.linspace(0, sim_data.total_length, len(sg_mean))
+    y_lr = np.linspace(0, sim_data.total_length, len(lr_mean))
+
     ax = axs[idx]
 
-    ax.plot(hr_mean, lw=2, label=f"HR ({hr_resolution[0]}×{hr_resolution[1]})")
-    ax.fill_between(
-        np.arange(len(hr_mean)), hr_mean - hr_std, hr_mean + hr_std, alpha=0.25
-    )
+    ax.plot(y_hr, hr_mean, lw=2, label=f"HR ({hr_resolution[0]}×{hr_resolution[1]})")
+    ax.fill_between(y_hr, hr_mean - hr_std, hr_mean + hr_std, alpha=0.25)
 
-    ax.plot(sg_mean, lw=2, label=f"SG ({resolution[0]}×{resolution[1]})")
-    ax.fill_between(
-        np.arange(len(sg_mean)), sg_mean - sg_std, sg_mean + sg_std, alpha=0.25
-    )
+    ax.plot(y_sg, sg_mean, lw=2, label=f"SG ({resolution[0]}×{resolution[1]})")
+    ax.fill_between(y_sg, sg_mean - sg_std, sg_mean + sg_std, alpha=0.25)
 
-    ax.plot(lr_mean, lw=2, label=f"LR ({lr_resolution[0]}×{lr_resolution[1]})")
-    ax.fill_between(
-        np.arange(len(lr_mean)), lr_mean - lr_std, lr_mean + lr_std, alpha=0.25
-    )
+    ax.plot(y_lr, lr_mean, lw=2, label=f"LR ({lr_resolution[0]}×{lr_resolution[1]})")
+    ax.fill_between(y_lr, lr_mean - lr_std, lr_mean + lr_std, alpha=0.25)
 
     ax.set_title(f"{title} (Avg over X) — Mean ± 1σ")
-    ax.set_xlabel("Y")
-    ax.set_ylabel(title)
+    ax.set_xlabel(r"$y \ [\mathrm{pc}]$")
+    ax.set_ylabel(ylabel)
     ax.grid(True, ls="--", alpha=0.5)
     ax.legend()
 
@@ -708,28 +732,26 @@ plt.close(fig)
 print("conserved_quantities_mean_with_std.png saved")
 
 
-def make_derived_plot(hr_field, sg_field, lr_field, title, ylabel, ax):
-    hr_mean, hr_std = compute_mean_std(hr_field)
-    sg_mean, sg_std = compute_mean_std(sg_field)
-    lr_mean, lr_std = compute_mean_std(lr_field)
+def make_derived_plot(hr_field, sg_field, lr_field, title, ylabel, ax, conv_factor=1.0):
+    hr_mean, hr_std = compute_mean_std(hr_field * conv_factor)
+    sg_mean, sg_std = compute_mean_std(sg_field * conv_factor)
+    lr_mean, lr_std = compute_mean_std(lr_field * conv_factor)
 
-    ax.plot(hr_mean, lw=2, label=f"HR ({hr_resolution[0]}×{hr_resolution[1]})")
-    ax.fill_between(
-        np.arange(len(hr_mean)), hr_mean - hr_std, hr_mean + hr_std, alpha=0.25
-    )
+    y_hr = np.linspace(0, sim_data.total_length, len(hr_mean))
+    y_sg = np.linspace(0, sim_data.total_length, len(sg_mean))
+    y_lr = np.linspace(0, sim_data.total_length, len(lr_mean))
 
-    ax.plot(sg_mean, lw=2, label=f"SG ({resolution[0]}×{resolution[1]})")
-    ax.fill_between(
-        np.arange(len(sg_mean)), sg_mean - sg_std, sg_mean + sg_std, alpha=0.25
-    )
+    ax.plot(y_hr, hr_mean, lw=2, label=f"HR ({hr_resolution[0]}×{hr_resolution[1]})")
+    ax.fill_between(y_hr, hr_mean - hr_std, hr_mean + hr_std, alpha=0.25)
 
-    ax.plot(lr_mean, lw=2, label=f"LR ({lr_resolution[0]}×{lr_resolution[1]})")
-    ax.fill_between(
-        np.arange(len(lr_mean)), lr_mean - lr_std, lr_mean + lr_std, alpha=0.25
-    )
+    ax.plot(y_sg, sg_mean, lw=2, label=f"SG ({resolution[0]}×{resolution[1]})")
+    ax.fill_between(y_sg, sg_mean - sg_std, sg_mean + sg_std, alpha=0.25)
+
+    ax.plot(y_lr, lr_mean, lw=2, label=f"LR ({lr_resolution[0]}×{lr_resolution[1]})")
+    ax.fill_between(y_lr, lr_mean - lr_std, lr_mean + lr_std, alpha=0.25)
 
     ax.set_title(title)
-    ax.set_xlabel("Y")
+    ax.set_xlabel(r"$y \ [\mathrm{pc}]$")
     ax.set_ylabel(ylabel)
     ax.grid(True, ls="--", alpha=0.5)
     ax.legend()
@@ -759,25 +781,33 @@ fig, axs = plt.subplots(3, 1, figsize=(9, 15))
 plt.subplots_adjust(hspace=0.35)
 
 make_derived_plot(
-    hr_rho_ux, sg_rho_ux, lr_rho_ux, "ρ uₓ (Avg over X) — Mean ± 1σ", "ρ uₓ", axs[0]
+    hr_rho_ux,
+    sg_rho_ux,
+    lr_rho_ux,
+    r"$\rho u_x$ (Avg over X) — Mean ± 1σ",
+    r"$\rho u_x \ [M_\odot \ \mathrm{yr}^{-1} \ \mathrm{kpc}^{-2}]$",
+    axs[0],
+    conv_factor=mflux_to_Msun_yr_kpc2,
 )
 
 make_derived_plot(
     hr_rho_ux_uy,
     sg_rho_ux_uy,
     lr_rho_ux_uy,
-    "ρ uₓ uᵧ (Avg over X) — Mean ± 1σ",
-    "ρ uₓ uᵧ",
+    r"$\rho u_x u_y$ (Avg over X) — Mean ± 1σ",
+    r"$\rho u_x u_y \ [\mathrm{dyn} \ \mathrm{cm}^{-2}]$",
     axs[1],
+    conv_factor=P_cgs,
 )
 
 make_derived_plot(
     hr_mom_flux_y,
     sg_mom_flux_y,
     lr_mom_flux_y,
-    "p + ρ uᵧ² (Avg over X) — Mean ± 1σ",
-    "Momentum Flux (y)",
+    r"$p + \rho u_y^2$ (Avg over X) — Mean ± 1σ",
+    r"$p + \rho u_y^2 \ [\mathrm{dyn} \ \mathrm{cm}^{-2}]$",
     axs[2],
+    conv_factor=P_cgs,
 )
 
 plt.tight_layout()
@@ -793,7 +823,9 @@ del hr_mom_flux_y, sg_mom_flux_y, lr_mom_flux_y
 gc.collect()
 
 nt = hr_rho.shape[0]
-cg_hr_mass_x = np.zeros((nt, resolution[0], resolution[1]))
+_hr_cg_rows = hr_rho.shape[1] // hr_downsample
+_hr_cg_cols = hr_rho.shape[2] // hr_downsample
+cg_hr_mass_x = np.zeros((nt, _hr_cg_rows, _hr_cg_cols))
 cg_hr_mass_y = np.zeros_like(cg_hr_mass_x)
 cg_hr_T_xx = np.zeros_like(cg_hr_mass_x)
 cg_hr_T_xy = np.zeros_like(cg_hr_mass_x)
@@ -858,42 +890,43 @@ plt.subplots_adjust(hspace=0.35)
 
 print(cg_hr_mass_x.shape, sg_mass_x.shape, lr_mass_x.shape)
 make_derived_plot(
-    cg_hr_mass_x, sg_mass_x, lr_mass_x, "Mass Flux (ρ uₓ)", "ρ uₓ", axs[0, 0]
-)
-print(cg_hr_mass_y.shape, sg_mass_y.shape, lr_mass_y.shape)
-make_derived_plot(
-    cg_hr_mass_y, sg_mass_y, lr_mass_y, "Mass Flux (ρ uᵧ)", "ρ uᵧ", axs[0, 1]
-)
-
-make_derived_plot(
-    cg_hr_T_xx, sg_T_xx, lr_T_xx, "Momentum Flux Tₓₓ = ρuₓ² + p", "Tₓₓ", axs[1, 0]
+    cg_hr_mass_x, sg_mass_x, lr_mass_x, r"Mass Flux ($\rho u_x$)", r"$\rho u_x \ [M_\odot \ \mathrm{yr}^{-1} \ \mathrm{kpc}^{-2}]$", axs[0, 0], conv_factor=mflux_to_Msun_yr_kpc2
 )
 make_derived_plot(
-    cg_hr_T_xy, sg_T_xy, lr_T_xy, "Momentum Flux Tₓᵧ = ρuₓuᵧ", "Tₓᵧ", axs[1, 1]
+    cg_hr_mass_y, sg_mass_y, lr_mass_y, r"Mass Flux ($\rho u_y$)", r"$\rho u_y \ [M_\odot \ \mathrm{yr}^{-1} \ \mathrm{kpc}^{-2}]$", axs[0, 1], conv_factor=mflux_to_Msun_yr_kpc2
 )
 
 make_derived_plot(
-    cg_hr_T_xy, sg_T_xy, lr_T_xy, "Momentum Flux Tᵧₓ = ρuₓuᵧ", "Tᵧₓ", axs[2, 0]
+    cg_hr_T_xx, sg_T_xx, lr_T_xx, r"Momentum Flux $T_{xx} = \rho u_x^2 + p$", r"$T_{xx} \ [\mathrm{dyn} \ \mathrm{cm}^{-2}]$", axs[1, 0], conv_factor=P_cgs
 )
 make_derived_plot(
-    cg_hr_T_yy, sg_T_yy, lr_T_yy, "Momentum Flux Tᵧᵧ = ρuᵧ² + p", "Tᵧᵧ", axs[2, 1]
+    cg_hr_T_xy, sg_T_xy, lr_T_xy, r"Momentum Flux $T_{xy} = \rho u_x u_y$", r"$T_{xy} \ [\mathrm{dyn} \ \mathrm{cm}^{-2}]$", axs[1, 1], conv_factor=P_cgs
+)
+
+make_derived_plot(
+    cg_hr_T_xy, sg_T_xy, lr_T_xy, r"Momentum Flux $T_{yx} = \rho u_x u_y$", r"$T_{yx} \ [\mathrm{dyn} \ \mathrm{cm}^{-2}]$", axs[2, 0], conv_factor=P_cgs
+)
+make_derived_plot(
+    cg_hr_T_yy, sg_T_yy, lr_T_yy, r"Momentum Flux $T_{yy} = \rho u_y^2 + p$", r"$T_{yy} \ [\mathrm{dyn} \ \mathrm{cm}^{-2}]$", axs[2, 1], conv_factor=P_cgs
 )
 
 make_derived_plot(
     cg_hr_E_flux_x,
     sg_E_flux_x,
     lr_E_flux_x,
-    "Energy Flux (E+p)uₓ",
-    "(E+p)uₓ",
+    r"Energy Flux $(E+p)u_x$",
+    r"$(E+p)u_x \ [\mathrm{erg} \ \mathrm{cm}^{-2} \ \mathrm{s}^{-1}]$",
     axs[3, 0],
+    conv_factor=P_cgs * V_cgs,
 )
 make_derived_plot(
     cg_hr_E_flux_y,
     sg_E_flux_y,
     lr_E_flux_y,
-    "Energy Flux (E+p)uᵧ",
-    "(E+p)uᵧ",
+    r"Energy Flux $(E+p)u_y$",
+    r"$(E+p)u_y \ [\mathrm{erg} \ \mathrm{cm}^{-2} \ \mathrm{s}^{-1}]$",
     axs[3, 1],
+    conv_factor=P_cgs * V_cgs,
 )
 
 plt.tight_layout()
@@ -914,8 +947,8 @@ lr_div_mass = np.zeros_like(lr_mass_x)
 lr_div_momx = np.zeros_like(lr_mass_x)
 lr_div_momy = np.zeros_like(lr_mass_x)
 
-dy = sim_data.total_length / resolution[0]
-dx = sim_data.total_width / resolution[1]
+dy = (sim_data.total_length * len_to_pc) / resolution[0]
+dx = (sim_data.total_width * len_to_pc) / resolution[1]
 
 for i in tqdm(range(nt), desc="Divergence Fluxes"):
     cg_hr_div_mass[i] = divergence([cg_hr_mass_x[i], cg_hr_mass_y[i]], dx, dy)
@@ -934,13 +967,13 @@ fig, axs = plt.subplots(3, 1, figsize=(10, 13))
 plt.subplots_adjust(hspace=0.35)
 
 make_derived_plot(
-    cg_hr_div_mass, sg_div_mass, lr_div_mass, "Div Mass Flux", "∇·(ρu)", axs[0]
+    cg_hr_div_mass, sg_div_mass, lr_div_mass, r"Div Mass Flux ($\nabla \cdot \mathbf{j}$)", r"$\nabla \cdot (\rho \mathbf{u}) \ [M_\odot \ \mathrm{yr}^{-1} \ \mathrm{kpc}^{-2} \ \mathrm{pc}^{-1}]$", axs[0], conv_factor=mflux_to_Msun_yr_kpc2
 )
 make_derived_plot(
-    cg_hr_div_momx, sg_div_momx, lr_div_momx, "Div MomX Flux", "∇·Tₓ", axs[1]
+    cg_hr_div_momx, sg_div_momx, lr_div_momx, r"Div MomX Flux ($\nabla \cdot \mathbf{T}_x$)", r"$\nabla \cdot \mathbf{T}_x \ [\mathrm{dyn} \ \mathrm{cm}^{-2} \ \mathrm{pc}^{-1}]$", axs[1], conv_factor=P_cgs
 )
 make_derived_plot(
-    cg_hr_div_momy, sg_div_momy, lr_div_momy, "Div MomY Flux", "∇·Tᵧ", axs[2]
+    cg_hr_div_momy, sg_div_momy, lr_div_momy, r"Div MomY Flux ($\nabla \cdot \mathbf{T}_y$)", r"$\nabla \cdot \mathbf{T}_y \ [\mathrm{dyn} \ \mathrm{cm}^{-2} \ \mathrm{pc}^{-1}]$", axs[2], conv_factor=P_cgs
 )
 
 plt.tight_layout()
@@ -985,7 +1018,7 @@ def compute_fmcl_mass_sg(rho_arr, fmcl_arr, nx, ny):
     return np.array(res)
 
 
-mass_hr = compute_cold_mass(cg_hr_rho, cg_hr_temp, resolution[0], resolution[1])
+mass_hr = compute_cold_mass(hr_rho, hr_temp, hr_rho.shape[1], hr_rho.shape[2])
 mass_sg = compute_cold_mass(rho, temp, resolution[0], resolution[1])
 mass_lr = compute_cold_mass(lr_rho, lr_temp, lr_resolution[0], lr_resolution[1])
 
@@ -1025,14 +1058,17 @@ ax.axvline(RESTART_TIME_MYR, color="gray", ls="--", lw=1.2, label=f"Restart @ {R
 
 ax.plot(t_restart_myr, mass_sg,  label="SG (subgrid_model)", lw=2)
 ax.plot(t_restart_myr, mass_lr,  label="LR (lr_build_ism)",  lw=2)
-ax.plot(t_restart_myr, fmcl_sg, label="SG fmcl", lw=2, ls="--")
+ax.plot(t_restart_myr, mass_hr, label='HR', lw=2)
+#ax.plot(t_restart_myr, fmcl_sg, label="SG fmcl", lw=2, ls="--")
 
 ax.plot(t_restart_myr, fit_sg,  lw=1.8, ls=":",
         label=f"SG fit (d/dt = {slope_sg:.3e} Myr⁻¹)")
 ax.plot(t_restart_myr, fit_lr,  lw=1.8, ls=":",
         label=f"LR fit (d/dt = {slope_lr:.3e} Myr⁻¹)")
-ax.plot(t_restart_myr, fit_fmc, lw=1.8, ls=":",
-        label=f"SG fmcl fit (d/dt = {slope_fmc:.3e} Myr⁻¹)")
+ax.plot(t_restart_myr, fit_hr, lw=1.8, ls=':',
+        label=f"HR fit (d/dt = {slope_hr:.3e} Myr⁻¹)")
+#ax.plot(t_restart_myr, fit_fmc, lw=1.8, ls=":",
+#        label=f"SG fmcl fit (d/dt = {slope_fmc:.3e} Myr⁻¹)")
 
 ax.set_xlabel("Physical Time [Myr]")
 ax.set_ylabel("Mass (g pc²/cm³)")
@@ -1418,7 +1454,7 @@ ax.fill_between(
     alpha=0.25,
 )
 
-ax.set_xlabel("y")
+ax.set_xlabel(r"$y \ [\mathrm{pc}]$")
 ax.set_ylabel(r"$\langle n^2 \Lambda(T) \rangle$")
 
 ax.set_ylim(2e-28, 1e-24)

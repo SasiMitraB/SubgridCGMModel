@@ -63,8 +63,10 @@ from scipy.interpolate import interp1d
 from scipy.ndimage import gaussian_filter, sobel
 
 np.random.seed(10)
-resolution = (1024, 512)
-downsample = 32
+_res_str = os.environ.get("PDF_CNN_RESOLUTION", "1024,512").split(",")
+resolution = (int(_res_str[0]), int(_res_str[1]))
+downsample  = int(os.environ.get("PDF_CNN_DOWNSAMPLE", "64"))
+# resolution is (1024, 512) = (nx2, nx1) = (rows, cols)
 shape = (resolution[0] // downsample, resolution[1] // downsample)
 layer_size4 = 256
 layer_size5 = 512
@@ -181,25 +183,25 @@ def source_func(rho, pres, ux, uy, ps, fmcl):
     # energy source term
     source_term[3] = -cool_rate
 
-    # ------------------------------------------------------------
-    # Adaptive smoothing
-    # ------------------------------------------------------------
+    # # ------------------------------------------------------------
+    # # Adaptive smoothing
+    # # ------------------------------------------------------------
 
-    for channel in range(3, 4):
-        v = source_term[channel]
+    # for channel in range(3, 4):
+    #     v = source_term[channel]
 
-        w = np.clip(
-            (np.abs(v) - np.percentile(np.abs(v), 75))
-            / (np.percentile(np.abs(v), 90) - np.percentile(np.abs(v), 75) + 1e-12),
-            0,
-            1,
-        )
+    #     w = np.clip(
+    #         (np.abs(v) - np.percentile(np.abs(v), 75))
+    #         / (np.percentile(np.abs(v), 90) - np.percentile(np.abs(v), 75) + 1e-12),
+    #         0,
+    #         1,
+    #     )
 
-        A = gaussian_filter(v, 0.0)
+    #     A = gaussian_filter(v, 0.0)
 
-        B = gaussian_filter(v, kernel_size / 3)
+    #     B = gaussian_filter(v, kernel_size / 3)
 
-        source_term[channel] = (1 - w) * A + w * B
+    #     source_term[channel] = (1 - w) * A + w * B
 
     # ------------------------------------------------------------
     # Return shape

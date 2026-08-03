@@ -150,14 +150,16 @@ def generate_parallel_animation(worker_func, nt, output_path, fps, num_workers=1
         # Track progress using progress files
         completed_frames = set()
         with tqdm(total=nt, desc=f"Rendering {os.path.basename(output_path)}") as pbar:
+            workers_done = False
             while len(completed_frames) < nt:
-                all_done = True
-                for fut in futures:
-                    if not fut.done():
-                        all_done = False
-                    else:
-                        fut.result() # Will raise exception if worker failed
-                
+                # Check if all futures have completed
+                if not workers_done:
+                    workers_done = all(fut.done() for fut in futures)
+                    # Raise immediately if any worker threw an exception
+                    if workers_done:
+                        for fut in futures:
+                            fut.result()
+
                 try:
                     files = os.listdir(temp_dir)
                     for f in files:
@@ -170,17 +172,14 @@ def generate_parallel_animation(worker_func, nt, output_path, fps, num_workers=1
                                     pbar.update(1)
                 except FileNotFoundError:
                     pass
-                
-                if all_done and len(completed_frames) < nt:
-                    # Let filesystem settle
-                    time.sleep(0.2)
-                    break
-                    
-                time.sleep(0.1)
-                
-        # Ensure any exceptions from done futures are raised
-        for fut in futures:
-            fut.result()
+
+                if workers_done and len(completed_frames) < nt:
+                    # Workers are all done but we haven't seen all progress files yet.
+                    # Give the filesystem a moment to flush, then scan a few more times
+                    # before giving up (avoids an infinite loop on lost writes).
+                    time.sleep(0.05)
+                elif not workers_done:
+                    time.sleep(0.1)
             
     print(f"Stitching frames together into {output_path} using ffmpeg...")
     

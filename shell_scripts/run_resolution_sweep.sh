@@ -39,7 +39,7 @@ REF_ATHINPUT="${PROJECT_ROOT}/builds/hr_build/src/kh_radiative_128.athinput"
 SIM_OUTPUTS="${PROJECT_ROOT}/simulation_outputs"
 
 # Number of MPI ranks — override via: MPI_NP=8 ./run_resolution_sweep.sh
-MPI_NP="${MPI_NP:-4}"
+MPI_NP="${MPI_NP:-16}"
 
 # ---------------------------------------------------------------------------
 # Sanity checks

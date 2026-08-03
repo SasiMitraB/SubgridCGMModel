@@ -56,7 +56,7 @@ from data_preprocess import simulation_data
 # =========================
 # TRAINING / MODEL HYPERPARAMETERS
 # =========================
-DEFAULT_FINE_RESOLUTION = (512, 256)
+DEFAULT_FINE_RESOLUTION = (1024, 512)
 DEFAULT_DOWNSAMPLE = 32
 
 
@@ -72,7 +72,7 @@ HYPERPARAMS = {
     "seed": 10,
     "device": "mps",
     "resolution": _parse_resolution(
-        os.environ.get("PDF_CNN_RESOLUTION", "512,256"), DEFAULT_FINE_RESOLUTION
+        os.environ.get("PDF_CNN_RESOLUTION", "1024,512"), DEFAULT_FINE_RESOLUTION
     ),
     "downsample": int(os.environ.get("PDF_CNN_DOWNSAMPLE", str(DEFAULT_DOWNSAMPLE))),
     "in_channels": 5,
@@ -88,10 +88,10 @@ HYPERPARAMS = {
     "learning_rate": 5e-4,
     "weight_decay": 1e-3,
     "dropout_rate": 0.2,
-    "alpha_emiss": 30.0,
-    "alpha_profile": 20.0,
-    "alpha_gate": 25.0,
-    'alpha_leak': 25.0,
+    "alpha_emiss": 15,
+    "alpha_profile": 10,
+    "alpha_gate": 50,
+    'alpha_leak': 25,
     "train_fraction": 0.50,
     "val_fraction": 0.25,
     "grad_clip_max_norm": 1.0,
@@ -1202,7 +1202,7 @@ class GatedPDFEmissivityLoss(nn.Module):
         alpha_profile=1.0,
         alpha_gate=1.0,
         alpha_leak=1.0,
-        alpha_active_pdf=40.0,   # NEW: Weight for the active window PDF shape
+        alpha_active_pdf=25.0,   # NEW: Weight for the active window PDF shape
         entropy_threshold=0.05,
         logT_min=3.0,
         logT_max=7.0,

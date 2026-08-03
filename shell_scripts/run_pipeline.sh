@@ -153,8 +153,17 @@ export PYTHONPATH="${PROJECT_ROOT}:${PROJECT_ROOT}/data:${PYTHONPATH:-}"
 # Environment variables for pdf_cnn.py's data/cache paths
 export SUBGRID_DATA_PATH="${HR_BIN_DIR}"
 export SUBGRID_CACHE_PATH="${HR_SIM_OUTPUT}/cache"
-export PDF_CNN_RESOLUTION="1024,512"
-export PDF_CNN_DOWNSAMPLE="32"
+
+# Derive CNN resolution/downsample from config.json (single source of truth)
+read -r PDF_CNN_RESOLUTION PDF_CNN_DOWNSAMPLE < <(python3 - <<PY
+import json
+c = json.load(open("${CONFIG_JSON}"))
+hr = c["hr"]
+ds = c["lr"]["downsample_factor"]
+print(f"{hr['nx2']},{hr['nx1']} {ds}")
+PY
+)
+export PDF_CNN_RESOLUTION PDF_CNN_DOWNSAMPLE
 
 # ---------------------------------------------------------------------------
 # Write a manifest of all key paths for this run
