@@ -160,6 +160,25 @@ def _worker_wrapper(worker_func, frames_list, temp_dir, nt, *args):
             shm.close()
 
 
+def get_best_video_codec():
+    """Detect available video codec for ffmpeg."""
+    try:
+        res = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-encoders"],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            check=False,
+        )
+        if "h264_nvenc" in res.stdout:
+            return "h264_nvenc"
+        if "libx264" in res.stdout:
+            return "libx264"
+    except Exception:
+        pass
+    return "mpeg4"
+
+
 def generate_parallel_animation(worker_func, nt, output_path, fps, num_workers=16, extra_args=None):
     import tempfile
     import shutil
@@ -234,16 +253,33 @@ def generate_parallel_animation(worker_func, nt, output_path, fps, num_workers=1
                         time.sleep(0.1)
                 
         print(f"Stitching frames together into {output_path} using ffmpeg...")
+        os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+        codec = get_best_video_codec()
         
         cmd = [
             "ffmpeg", "-y",
             "-framerate", str(fps),
             "-i", os.path.join(temp_dir, "frame_%04d.png"),
-            "-c:v", "libx264",
+            "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2",
+            "-c:v", codec,
             "-pix_fmt", "yuv420p",
             output_path
         ]
-        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        if res.returncode != 0:
+            # Fallback to mpeg4
+            cmd_fb = [
+                "ffmpeg", "-y",
+                "-framerate", str(fps),
+                "-i", os.path.join(temp_dir, "frame_%04d.png"),
+                "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2",
+                "-c:v", "mpeg4",
+                "-pix_fmt", "yuv420p",
+                output_path
+            ]
+            res_fb = subprocess.run(cmd_fb, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            if res_fb.returncode != 0:
+                raise RuntimeError(f"ffmpeg failed with exit code {res.returncode}:\n{res.stderr.decode()}")
     finally:
         for shm in shm_list:
             shm.close()
@@ -1453,17 +1489,34 @@ if __name__ == '__main__':
             )
 
             print(f"Stitching density gate frames → {mp4_path_density}")
+            os.makedirs(os.path.dirname(os.path.abspath(mp4_path_density)), exist_ok=True)
+            codec = get_best_video_codec()
             cmd = [
                 "ffmpeg", "-y",
                 "-framerate", "24",
                 "-i", os.path.join(_temp_dir, "frame_%04d.png"),
-                "-c:v", "libx264",
+                "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2",
+                "-c:v", codec,
                 "-pix_fmt", "yuv420p",
                 mp4_path_density,
             ]
             res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
             if res.returncode != 0:
-                print(f"ffmpeg error: {res.stderr.decode()}")
+                # Fallback to mpeg4
+                cmd_fb = [
+                    "ffmpeg", "-y",
+                    "-framerate", "24",
+                    "-i", os.path.join(_temp_dir, "frame_%04d.png"),
+                    "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2",
+                    "-c:v", "mpeg4",
+                    "-pix_fmt", "yuv420p",
+                    mp4_path_density,
+                ]
+                res_fb = subprocess.run(cmd_fb, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                if res_fb.returncode != 0:
+                    print(f"ffmpeg error: {res.stderr.decode()}")
+                else:
+                    print(f"Saved density/gate animation → {mp4_path_density}")
             else:
                 print(f"Saved density/gate animation → {mp4_path_density}")
         finally:

@@ -88,11 +88,9 @@ HYPERPARAMS = {
     "learning_rate": 1e-3,
     "weight_decay": 1e-5,
     "dropout_rate": 0.2,
-    "alpha_emiss": 15,
-    "alpha_profile": 10,
     "alpha_gate": 50,
-    'alpha_leak': 25,
     "alpha_mean_temp": 10,
+    "alpha_emiss": float(os.environ.get("PDF_CNN_ALPHA_EMISS", "10.0")),
     "train_fraction": 0.50,
     "val_fraction": 0.25,
     "grad_clip_max_norm": 1.0,
@@ -100,7 +98,7 @@ HYPERPARAMS = {
 
 np.random.seed(HYPERPARAMS["seed"])
 torch.manual_seed(HYPERPARAMS["seed"])
-if torch.cuda.is_available():
+if torch.cuda.is_available():   
     torch.cuda.manual_seed_all(HYPERPARAMS["seed"])
 
 # Set PyTorch device
@@ -889,7 +887,7 @@ class GatedThresholdedSoftmax(nn.Module):
                    (Acts like a Delta function, but preserves gradients!)
     When gate ≈ 1: PDF remains a broad multiphase distribution.
     """
-    def __init__(self, threshold=5e-3, sharp_temp=0.05, eps=1e-12):
+    def __init__(self, threshold=5e-3, sharp_temp=0.02, eps=1e-12):
         super().__init__()
         self.threshold = threshold
         self.sharp_temp = sharp_temp # Controls how "sharp" the delta function is
@@ -1037,114 +1035,14 @@ class ConvNN(nn.Module):
         return self.pdf_activation(logits, gate)
 
 
-class WassersteinLoss(nn.Module):
-    def __init__(self):
-        super().__init__()
-        self.activation = ThresholdedSoftmax()
-
-    def forward(self, logits, target):
-        """
-        logits: (B, bins, nx, ny) — raw logits from model
-        target: (B, bins, nx, ny) — must be normalized PDF
-        """
-        pred_pdf = self.activation(logits)
-
-        # Compute CDF along bin axis
-        cdf_pred = torch.cumsum(pred_pdf, dim=1)
-        cdf_target = torch.cumsum(target, dim=1)
-
-        # Wasserstein-1 distance
-        loss = torch.mean(torch.abs(cdf_pred - cdf_target))
-
-        return loss
-
-
-class KLWithLeakageLoss(nn.Module):
-    def __init__(self, alpha=0, T0=1e6, width=0.1):
-        super().__init__()
-        self.alpha = alpha
-        self.activation = ThresholdedSoftmax()
-
-        # store logT info
-        self.logT_centers = logT_centers
-        self.logT0 = np.log10(T0)
-        self.width = width
-
-    def forward(self, logits, target):
-        pred_pdf = self.activation(logits)
-        log_probs = torch.log(pred_pdf + 1e-12)
-
-        # expand weights
-        weights = lambda_weights.to(target.device)[None, :, None, None]
-
-        # weighted KL
-        kl_elementwise = target * (torch.log(target + 1e-12) - log_probs)
-        weighted_kl = kl_elementwise * weights
-
-        # Step 1: calculate the KLdivergence loss per pixel
-        kl_per_pixel = torch.sum(weighted_kl, dim=1)
-        # Step 2: calculate the mean across all the pixels
-        kl_loss = torch.mean(kl_per_pixel)
-
-        # Peak bin index from TRUE PDF
-        peak_idx = torch.argmax(target, dim=1)  # (B, nx, ny)
-
-        # Get logT of peak bin
-        logT_peak = self.logT_centers.to(target.device)[peak_idx]
-
-        # Temperature mask (Gaussian around 1e6 K)
-        temp_mask = torch.exp(-((logT_peak - self.logT0) ** 2) / (2 * self.width**2))
-
-        # Predicted mass at peak
-        peak_prob = torch.gather(pred_pdf, 1, peak_idx.unsqueeze(1)).squeeze(1)
-
-        # True peak value
-        true_peak = torch.max(target, dim=1).values  # (B, nx, ny)
-
-        # CONDITION: sharp + near 1e6 K
-        condition = (temp_mask > 0.5) & (true_peak > 0.9)
-        final_mask = condition.float()
-
-        # Leakage = true - pred (only where condition holds)
-        leakage = torch.clamp(true_peak - peak_prob, min=0.0)
-
-        # Apply mask
-        masked_leakage = leakage * final_mask
-
-        leakage_loss = torch.mean(masked_leakage)
-
-        return kl_loss + self.alpha * leakage_loss
-
-
-# Introducing Emissivity into the loss function
-# Function to Define the Emissivity
-
-
-def emissivity_from_pdf(pdf, rho, lambda_tensor):
-    """
-    pdf : (B,bins,nx,ny)
-    rho : (B,1,nx,ny)
-    """
-
-    cooling = lambda_tensor.to(pdf.device)
-
-    cooling = cooling.view(1, -1, 1, 1)
-
-    mean_lambda = torch.sum(pdf * cooling, dim=1, keepdim=True)
-
-    emiss = rho**2 * mean_lambda
-
-    return emiss
-
-
 class MeanTemperatureLoss(nn.Module):
     """
-    Enforces  <T>_pred  =  T_coarse  (volume-weighted identity).
+    Enforces <T>_pred = T_coarse (volume-weighted identity).
     Done in log10 space so the loss isn't dominated by the hot tail.
     """
+
     def __init__(self, logT_centers=None, eps=1e-12):
         super().__init__()
-        # T_centers is a numpy array of geometric bin centers
         if logT_centers is None:
             logT_tensor = torch.tensor(np.log10(T_centers), dtype=torch.float32)
         elif isinstance(logT_centers, torch.Tensor):
@@ -1157,237 +1055,203 @@ class MeanTemperatureLoss(nn.Module):
         else:
             logT_tensor = torch.as_tensor(logT_centers, dtype=torch.float32)
 
-        self.register_buffer(
-            "logT_centers",
-            logT_tensor
-        )
+        self.register_buffer("logT_centers", logT_tensor)
         self.eps = eps
 
     def forward(self, pred_pdf, T_coarse):
         """
-        pred_pdf  : (B, bins, nx, ny)  — already a normalized PDF
+        pred_pdf  : (B, bins, nx, ny)  — normalized PDF
         T_coarse  : (B, 1, nx, ny)     — coarse-grained temperature field
         """
-        # Predicted log-mean:  log10( sum_k p_k * T_k )
-        # Numerically stable version:  log10(sum p_k * 10^{logT_k})
-        logT = self.logT_centers.to(pred_pdf.device)          # (bins,)
-        logT = logT.view(1, -1, 1, 1)                          # broadcast
-        # weighted log-mean via logsumexp for stability
+        logT = self.logT_centers.to(pred_pdf.device).view(1, -1, 1, 1)
         log_mean_pred = torch.logsumexp(
             torch.log(pred_pdf + self.eps) + logT * np.log(10),
-            dim=1, keepdim=True
-        ) / np.log(10)                                         # (B,1,nx,ny)
+            dim=1,
+            keepdim=True,
+        ) / np.log(10)
 
-        log_T_coarse = torch.log10(T_coarse.clamp(min=1.0))   # (B,1,nx,ny)
+        log_T_coarse = torch.log10(T_coarse.clamp(min=1.0))
 
         return F.mse_loss(log_mean_pred, log_T_coarse)
 
 
-class PDFEmissivityLoss(nn.Module):
-    def __init__(self, alpha_emiss=1.0, alpha_profile=1.0, alpha_mean_temp=0.0, logT_centers=None):
-        super().__init__()
-
-        self.alpha_emiss = alpha_emiss
-        self.alpha_profile = alpha_profile
-        self.alpha_mean_temp = alpha_mean_temp
-
-        self.activation = ThresholdedSoftmax()
-        self.mean_temp_loss = MeanTemperatureLoss(logT_centers)
-
-    def forward(self, logits, true_pdf, rho, T_coarse=None):
-
-        pred_pdf = self.activation(logits)
-
-        # --- PDF loss ---
-        # Step 1: calculate the KLdivergence loss per pixel
-        kl_elementwise = true_pdf * (
-            torch.log(true_pdf + 1e-12) - torch.log(pred_pdf + 1e-12)
-        )
-        kl_per_pixel = torch.sum(kl_elementwise, dim=1)
-        # Step 2: calculate the mean across all the pixels
-        pdf_loss = torch.mean(kl_per_pixel)
-
-        # --- Emissivity maps: shape (B, 1, nx, ny) ---
-        emiss_pred = emissivity_from_pdf(pred_pdf, rho, lambda_tensor)
-        emiss_true = emissivity_from_pdf(true_pdf, rho, lambda_tensor)
-
-        # Keep all spatial cells, compute MSE across every (b, i, j)
-        emiss_loss_pixelwise = F.mse_loss(
-            torch.log10(emiss_pred + 1e-30), torch.log10(emiss_true + 1e-30)
-        )
-
-        # Keep profile loss if you want — it's cheap and constrains large-scale structure
-        profile_pred = emiss_pred.mean(dim=3)  # (B, 1, nx)
-        profile_true = emiss_true.mean(dim=3)
-        profile_loss = F.mse_loss(
-            torch.log10(profile_pred + 1e-30), torch.log10(profile_true + 1e-30)
-        )
-
-        # Mean temperature loss
-        mean_temp_l = 0.0
-        if T_coarse is not None and self.alpha_mean_temp > 0:
-            mean_temp_l = self.mean_temp_loss(pred_pdf, T_coarse)
-
-        total_loss = (
-            pdf_loss
-            + self.alpha_emiss * emiss_loss_pixelwise
-            + self.alpha_profile * profile_loss
-            + self.alpha_mean_temp * mean_temp_l
-        )
-
-        return total_loss
-
-def log_active_window_mass_loss(
-    pred_pdf, 
-    true_pdf, 
-    logT_start=4.5, 
-    logT_end=5.5, 
-    logT_min=3.0, 
-    logT_max=7.0, 
-    num_bins=40,
-    eps=1e-8  # CRITICAL: The numerical floor. Must be smaller than your 1e-4 target.
+def isobaric_emissivity_from_pdf(
+    pdf,
+    rho,
+    T_coarse,
+    T_centers_tensor,
+    lambda_tensor,
+    mu=0.62,
+    unit_fix=1.975e27,
 ):
     """
-    Forces the model to predict the exact correct total mass inside the 
-    active cooling window, evaluated in log-space to amplify tiny probabilities.
+    Computes cell-averaged radiative cooling emissivity under the local isobaric assumption:
+        P_subgrid(T) = P_coarse  =>  n(T) = n_coarse * (T_coarse / T)
+        Emissivity per bin = n(T)^2 * Lambda(T)
+                           = (rho / mu)^2 * (T_coarse / T)^2 * Lambda(T) * unit_fix
+        Cell Emissivity    = sum_i [ pdf_i * n(T_i)^2 * Lambda(T_i) ]
+
+    Parameters:
+    -----------
+    pdf : torch.Tensor of shape (B, bins, H, W)
+        Normalized temperature PDF.
+    rho : torch.Tensor of shape (B, 1, H, W)
+        Coarse-grained code density.
+    T_coarse : torch.Tensor of shape (B, 1, H, W)
+        Coarse-grained temperature (in K).
+    T_centers_tensor : torch.Tensor of shape (bins,)
+        Temperature bin centers (in K).
+    lambda_tensor : torch.Tensor of shape (bins,)
+        Cooling curve Lambda(T) in erg cm^3 / s.
+    mu : float
+        Mean molecular weight (default 0.62).
+    unit_fix : float
+        Unit conversion factor to code units (default 1.975e27).
+
+    Returns:
+    --------
+    emiss : torch.Tensor of shape (B, 1, H, W)
+        Isobaric emissivity in code units.
     """
-    # 1. Dynamically calculate bin indices
-    bin_width = (logT_max - logT_min) / num_bins
-    start_idx = int(round((logT_start - logT_min) / bin_width))
-    end_idx = int(round((logT_end - logT_min) / bin_width))
+    w = (lambda_tensor.to(pdf.device) / (T_centers_tensor.to(pdf.device) ** 2)).view(
+        1, -1, 1, 1
+    )
+    weighted_sum = torch.sum(pdf * w, dim=1, keepdim=True)
+    n_coarse = rho / mu
+    emiss = (n_coarse**2) * (T_coarse**2) * weighted_sum * unit_fix
+    return emiss
 
-    # 2. Calculate total mass in the active window for both (B, nx, ny)
-    true_active_mass = true_pdf[:, start_idx:end_idx].sum(dim=1)
-    pred_active_mass = pred_pdf[:, start_idx:end_idx].sum(dim=1)
-    
-    # 3. Convert to log10 space safely using the epsilon floor
-    # This prevents log(0) -> NaN exploding your gradients.
-    log_true_mass = torch.log10(true_active_mass + eps)
-    log_pred_mass = torch.log10(pred_active_mass + eps)
-    
-    # 4. Compute MSE on the log values
-    return F.mse_loss(log_pred_mass, log_true_mass)
 
-class GatedPDFEmissivityLoss(nn.Module):
+class IsobaricEmissivityLoss(nn.Module):
+    """
+    Isobaric Emissivity Matching Loss:
+    Enforces consistency between predicted and true cell-averaged radiative emissivity
+    under the isobaric subgrid assumption in log10 space:
+        E_cell = (rho / mu)^2 * T_coarse^2 * sum_i [ p_i * Lambda(T_i) / T_i^2 ] * unit_fix
+
+    Because (rho/mu)^2 * T_coarse^2 * unit_fix is shared between pred and true,
+    the log10 ratio simplifies to:
+        log10( sum_i [ p_pred,i * w_norm,i ] + eps ) - log10( sum_i [ p_true,i * w_norm,i ] + eps )
+    where w_norm,i = (Lambda(T_i) / T_i^2) / max_k(Lambda(T_k) / T_k^2) in [0, 1].
+    Normalizing w prevents float32 underflow / gradient explosion when emissivity is zero.
+    """
+
     def __init__(
         self,
-        alpha_emiss=1.0,
-        alpha_profile=1.0,
-        alpha_gate=1.0,
-        alpha_leak=1.0,
-        alpha_active_pdf=25.0,   # NEW: Weight for the active window PDF shape
-        alpha_mean_temp=10.0,
-        entropy_threshold=0.05,
-        logT_min=3.0,
-        logT_max=7.0,
-        num_bins=40,
-        logT_active_start=4.5,  
-        logT_active_end=5.5,
-        mask_eps=0.0,
-        logT_centers=None,
+        T_centers_input=None,
+        lambda_tensor_input=None,
+        eps=1e-6,
     ):
         super().__init__()
-        self.alpha_emiss = alpha_emiss
-        self.alpha_profile = alpha_profile
+        if T_centers_input is None:
+            tc = torch.tensor(T_centers, dtype=torch.float32)
+        elif isinstance(T_centers_input, torch.Tensor):
+            tc = T_centers_input.clone().detach().float()
+        else:
+            tc = torch.tensor(T_centers_input, dtype=torch.float32)
+
+        if lambda_tensor_input is None:
+            lam = lambda_cool(tc.cpu().numpy(), mask=True)
+            lam_t = torch.tensor(lam, dtype=torch.float32)
+        elif isinstance(lambda_tensor_input, torch.Tensor):
+            lam_t = lambda_tensor_input.clone().detach().float()
+        else:
+            lam_t = torch.tensor(lambda_tensor_input, dtype=torch.float32)
+
+        w = lam_t / (tc**2)
+        w_max = w.max()
+        if w_max > 0:
+            w_norm = w / w_max
+        else:
+            w_norm = w
+
+        self.register_buffer("w_norm", w_norm.view(1, -1, 1, 1))
+        self.eps = eps
+
+    def forward(self, pred_pdf, true_pdf):
+        w = self.w_norm.to(pred_pdf.device)
+        w_pred = torch.sum(pred_pdf * w, dim=1, keepdim=True)
+        w_true = torch.sum(true_pdf * w, dim=1, keepdim=True)
+
+        log_pred = torch.log10(w_pred + self.eps)
+        log_true = torch.log10(w_true + self.eps)
+
+        return F.mse_loss(log_pred, log_true)
+
+
+class GatedPDFLoss(nn.Module):
+    """
+    Composite PDF loss with 4 core terms:
+      1. Bidirectional (forward + reverse) KL divergence
+      2. Gate supervision loss (BCE against entropy-derived threshold)
+      3. Mean temperature matching loss (<T>_pred vs T_coarse in log-space)
+      4. Isobaric emissivity matching loss (MSE on log10(emissivity))
+    """
+
+    def __init__(
+        self,
+        alpha_gate=50.0,
+        alpha_mean_temp=10.0,
+        alpha_emiss=10.0,
+        entropy_threshold=0.05,
+        logT_centers=None,
+        T_centers=None,
+        lambda_tensor=None,
+    ):
+        super().__init__()
         self.alpha_gate = alpha_gate
-        self.alpha_leak = alpha_leak
-        self.alpha_active_pdf = alpha_active_pdf
         self.alpha_mean_temp = alpha_mean_temp
+        self.alpha_emiss = alpha_emiss
         self.entropy_threshold = entropy_threshold
-        self.mask_eps = mask_eps
-
-        self.logT_min = logT_min
-        self.logT_max = logT_max
-        self.num_bins = num_bins
-
-        # Pre-calculate active window indices
-        bin_width = (logT_max - logT_min) / num_bins
-        self.start_idx = int(round((logT_active_start - logT_min) / bin_width))
-        self.end_idx = int(round((logT_active_end - logT_min) / bin_width))
 
         self.activation = GatedThresholdedSoftmax()
         self.mean_temp_loss = MeanTemperatureLoss(logT_centers)
+        self.emiss_loss = IsobaricEmissivityLoss(
+            T_centers_input=T_centers, lambda_tensor_input=lambda_tensor
+        )
 
-    def forward(self, logits, gate, true_pdf, rho, T_coarse=None):
+    def forward(self, logits, gate, true_pdf, rho=None, T_coarse=None):
         pred_pdf = self.activation(logits, gate)
 
-        # --- Emissivity maps (needed first, to build the spatial mask) ---
-        emiss_pred = emissivity_from_pdf(pred_pdf, rho, lambda_tensor)  # (B,1,nx,ny)
-        emiss_true = emissivity_from_pdf(true_pdf, rho, lambda_tensor)  # (B,1,nx,ny)
+        # 1. Forward and Reverse KL Divergence
+        kl_forward = true_pdf * (
+            torch.log(true_pdf + 1e-12) - torch.log(pred_pdf + 1e-12)
+        )
+        kl_reverse = pred_pdf * (
+            torch.log(pred_pdf + 1e-12) - torch.log(true_pdf + 1e-12)
+        )
+        kl_loss = torch.mean(torch.sum(kl_forward + kl_reverse, dim=1))
 
-        # --- Active-pixel mask: True cooling > 0 ---
-        mask = (emiss_true > self.mask_eps).float()            # (B,1,nx,ny)
-        mask_flat = mask.squeeze(1)                            # (B,nx,ny)
-        n_active = mask.sum().clamp(min=1.0)
-
-        # ====================================================================
-        # 1. GLOBAL PDF LOSS (Phase Identification)
-        # Evaluated over ALL bins. We apply this to ALL pixels (unmasked) 
-        # so it correctly identifies hot/cold equilibrium phases everywhere.
-        # ====================================================================
-        kl_forward_global = true_pdf * (torch.log(true_pdf + 1e-12) - torch.log(pred_pdf + 1e-12))
-        kl_reverse_global = pred_pdf * (torch.log(pred_pdf + 1e-12) - torch.log(true_pdf + 1e-12))
-        global_pdf_loss = torch.mean(torch.sum(kl_forward_global + kl_reverse_global, dim=1))
-
-        # ====================================================================
-        # 2. ACTIVE WINDOW PDF LOSS (Cooling Shape Precision)
-        # Evaluated ONLY over the cooling bins. Masked spatially so we only 
-        # heavily penalize the shape in cells that are actually cooling.
-        # ====================================================================
-        true_active = true_pdf[:, self.start_idx:self.end_idx]
-        pred_active = pred_pdf[:, self.start_idx:self.end_idx]
-        
-        kl_forward_active = true_active * (torch.log(true_active + 1e-12) - torch.log(pred_active + 1e-12))
-        kl_reverse_active = pred_active * (torch.log(pred_active + 1e-12) - torch.log(true_active + 1e-12))
-        kl_active_per_pixel = torch.sum(kl_forward_active + 0.1 * kl_reverse_active, dim=1)
-        
-        active_pdf_loss = (kl_active_per_pixel * mask_flat).sum() / (mask_flat.sum() + 1e-12)
-
-        # --- Emissivity loss, masked ---
-        log_pred = torch.log10(emiss_pred + 1e-30)
-        log_true = torch.log10(emiss_true + 1e-30)
-        sq_err = (log_pred - log_true) ** 2
-        emiss_loss = (sq_err * mask).sum() / n_active
-
-        # --- Profile loss: masked mean over the y-axis, then MSE ---
-        row_counts = mask.sum(dim=3)                             
-        row_active = (row_counts > 0).float()
-        profile_pred = (emiss_pred * mask).sum(dim=3) / row_counts.clamp(min=1.0)
-        profile_true = (emiss_true * mask).sum(dim=3) / row_counts.clamp(min=1.0)
-        profile_sq_err = (torch.log10(profile_pred + 1e-30) - torch.log10(profile_true + 1e-30)) ** 2
-        profile_loss = (profile_sq_err * row_active).sum() / (row_active.sum() + 1e-12)
-
-        # --- Gate supervision ---
+        # 2. Gate supervision loss (safely clamped to avoid BCE assertion errors)
         entropy = -(true_pdf * torch.log(true_pdf + 1e-12)).sum(dim=1, keepdim=True)
         entropy_norm = entropy / np.log(true_pdf.shape[1])
         gate_target = (entropy_norm > self.entropy_threshold).float()
-        gate_loss = F.binary_cross_entropy(gate, gate_target)
+        gate_clamped = torch.clamp(gate, min=1e-7, max=1.0 - 1e-7)
+        gate_loss = F.binary_cross_entropy(gate_clamped, gate_target)
 
-        # --- Physical leakage loss (Total mass in window) ---
-        leak_loss = log_active_window_mass_loss(
-            pred_pdf, true_pdf,
-            logT_start=4.5, logT_end=5.5,
-            logT_min=self.logT_min, logT_max=self.logT_max,
-            num_bins=self.num_bins,
-        )
-
-        # --- Mean temperature loss (<T>_pred = T_coarse) ---
+        # 3. Mean temperature matching loss
         mean_temp_loss = 0.0
         if T_coarse is not None and self.alpha_mean_temp > 0:
             mean_temp_loss = self.mean_temp_loss(pred_pdf, T_coarse)
 
-        # --- Compile Total Loss ---
+        # 4. Isobaric emissivity matching loss
+        emiss_loss = 0.0
+        if self.alpha_emiss > 0:
+            emiss_loss = self.emiss_loss(pred_pdf, true_pdf)
+
         total_loss = (
-            global_pdf_loss                        # Unmasked, overall phases
-            + self.alpha_active_pdf * active_pdf_loss  # Masked shape strictly in 1e4.5 - 1e5.5
-            + self.alpha_emiss * emiss_loss
-            + self.alpha_profile * profile_loss
+            kl_loss
             + self.alpha_gate * gate_loss
-            + self.alpha_leak * leak_loss          # Checks total mass in the window
-            + self.alpha_mean_temp * mean_temp_loss # Enforces mean temperature matches T_coarse
+            + self.alpha_mean_temp * mean_temp_loss
+            + self.alpha_emiss * emiss_loss
         )
 
         return total_loss
+
+
+# Alias for backwards compatibility
+GatedPDFEmissivityLoss = GatedPDFLoss
+
 
 if __name__ == "__main__":
     file_path = DATA_PATH
@@ -1407,12 +1271,10 @@ if __name__ == "__main__":
         kernel_size,
     ).to(device)
 
-    criterion = GatedPDFEmissivityLoss(
-        alpha_emiss=HYPERPARAMS["alpha_emiss"],
-        alpha_profile=HYPERPARAMS["alpha_profile"],
+    criterion = GatedPDFLoss(
         alpha_gate=HYPERPARAMS["alpha_gate"],
-        alpha_leak=HYPERPARAMS['alpha_leak'],
         alpha_mean_temp=HYPERPARAMS.get("alpha_mean_temp", 10.0),
+        alpha_emiss=HYPERPARAMS.get("alpha_emiss", 10.0),
     )
     # criterion = nn.KLDivLoss(reduction="batchmean")
     # criterion = KLWithLeakageLoss()
@@ -1498,6 +1360,9 @@ if __name__ == "__main__":
                 labels = torch.flip(labels, [3])
                 rho = torch.flip(rho, [3])
                 temp = torch.flip(temp, [3])
+                # ux (ch 2) points along x; negate after flipping x-axis
+                inputs = inputs.clone()
+                inputs[:, 2] = -inputs[:, 2]
                 
             # 2. Random vertical flip (50% chance)
             if torch.rand(1).item() > 0.5:
@@ -1505,6 +1370,9 @@ if __name__ == "__main__":
                 labels = torch.flip(labels, [2])
                 rho = torch.flip(rho, [2])
                 temp = torch.flip(temp, [2])
+                # uy (ch 3) points along y; negate after flipping y-axis
+                inputs = inputs.clone()
+                inputs[:, 3] = -inputs[:, 3]
             
             logits, gate = cnn_model(inputs)
 
@@ -1605,7 +1473,7 @@ if __name__ == "__main__":
     # plt.ylabel("KL Divergence")
     # plt.ylabel("Wasserstein Loss")
     # plt.ylabel("KL Divergence")
-    plt.ylabel("PDF + Emissivity Loss")
+    plt.ylabel("PDF Loss")
     plt.title("Training Loss")
 
     plt.legend()
