@@ -35,6 +35,8 @@ echo "Using run directory: ${RUN_DIR}"
 # ---------------------------------------------------------------------------
 export SG_MOCKS_DIR="${RUN_DIR}/sg_mocks"
 export PDF_MOCKS_DIR="${RUN_DIR}/pdf_mocks"
+export MODEL_SAVES_DIR="${RUN_DIR}/model_saves"
+export LOSS_PLOTS_DIR="${RUN_DIR}/loss_plots"
 mkdir -p "${SG_MOCKS_DIR}"
 mkdir -p "${PDF_MOCKS_DIR}"
 

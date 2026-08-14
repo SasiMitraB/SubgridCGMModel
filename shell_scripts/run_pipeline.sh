@@ -4,15 +4,16 @@
 #
 # Steps:
 #   1. Train the PDF CNN model              (models/conv_nn/pdf_cnn.py)
-#   2. Low-resolution simulation 5 Myr      (16×8 grid; ISM cooling)
+#   2. Benchmark PDF CNN model              (data/mocks/pdf_plot.py)
+#   3. Low-resolution simulation 5 Myr      (16×8 grid; ISM cooling)
 #      Outputs to: simulation_outputs/lr_build
-#   3. lr_build — restart from 5 Myr rst   (hr_build/src/athena; ISM cooling)
+#   4. lr_build — restart from 5 Myr rst   (hr_build/src/athena; ISM cooling)
 #      Uses:  simulation_outputs/lr_build/rst/KH.00005.rst
 #      Outputs to: simulation_outputs/lr_build_ism
-#   4. subgrid_model — restart from same rst (subgrid_model/src/athena; CNN)
+#   5. subgrid_model — restart from same rst (subgrid_model/src/athena; CNN)
 #      Uses:  simulation_outputs/lr_build/rst/KH.00005.rst
 #      Outputs to: simulation_outputs/subgrid_model
-#   5. Diagnostic plots                     (data/mocks/mock_sg.py)
+#   6. Diagnostic plots                     (data/mocks/mock_sg.py)
 #
 # RESTART FILE POLICY
 # -----------------------------------
@@ -165,6 +166,10 @@ PY
 )
 export PDF_CNN_RESOLUTION PDF_CNN_DOWNSAMPLE
 
+# Active cooling window log10(T) bounds (default: 4.2 to 6.0)
+export LOGT_ACTIVE_START="${LOGT_ACTIVE_START:-4.2}"
+export LOGT_ACTIVE_END="${LOGT_ACTIVE_END:-6.0}"
+
 # ---------------------------------------------------------------------------
 # Write a manifest of all key paths for this run
 # ---------------------------------------------------------------------------
@@ -177,12 +182,17 @@ MANIFEST="${RUN_DIR}/manifest.txt"
     echo "Run directory      : ${RUN_DIR}"
     echo "Project root       : ${PROJECT_ROOT}"
     echo ""
+    echo "--- Active Window Bounds ---"
+    echo "LOGT_ACTIVE_START  : ${LOGT_ACTIVE_START}"
+    echo "LOGT_ACTIVE_END    : ${LOGT_ACTIVE_END}"
+    echo ""
     echo "--- Source scripts / configs ---"
     echo "Config JSON        : ${CONFIG_JSON}"
     echo "LR athinput (gen)  : ${ATHINPUT_CACHE_DIR}/lr_sim.athinput"
     echo "lr_build athinput  : ${ATHINPUT_CACHE_DIR}/lr_build_sim.athinput"
     echo "SG athinput (gen)  : ${ATHINPUT_CACHE_DIR}/sg_sim.athinput"
     echo "CNN trainer        : ${PROJECT_ROOT}/models/conv_nn/pdf_cnn.py"
+    echo "PDF benchmark      : ${PROJECT_ROOT}/data/mocks/pdf_plot.py"
     echo "Diagnostic plots   : ${PROJECT_ROOT}/data/mocks/mock_sg.py"
     echo ""
     echo "--- Simulation outputs ---"
@@ -219,7 +229,21 @@ run_step 1 "train_pdf_cnn" \
     python3 "${PROJECT_ROOT}/models/conv_nn/pdf_cnn.py"
 
 # ===========================================================================
-# STEP 2 — Low-resolution simulation: 0 → 5 Myr  (16×8 grid, ISM cooling)
+# STEP 2 — Benchmark PDF CNN model (pdf_plot.py)
+#
+# Runs benchmarking and metric calculations on trained PDF CNN model.
+# Output plots and animations land in PDF_MOCKS_DIR.
+# ===========================================================================
+separator
+log "STEP 2: benchmark_pdf_cnn  (pdf_plot.py)"
+log "Benchmarking script : ${PROJECT_ROOT}/data/mocks/pdf_plot.py"
+separator
+
+run_step 2 "benchmark_pdf_cnn" \
+    bash -c "cd '${PROJECT_ROOT}/data/mocks' && python3 pdf_plot.py"
+
+# ===========================================================================
+# STEP 3 — Low-resolution simulation: 0 → 5 Myr  (16×8 grid, ISM cooling)
 #
 # Grid:  nx1=8, nx2=16  (16×8 cells — 32× downsampled from HR 256×512)
 # tlim:  5.0  (5 Myr)
@@ -227,13 +251,13 @@ run_step 1 "train_pdf_cnn" \
 #
 # Output restart files land in:
 #   simulation_outputs/lr_build/rst/KH.000{01..05}.rst
-# The 5 Myr file KH.00005.rst is the branch point for Steps 3 & 4.
+# The 5 Myr file KH.00005.rst is the branch point for Steps 4 & 5.
 # ===========================================================================
 LR_ATHINPUT="${ATHINPUT_CACHE_DIR}/lr_sim.athinput"
 generate_athinput "lr" "${LR_ATHINPUT}"
 
 separator
-log "STEP 2: lr_simulation  (16×8 grid, 0 → 5 Myr)"
+log "STEP 3: lr_simulation  (16×8 grid, 0 → 5 Myr)"
 log "LR athinput mesh settings:"
 grep -E '^\s*nx[12]\s*=' "${LR_ATHINPUT}" | tee -a "${MASTER_LOG}"
 log "LR athinput tlim:"
@@ -242,7 +266,7 @@ log "LR athinput press and mu settings:"
 grep -E '^\s*(press|mu)\s*=' "${LR_ATHINPUT}" | tee -a "${MASTER_LOG}"
 separator
 
-run_step 2 "lr_simulation_5myr" \
+run_step 3 "lr_simulation_5myr" \
     bash -c "
         set -euo pipefail
         cd '${PROJECT_ROOT}/builds/hr_build/src'
@@ -258,7 +282,7 @@ fi
 log "5 Myr restart file confirmed: ${LR_RST_5MYR}"
 
 # ===========================================================================
-# STEP 3 — lr_build: restart from 5 Myr with ISM cooling (no CNN)
+# STEP 4 — lr_build: restart from 5 Myr with ISM cooling (no CNN)
 #
 # Uses:    hr_build/src/athena   (ISM-cooling build, no neural-network source)
 # Restart: simulation_outputs/lr_build/rst/KH.00005.rst  (t = 5 Myr)
@@ -269,7 +293,7 @@ LR_BUILD_ATHINPUT="${ATHINPUT_CACHE_DIR}/lr_build_sim.athinput"
 generate_athinput "lr_build" "${LR_BUILD_ATHINPUT}"
 
 separator
-log "STEP 3: lr_build  (ISM cooling restart from ${LR_RST_5MYR})"
+log "STEP 4: lr_build  (ISM cooling restart from ${LR_RST_5MYR})"
 log "lr_build athinput mesh settings:"
 grep -E '^\s*nx[12]\s*=' "${LR_BUILD_ATHINPUT}" | tee -a "${MASTER_LOG}"
 log "lr_build athinput tlim:"
@@ -278,7 +302,7 @@ log "lr_build athinput press and mu settings:"
 grep -E '^\s*(press|mu)\s*=' "${LR_BUILD_ATHINPUT}" | tee -a "${MASTER_LOG}"
 separator
 
-run_step 3 "lr_build_ism_restart" \
+run_step 4 "lr_build_ism_restart" \
     bash -c "
         set -euo pipefail
         cd '${PROJECT_ROOT}/builds/hr_build/src'
@@ -289,7 +313,7 @@ run_step 3 "lr_build_ism_restart" \
     "
 
 # ===========================================================================
-# STEP 4 — subgrid_model: restart from same 5 Myr rst with CNN source terms
+# STEP 5 — subgrid_model: restart from same 5 Myr rst with CNN source terms
 #
 # Uses:    subgrid_model/src/athena  (CNN-enabled build)
 # Restart: simulation_outputs/lr_build/rst/KH.00005.rst  (t = 5 Myr)
@@ -302,7 +326,7 @@ SG_ATHINPUT="${ATHINPUT_CACHE_DIR}/sg_sim.athinput"
 generate_athinput "sg" "${SG_ATHINPUT}"
 
 separator
-log "STEP 4: subgrid_model  (CNN restart from ${LR_RST_5MYR})"
+log "STEP 5: subgrid_model  (CNN restart from ${LR_RST_5MYR})"
 log "SG athinput mesh settings:"
 grep -E '^\s*nx[12]\s*=' "${SG_ATHINPUT}" | tee -a "${MASTER_LOG}"
 log "SG athinput tlim:"
@@ -311,7 +335,7 @@ log "SG athinput press and mu settings:"
 grep -E '^\s*(press|mu)\s*=' "${SG_ATHINPUT}" | tee -a "${MASTER_LOG}"
 separator
 
-run_step 4 "subgrid_model_cnn_restart" \
+run_step 5 "subgrid_model_cnn_restart" \
     bash -c "
         set -euo pipefail
         cd '${PROJECT_ROOT}/builds/subgrid_model/src'
@@ -329,16 +353,16 @@ run_step 4 "subgrid_model_cnn_restart" \
     "
 
 # ===========================================================================
-# STEP 5 — Diagnostic plots (mock_sg.py)
+# STEP 6 — Diagnostic plots (mock_sg.py)
 #
 # Compares lr_build (ISM) and subgrid_model (CNN) simulation outputs.
 # Run from data/mocks/ so relative output paths resolve correctly.
 # ===========================================================================
 separator
-log "STEP 5: diagnostic_plots  (mock_sg.py)"
+log "STEP 6: diagnostic_plots  (mock_sg.py)"
 separator
 
-run_step 5 "diagnostic_plots" \
+run_step 6 "diagnostic_plots" \
     bash -c "cd '${PROJECT_ROOT}/data/mocks' && python3 mock_sg.py"
 
 # ===========================================================================

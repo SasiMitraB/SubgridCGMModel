@@ -446,10 +446,17 @@ void UserSourceTerm(Mesh *pm, const Real bdt) {
         u0(m, IM1, ks, j, i) += bdt * S_buf(1, idx);
         u0(m, IM2, ks, j, i) += bdt * S_buf(2, idx);
 
-        // energy update
-        // u0(m, IEN, ks, j, i) = fmax(1.0, u0(m, IEN, ks, j, i) + bdt *
-        // S_buf(3, idx));
-        u0(m, IEN, ks, j, i) += bdt * S_buf(3, idx);
+        // energy update with internal energy floor protection
+        Real dens = u0(m, IDN, ks, j, i);
+        Real m1 = u0(m, IM1, ks, j, i);
+        Real m2 = u0(m, IM2, ks, j, i);
+        Real m3 = u0(m, IM3, ks, j, i);
+        Real e_kin = 0.5 * (m1 * m1 + m2 * m2 + m3 * m3) / fmax(1.0e-20, dens);
+        Real e_total = u0(m, IEN, ks, j, i);
+        Real e_int = fmax(1.0e-10, e_total - e_kin);
+        Real dE = bdt * S_buf(3, idx);
+        Real e_int_new = fmax(0.05 * e_int, e_int + dE);
+        u0(m, IEN, ks, j, i) = e_kin + e_int_new;
 
         // fmcl update
         u0(m, frho_index, ks, j, i) =

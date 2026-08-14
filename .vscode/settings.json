@@ -3,5 +3,6 @@
         "random": "cpp",
         "__locale": "cpp",
         "cmath": "cpp"
-    }
+    },
+    "python.languageServer": "None"
 }

@@ -78,7 +78,7 @@ cold_frac = 0.5000000
 length_cgs  = 3.08568e+18
 mass_cgs    = 4.91417e+31
 time_cgs    = 3.15576e+13
-# mu = 0.62
+mu = 0.62
 # This is because we're in plasma and things need to be ionized.
 
 # Units :-

@@ -25,6 +25,7 @@ Standalone usage:
 from __future__ import annotations
 
 import math
+from pathlib import Path
 from types import MethodType
 from typing import List, Optional
 
@@ -36,28 +37,30 @@ from .simulation_data import SimulationData
 # ── Default colourmap table ───────────────────────────────────────────────────
 
 _DEFAULT_CMAPS: dict[str, str] = {
-    "density":  "inferno",
-    "pressure": "inferno",
-    "velx":     "seismic",
-    "vely":     "seismic",
-    "velz":     "seismic",
-    "scalar_00": "viridis",
-    "bx":       "bwr",
-    "by":       "bwr",
-    "bz":       "bwr",
+    "density":     "inferno",
+    "pressure":    "inferno",
+    "temperature": "inferno",
+    "velx":        "seismic",
+    "vely":        "seismic",
+    "velz":        "seismic",
+    "scalar_00":   "viridis",
+    "bx":          "bwr",
+    "by":          "bwr",
+    "bz":          "bwr",
 }
 
 # Human-readable subplot titles
 _TITLES: dict[str, str] = {
-    "density":  "log10(Density)",
-    "pressure": "Pressure",
-    "velx":     "$v_x$",
-    "vely":     "$v_y$",
-    "velz":     "$v_z$",
-    "scalar_00": "Passive Scalar",
-    "bx":       "$B_x$",
-    "by":       "$B_y$",
-    "bz":       "$B_z$",
+    "density":     "log10(Density)",
+    "pressure":    "log10(Pressure)",
+    "temperature": "log10(Temperature)",
+    "velx":        "$v_x$ (km/s)",
+    "vely":        "$v_y$ (km/s)",
+    "velz":        "$v_z$ (km/s)",
+    "scalar_00":   "Passive Scalar",
+    "bx":          "$B_x$",
+    "by":          "$B_y$",
+    "bz":          "$B_z$",
 }
 
 
@@ -66,6 +69,27 @@ def _field_title(field_name: str) -> str:
         suffix = field_name.split("_", 1)[1]
         return f"Passive Scalar {suffix}"
     return _TITLES.get(field_name, field_name)
+
+
+def _prepare_field_data(
+    sim: SimulationData,
+    field_name: str,
+    data: np.ndarray,
+    *,
+    log_scale: bool = True,
+) -> np.ndarray:
+    """Apply log10 to density, pressure, and temperature fields when log_scale is True."""
+    if log_scale:
+        if field_name == "density":
+            floor = 1e-10 * sim.units.density
+            return np.log10(np.maximum(data, floor))
+        elif field_name == "pressure":
+            floor = 1e-10 * sim.units.pressure
+            return np.log10(np.maximum(data, floor))
+        elif field_name == "temperature":
+            floor = 1e-10
+            return np.log10(np.maximum(data, floor))
+    return data
 
 
 # ── Layout helper ─────────────────────────────────────────────────────────────
@@ -91,29 +115,80 @@ def _is_jupyter() -> bool:
         return False
 
 
-def _enable_progress_save(animation_obj, total_frames: int) -> None:
+def _render_frame_worker(args):
+    (
+        athinp_path,
+        datafolder_path,
+        units_obj,
+        frame_num,
+        out_png_path,
+        fields,
+        cmaps,
+        clims,
+        figsize,
+        dpi,
+    ) = args
+
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+
+    sim = SimulationData(
+        athinp=athinp_path,
+        datafolder=datafolder_path,
+    )
+    if units_obj is not None:
+        sim.set_units(units_obj)
+
+    frame = sim.get_frame(frame_num)
+
+    n = len(fields)
+    rows, cols = _grid_shape(n)
+    fig, axes = plt.subplots(rows, cols, figsize=figsize, squeeze=False)
+
+    for idx in range(n, rows * cols):
+        r, c = divmod(idx, cols)
+        fig.delaxes(axes[r, c])
+
+    for idx, field_name in enumerate(fields):
+        r, c = divmod(idx, cols)
+        ax = axes[r, c]
+        data = getattr(frame, field_name)
+        if data is None:
+            continue
+
+        data = _prepare_field_data(sim, field_name, data, log_scale=True)
+        cmap = cmaps.get(field_name, "inferno")
+        clim = clims.get(field_name) if clims else None
+
+        if clim is not None:
+            im = ax.imshow(data, cmap=cmap, origin="lower", vmin=clim[0], vmax=clim[1])
+        else:
+            im = ax.imshow(data, cmap=cmap, origin="lower")
+
+        ax.set_title(_field_title(field_name))
+        fig.colorbar(im, ax=ax)
+
+    fig.suptitle(f"Time: {frame.time:.4f} (Frame {frame.number})")
+    fig.tight_layout()
+    fig.savefig(out_png_path, dpi=dpi)
+    plt.close(fig)
+
+
+def _enable_parallel_save(viz_instance: MatplotlibVisualization, n_jobs_default: int = 16) -> None:
+    animation_obj = viz_instance.ani
     original_save = animation_obj.save
+    viz_instance._original_save = original_save
 
-    def save_with_progress(self, *args, **kwargs):
-        if kwargs.get("progress_callback") is not None:
-            return original_save(*args, **kwargs)
+    def save_parallel_wrapper(self, filename, *args, **kwargs):
+        self._draw_was_started = True
+        n_jobs = kwargs.pop("n_jobs", kwargs.pop("n_cores", n_jobs_default))
+        if n_jobs > 1:
+            return viz_instance.save(filename, *args, n_jobs=n_jobs, **kwargs)
+        else:
+            return original_save(filename, *args, **kwargs)
 
-        try:
-            from tqdm import tqdm
-        except ImportError:
-            return original_save(*args, **kwargs)
-
-        save_target = args[0] if args else kwargs.get("filename", "animation")
-        desc = f"Saving {save_target}"
-
-        with tqdm(total=total_frames, desc=desc) as pbar:
-            def progress_callback(current_frame, total_frames_unused):
-                pbar.update(1)
-
-            kwargs["progress_callback"] = progress_callback
-            return original_save(*args, **kwargs)
-
-    animation_obj.save = MethodType(save_with_progress, animation_obj)
+    animation_obj.save = MethodType(save_parallel_wrapper, animation_obj)
 
 
 # ── Visualization class ───────────────────────────────────────────────────────
@@ -247,9 +322,7 @@ class FastplotlibVisualization(Visualization):
             if data is None:
                 continue  # field not available — leave subplot blank
 
-            if field_name == "density":
-                floor = 1e-10 * self._sim.units.density
-                data = np.log10(np.maximum(data, floor))
+            data = _prepare_field_data(self._sim, field_name, data, log_scale=True)
 
             # Flip vertically to match origin='lower' (standard physical coordinate system)
             data = np.flipud(data)
@@ -294,9 +367,7 @@ class FastplotlibVisualization(Visualization):
             for field_name, img in self._images.items():
                 data = getattr(f, field_name)
                 if data is not None:
-                    if field_name == "density":
-                        floor = 1e-10 * self._sim.units.density
-                        data = np.log10(np.maximum(data, floor))
+                    data = _prepare_field_data(self._sim, field_name, data, log_scale=True)
                     # Flip vertically to match origin='lower'
                     data = np.flipud(data)
                     img.data = data
@@ -387,9 +458,7 @@ class MatplotlibVisualization(Visualization):
             if data is None:
                 continue
 
-            if field_name == "density":
-                floor = 1e-10 * self._sim.units.density
-                data = np.log10(np.maximum(data, floor))
+            data = _prepare_field_data(self._sim, field_name, data, log_scale=True)
 
             cmap = self._cmaps.get(field_name, "inferno")
             # We use origin='lower' as standard for simulation output grids
@@ -412,7 +481,7 @@ class MatplotlibVisualization(Visualization):
             blit=False,
             cache_frame_data=False,
         )
-        _enable_progress_save(self.ani, self._sim.n_frames)
+        _enable_parallel_save(self, n_jobs_default=16)
 
     def _update(self, frame_idx: int):
         num = self._sim.frame_numbers[frame_idx]
@@ -420,13 +489,127 @@ class MatplotlibVisualization(Visualization):
         for field_name, im in self._images.items():
             data = getattr(f, field_name)
             if data is not None:
-                if field_name == "density":
-                    floor = 1e-10 * self._sim.units.density
-                    data = np.log10(np.maximum(data, floor))
+                data = _prepare_field_data(self._sim, field_name, data, log_scale=True)
                 im.set_data(data)
 
         self.figure.suptitle(f"Time: {f.time:.4f} (Frame {num})")
         return list(self._images.values())
+
+    def save(
+        self,
+        filename: str | Path,
+        n_jobs: int = 16,
+        fps: int = 60,
+        dpi: int = 150,
+        writer: str | None = "ffmpeg",
+        progress_bar: bool = True,
+        **kwargs,
+    ) -> None:
+        """
+        Save the animation to a video file using multi-core parallel rendering.
+
+        Parameters
+        ----------
+        filename : str or Path
+            Target video filepath (e.g. "output.mp4").
+        n_jobs : int, optional
+            Number of CPU cores to use for parallel frame rendering. Default is 16.
+        fps : int, optional
+            Frames per second for the output video. Default is 60.
+        dpi : int, optional
+            Resolution in dots per inch. Default is 150.
+        writer : str, optional
+            Video encoder to use (default: "ffmpeg").
+        progress_bar : bool, optional
+            Whether to display a progress bar. Default is True.
+        """
+        import concurrent.futures
+        import os
+        import subprocess
+        import tempfile
+        from pathlib import Path
+
+        if n_jobs is None or n_jobs <= 1:
+            if hasattr(self, "_original_save"):
+                return self._original_save(filename, writer=writer, fps=fps, dpi=dpi, **kwargs)
+            return self.ani.save(filename, writer=writer, fps=fps, dpi=dpi, **kwargs)
+
+        if hasattr(self, "ani"):
+            self.ani._draw_was_started = True
+
+        filename_path = Path(filename).resolve()
+        filename_path.parent.mkdir(parents=True, exist_ok=True)
+
+        athinp_path = str(self._sim._athinp_path.resolve()) if self._sim._athinp_path else None
+        datafolder_path = str(self._sim._datafolder.resolve())
+        units_obj = self._sim.units
+        figsize = self.figure.get_size_inches()
+
+        frame_numbers = self._sim.frame_numbers
+        total_frames = len(frame_numbers)
+
+        # Compute fixed colorbar limits across frames for consistent video rendering
+        clims: dict[str, tuple[float, float]] = {}
+        sample_nums = [frame_numbers[0], frame_numbers[-1]]
+        for num in sample_nums:
+            f = self._sim.get_frame(num)
+            for field_name in self._fields:
+                d = getattr(f, field_name)
+                if d is not None:
+                    d_prep = _prepare_field_data(self._sim, field_name, d, log_scale=True)
+                    v_min, v_max = float(np.nanmin(d_prep)), float(np.nanmax(d_prep))
+                    if field_name not in clims:
+                        clims[field_name] = (v_min, v_max)
+                    else:
+                        clims[field_name] = (
+                            min(clims[field_name][0], v_min),
+                            max(clims[field_name][1], v_max),
+                        )
+
+        with tempfile.TemporaryDirectory() as tmpdir:
+            tasks = [
+                (
+                    athinp_path,
+                    datafolder_path,
+                    units_obj,
+                    num,
+                    os.path.join(tmpdir, f"frame_{i:06d}.png"),
+                    self._fields,
+                    self._cmaps,
+                    clims,
+                    figsize,
+                    dpi,
+                )
+                for i, num in enumerate(frame_numbers)
+            ]
+
+            try:
+                from tqdm import tqdm
+                have_tqdm = progress_bar
+            except ImportError:
+                have_tqdm = False
+
+            desc = f"Rendering {total_frames} frames ({n_jobs} cores)"
+            with concurrent.futures.ProcessPoolExecutor(max_workers=n_jobs) as executor:
+                if have_tqdm:
+                    list(tqdm(executor.map(_render_frame_worker, tasks), total=total_frames, desc=desc))
+                else:
+                    list(executor.map(_render_frame_worker, tasks))
+
+            ffmpeg_cmd = [
+                "ffmpeg", "-y",
+                "-framerate", str(fps),
+                "-i", os.path.join(tmpdir, "frame_%06d.png"),
+                "-c:v", "libx264",
+                "-pix_fmt", "yuv420p",
+                "-preset", "fast",
+                str(filename_path),
+            ]
+            res = subprocess.run(ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+            if res.returncode != 0:
+                raise RuntimeError(f"FFmpeg encoding failed:\n{res.stderr}")
+
+            print(f"[{self._sim.basename}] Saved animation ({total_frames} frames using {n_jobs} cores) to: {filename_path}")
 
     def show(self) -> None:
         """
@@ -538,7 +721,7 @@ class JupyterVisualization(Visualization):
             cmap = self._cmaps.get(field_name, "inferno")
 
             im = ax.imshow(display_data, cmap=cmap, origin="lower", aspect="auto")
-            ax.set_title(_TITLES.get(field_name, field_name), fontsize=10)
+            ax.set_title(_field_title(field_name), fontsize=10)
             ax.set_xlabel("x [code]", fontsize=8)
             ax.set_ylabel("y [code]", fontsize=8)
             ax.tick_params(labelsize=7)
@@ -574,10 +757,10 @@ class JupyterVisualization(Visualization):
 
         log_toggle = widgets.ToggleButton(
             value=True,
-            description="Log scale (density)",
+            description="Log scale",
             button_style="info",
             icon="adjust",
-            layout=widgets.Layout(width="200px"),
+            layout=widgets.Layout(width="150px"),
         )
 
         available_cmaps = [
@@ -663,11 +846,8 @@ class JupyterVisualization(Visualization):
         *,
         log_scale: bool,
     ) -> np.ndarray:
-        """Apply log10 to the density field when log_scale is True."""
-        if log_scale and field_name == "density":
-            floor = 1e-10 * self._sim.units.density
-            return np.log10(np.maximum(data, floor))
-        return data
+        """Apply log10 to density, pressure, and temperature fields when log_scale is True."""
+        return _prepare_field_data(self._sim, field_name, data, log_scale=log_scale)
 
     def show(self) -> None:
         """

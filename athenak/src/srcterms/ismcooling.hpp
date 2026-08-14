@@ -35,20 +35,20 @@ Real ISMCoolFn(Real temp) {
 
   Real logt = log10(temp);
 
-  // turn off cooling below 10^4 K
-  if (logt <= 4.2 || logt > 6) {
+  // // turn off cooling below in the extreme ends
+  if (logt <= log10(1.05e4) || logt > log10(0.95e6)) {
     return 0.0;
   }
 
   // for temperatures less than 10^4 K, use Koyama & Inutsuka (2002)
-  // if (logt <= 4.2) {
-  //   return (2.0e-19*exp(-1.184e5/(temp + 1.0e3)) + 2.8e-28*sqrt(temp)*exp(-92.0/temp));
-  // }
+  if (logt <= 4.2) {
+    return (2.0e-19*exp(-1.184e5/(temp + 1.0e3)) + 2.8e-28*sqrt(temp)*exp(-92.0/temp));
+  }
 
   // for temperatures above 10^8.15 use CGOLS fit
-  // if (logt > 8.15) {
-  //   return pow(10.0, (0.45*logt - 26.065));
-  // }
+  if (logt > 8.15) {
+    return pow(10.0, (0.45*logt - 26.065));
+  }
 
 
 

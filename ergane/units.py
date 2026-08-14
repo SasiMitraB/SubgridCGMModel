@@ -215,14 +215,26 @@ class Units:
         length:   float,
         density:  float,
         velocity: float,
+        pressure: float | None = None,
         **kwargs,
     ) -> "Units":
         """
-        CGS convenience constructor.  Equivalent to
+        CGS convenience constructor. Equivalent to
         ``Units(length, density, velocity, system='CGS', ...)``.
+        If velocity is passed in km/s (e.g. < 100) and pressure is omitted,
+        pressure scale is automatically derived in CGS (dyn/cm²).
         """
-        return cls(length=length, density=density, velocity=velocity,
-                   system="CGS", **kwargs)
+        if pressure is None:
+            v_cgs = velocity * 1e5 if velocity < 100.0 else velocity
+            pressure = density * (v_cgs ** 2)
+        return cls(
+            length=length,
+            density=density,
+            velocity=velocity,
+            pressure=pressure,
+            system="CGS",
+            **kwargs,
+        )
 
     @classmethod
     def si(
@@ -240,7 +252,11 @@ class Units:
                    system="SI", **kwargs)
 
     @classmethod
-    def from_params(cls, params: dict[str, dict[str, str]]) -> "Units":
+    def from_params(
+        cls,
+        params: dict[str, dict[str, str]],
+        velocity_unit: str = "km/s",
+    ) -> "Units":
         """
         Create a Units instance from the parsed simulation parameters (e.g. athinput).
         Looks for a 'units' section with length_cgs, mass_cgs, time_cgs, and mu.
@@ -257,12 +273,18 @@ class Units:
             mu = float(unit_section.get("mu", 0.62))
 
             density_scale = mass_cgs / length_cgs**3
-            velocity_scale = length_cgs / time_cgs
+            v_cgs = length_cgs / time_cgs
+
+            if velocity_unit.lower() in ("km/s", "kms"):
+                v_scale = v_cgs / 1e5
+            else:
+                v_scale = v_cgs
 
             return cls.cgs(
                 length=length_cgs,
                 density=density_scale,
-                velocity=velocity_scale,
+                velocity=v_scale,
+                pressure=density_scale * (v_cgs ** 2),
                 mu=mu,
             )
         except (ValueError, TypeError, ZeroDivisionError):

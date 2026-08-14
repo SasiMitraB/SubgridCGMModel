@@ -10,87 +10,49 @@ Number of parallel ranks = 1
 
 Setup complete, executing task list(s)...
 
-elapsed=7.116289e-03 cycle=0 time=0.000000e+00 dt=1.384206e-03
-elapsed=4.049484e-02 cycle=100 time=1.383523e-01 dt=1.385218e-03
-elapsed=6.550033e-02 cycle=200 time=2.769512e-01 dt=1.387540e-03
-elapsed=9.077062e-02 cycle=300 time=4.158119e-01 dt=1.390029e-03
-elapsed=1.159786e-01 cycle=400 time=5.549223e-01 dt=1.392064e-03
-elapsed=1.411257e-01 cycle=500 time=6.941928e-01 dt=1.393268e-03
-elapsed=1.659776e-01 cycle=600 time=8.335668e-01 dt=1.394180e-03
-elapsed=1.903680e-01 cycle=700 time=9.729960e-01 dt=1.394142e-03
-elapsed=2.143498e-01 cycle=800 time=1.112036e+00 dt=1.388217e-03
-elapsed=2.383184e-01 cycle=900 time=1.249108e+00 dt=1.366429e-03
-elapsed=2.623082e-01 cycle=1000 time=1.387144e+00 dt=1.378874e-03
-elapsed=2.861104e-01 cycle=1100 time=1.523448e+00 dt=1.349412e-03
-elapsed=3.102614e-01 cycle=1200 time=1.658210e+00 dt=1.332054e-03
-elapsed=3.346119e-01 cycle=1300 time=1.791669e+00 dt=1.337584e-03
-elapsed=3.591464e-01 cycle=1400 time=1.927221e+00 dt=1.365634e-03
-elapsed=3.838341e-01 cycle=1500 time=2.064345e+00 dt=1.369525e-03
-elapsed=4.080964e-01 cycle=1600 time=2.198316e+00 dt=1.317869e-03
-elapsed=4.324345e-01 cycle=1700 time=2.331733e+00 dt=1.342127e-03
-elapsed=4.565602e-01 cycle=1800 time=2.464509e+00 dt=1.320993e-03
-elapsed=4.808881e-01 cycle=1900 time=2.596442e+00 dt=1.318185e-03
-elapsed=5.047773e-01 cycle=2000 time=2.725849e+00 dt=1.281600e-03
-elapsed=5.291302e-01 cycle=2100 time=2.858051e+00 dt=1.322468e-03
-elapsed=5.536058e-01 cycle=2200 time=2.987989e+00 dt=1.274868e-03
-elapsed=5.784575e-01 cycle=2300 time=3.116250e+00 dt=1.291591e-03
-elapsed=6.035543e-01 cycle=2400 time=3.242652e+00 dt=1.263050e-03
-elapsed=6.286428e-01 cycle=2500 time=3.368686e+00 dt=1.222640e-03
-elapsed=6.533290e-01 cycle=2600 time=3.492276e+00 dt=1.266257e-03
-elapsed=6.771493e-01 cycle=2700 time=3.619840e+00 dt=1.284193e-03
-elapsed=7.017074e-01 cycle=2800 time=3.749864e+00 dt=1.292505e-03
-elapsed=7.261242e-01 cycle=2900 time=3.879687e+00 dt=1.295112e-03
-elapsed=7.507986e-01 cycle=3000 time=4.011877e+00 dt=1.328998e-03
-elapsed=7.753630e-01 cycle=3100 time=4.144223e+00 dt=1.335569e-03
-elapsed=8.002656e-01 cycle=3200 time=4.277309e+00 dt=1.310708e-03
-elapsed=8.248965e-01 cycle=3300 time=4.410495e+00 dt=1.356782e-03
-elapsed=8.492553e-01 cycle=3400 time=4.546973e+00 dt=1.348448e-03
-elapsed=8.736213e-01 cycle=3500 time=4.678396e+00 dt=1.308578e-03
-elapsed=8.986902e-01 cycle=3600 time=4.811444e+00 dt=1.318304e-03
-elapsed=9.233545e-01 cycle=3700 time=4.944178e+00 dt=1.354698e-03
-elapsed=9.481580e-01 cycle=3800 time=5.077667e+00 dt=1.334193e-03
-elapsed=9.725245e-01 cycle=3900 time=5.208795e+00 dt=1.352779e-03
-elapsed=9.975814e-01 cycle=4000 time=5.342790e+00 dt=1.309862e-03
-elapsed=1.021841e+00 cycle=4100 time=5.471442e+00 dt=1.280875e-03
-elapsed=1.046564e+00 cycle=4200 time=5.602599e+00 dt=1.320798e-03
-elapsed=1.071158e+00 cycle=4300 time=5.734173e+00 dt=1.339393e-03
-elapsed=1.096055e+00 cycle=4400 time=5.867116e+00 dt=1.320247e-03
-elapsed=1.120592e+00 cycle=4500 time=5.999951e+00 dt=1.318295e-03
-elapsed=1.145272e+00 cycle=4600 time=6.133108e+00 dt=1.350482e-03
-elapsed=1.169824e+00 cycle=4700 time=6.267493e+00 dt=1.336183e-03
-elapsed=1.194453e+00 cycle=4800 time=6.400617e+00 dt=1.345351e-03
-elapsed=1.219155e+00 cycle=4900 time=6.532070e+00 dt=1.322386e-03
-elapsed=1.243828e+00 cycle=5000 time=6.665135e+00 dt=1.331740e-03
-elapsed=1.268440e+00 cycle=5100 time=6.797638e+00 dt=1.305874e-03
-elapsed=1.292824e+00 cycle=5200 time=6.929641e+00 dt=1.336423e-03
-elapsed=1.317263e+00 cycle=5300 time=7.061686e+00 dt=1.326138e-03
-elapsed=1.340842e+00 cycle=5400 time=7.194463e+00 dt=1.348404e-03
-elapsed=1.364425e+00 cycle=5500 time=7.328271e+00 dt=1.333938e-03
-elapsed=1.388007e+00 cycle=5600 time=7.464057e+00 dt=1.372738e-03
-elapsed=1.411374e+00 cycle=5700 time=7.599353e+00 dt=1.351699e-03
-elapsed=1.435177e+00 cycle=5800 time=7.735178e+00 dt=1.352792e-03
-elapsed=1.458725e+00 cycle=5900 time=7.869296e+00 dt=1.331251e-03
-elapsed=1.482511e+00 cycle=6000 time=8.001893e+00 dt=1.326429e-03
-elapsed=1.506202e+00 cycle=6100 time=8.133579e+00 dt=1.303043e-03
-elapsed=1.529969e+00 cycle=6200 time=8.265150e+00 dt=1.324726e-03
-elapsed=1.553603e+00 cycle=6300 time=8.395177e+00 dt=1.294016e-03
-elapsed=1.577277e+00 cycle=6400 time=8.525245e+00 dt=1.315246e-03
-elapsed=1.601057e+00 cycle=6500 time=8.658677e+00 dt=1.357729e-03
-elapsed=1.625116e+00 cycle=6600 time=8.793342e+00 dt=1.338557e-03
-elapsed=1.648846e+00 cycle=6700 time=8.927624e+00 dt=1.358323e-03
-elapsed=1.672844e+00 cycle=6800 time=9.061774e+00 dt=1.339743e-03
-elapsed=1.696335e+00 cycle=6900 time=9.195152e+00 dt=1.323855e-03
-elapsed=1.720081e+00 cycle=7000 time=9.330546e+00 dt=1.353122e-03
-elapsed=1.743776e+00 cycle=7100 time=9.465085e+00 dt=1.338971e-03
-elapsed=1.767683e+00 cycle=7200 time=9.601816e+00 dt=1.366448e-03
-elapsed=1.791491e+00 cycle=7300 time=9.736580e+00 dt=1.344025e-03
-elapsed=1.815491e+00 cycle=7400 time=9.870955e+00 dt=1.327482e-03
+elapsed=1.158396e-02 cycle=0 time=0.000000e+00 dt=2.768412e-03
+elapsed=3.591139e-02 cycle=100 time=2.773078e-01 dt=2.777853e-03
+elapsed=5.027395e-02 cycle=200 time=5.555401e-01 dt=2.786691e-03
+elapsed=6.458994e-02 cycle=300 time=8.346270e-01 dt=2.794942e-03
+elapsed=7.868586e-02 cycle=400 time=1.114505e+00 dt=2.802559e-03
+elapsed=9.257861e-02 cycle=500 time=1.395112e+00 dt=2.809475e-03
+elapsed=1.061930e-01 cycle=600 time=1.676365e+00 dt=2.815507e-03
+elapsed=1.199202e-01 cycle=700 time=1.958183e+00 dt=2.820764e-03
+elapsed=1.334646e-01 cycle=800 time=2.240486e+00 dt=2.825191e-03
+elapsed=1.468947e-01 cycle=900 time=2.523190e+00 dt=2.828805e-03
+elapsed=1.608215e-01 cycle=1000 time=2.806209e+00 dt=2.831324e-03
+elapsed=1.745554e-01 cycle=1100 time=3.089391e+00 dt=2.832011e-03
+elapsed=1.883435e-01 cycle=1200 time=3.372561e+00 dt=2.831133e-03
+elapsed=2.018686e-01 cycle=1300 time=3.655566e+00 dt=2.828721e-03
+elapsed=2.152291e-01 cycle=1400 time=3.938256e+00 dt=2.824826e-03
+elapsed=2.287327e-01 cycle=1500 time=4.220513e+00 dt=2.820152e-03
+elapsed=2.421084e-01 cycle=1600 time=4.502255e+00 dt=2.814444e-03
+elapsed=2.556057e-01 cycle=1700 time=4.783353e+00 dt=2.806639e-03
+elapsed=2.693420e-01 cycle=1800 time=5.056326e+00 dt=2.715665e-03
+elapsed=2.838530e-01 cycle=1900 time=5.330519e+00 dt=2.745946e-03
+elapsed=2.984083e-01 cycle=2000 time=5.606953e+00 dt=2.770395e-03
+elapsed=3.128224e-01 cycle=2100 time=5.883477e+00 dt=2.770128e-03
+elapsed=3.271346e-01 cycle=2200 time=6.156615e+00 dt=2.641912e-03
+elapsed=3.410371e-01 cycle=2300 time=6.406528e+00 dt=2.496668e-03
+elapsed=3.552449e-01 cycle=2400 time=6.674381e+00 dt=2.675982e-03
+elapsed=3.695177e-01 cycle=2500 time=6.946105e+00 dt=2.699066e-03
+elapsed=3.839663e-01 cycle=2600 time=7.220239e+00 dt=2.747698e-03
+elapsed=3.980624e-01 cycle=2700 time=7.491791e+00 dt=2.675315e-03
+elapsed=4.122236e-01 cycle=2800 time=7.757966e+00 dt=2.712747e-03
+elapsed=4.265264e-01 cycle=2900 time=8.028945e+00 dt=2.756760e-03
+elapsed=4.409890e-01 cycle=3000 time=8.303747e+00 dt=2.751550e-03
+elapsed=4.551734e-01 cycle=3100 time=8.573680e+00 dt=2.751783e-03
+elapsed=4.695325e-01 cycle=3200 time=8.841653e+00 dt=2.685451e-03
+elapsed=4.837574e-01 cycle=3300 time=9.107541e+00 dt=2.523123e-03
+elapsed=4.976590e-01 cycle=3400 time=9.358698e+00 dt=2.476106e-03
+elapsed=5.117686e-01 cycle=3500 time=9.611992e+00 dt=2.570464e-03
+elapsed=5.261013e-01 cycle=3600 time=9.871968e+00 dt=2.688684e-03
 
 Terminating on time limit
-time=1.000000e+01 cycle=7497
+time=1.000000e+01 cycle=3649
 tlim=1.000000e+01 nlim=-1
 
-MeshBlock-cycles = 7497
-cpu time used  = 1.831616e+00
-zone-cycles/cpu_second = 2.095670e+06
+MeshBlock-cycles = 3649
+cpu time used  = 5.217081e-01
+zone-cycles/cpu_second = 8.952745e+05
 particle-updates/cpu_second = 0.000000e+00

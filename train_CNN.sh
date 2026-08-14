@@ -1,9 +1,10 @@
+#!/bin/bash
 export SUBGRID_DATA_PATH='/home/sasi/Projects/SubgridCGMModel/simulation_outputs/hr_build_1024/bin'
 export SUBGRID_CACHE_PATH='/home/sasi/Projects/SubgridCGMModel/simulation_outputs/hr_build_1024/cache'
 export PDF_CNN_RESOLUTION='1024,512'
-export PDF_CNN_DOWNSAMPLE='32'
+export PDF_CNN_DOWNSAMPLE='64'
 
-source /home/sasi/Projects/SubgridCGMModel/venv/bin/activate
+. /home/sasi/Projects/SubgridCGMModel/venv/bin/activate
 
 start_time=$SECONDS
 python3 models/conv_nn/pdf_cnn.py

@@ -85,13 +85,14 @@ HYPERPARAMS = {
     "num_epochs": 1000,
     "print_every": 50,
     "batch_size": 64,
-    "learning_rate": 5e-4,
-    "weight_decay": 1e-3,
+    "learning_rate": 1e-3,
+    "weight_decay": 1e-5,
     "dropout_rate": 0.2,
     "alpha_emiss": 15,
     "alpha_profile": 10,
     "alpha_gate": 50,
     'alpha_leak': 25,
+    "alpha_mean_temp": 10,
     "train_fraction": 0.50,
     "val_fraction": 0.25,
     "grad_clip_max_norm": 1.0,
@@ -272,7 +273,9 @@ def lambda_cool(temp, mask=False):
         logcool = (lhd[ipps + 1] * dx - lhd[ipps] * (dx - 0.04)) * 25.0
         lam[mask_mid] = 10.0**logcool
     if mask:
-        mask_off = (logt < 4.5) | (logt > 5.5)
+        logt_start = float(os.environ.get("LOGT_ACTIVE_START", "4.2"))
+        logt_end = float(os.environ.get("LOGT_ACTIVE_END", "6.0"))
+        mask_off = (logt < logt_start) | (logt > logt_end)
         lam[mask_off] = 0.0
 
     return lam
@@ -482,6 +485,10 @@ def snapshot_pred(
     # Load model
     # -------------------------
     model_path = os.path.join(MODEL_SAVE_DIR, f"cnn_{resolution}_{downsample}.pth")
+    state_dict = torch.load(model_path, map_location=device)
+    ckpt_ksize = kernel_size
+    if "encoder.0.weight" in state_dict:
+        ckpt_ksize = state_dict["encoder.0.weight"].shape[-1]
 
     cnn_model = ConvNN(
         in_channels,
@@ -490,10 +497,10 @@ def snapshot_pred(
         layer_size3,
         layer_size4,
         out_channels,
-        kernel_size,
+        ckpt_ksize,
     ).to(device)
 
-    cnn_model.load_state_dict(torch.load(model_path, map_location=device))
+    cnn_model.load_state_dict(state_dict)
     cnn_model.eval()
 
     # -------------------------
@@ -578,6 +585,11 @@ def snapshot_pred_16x8(
 
     # ---- 4. Load model --------------------------------------------------
     model_path = os.path.join(MODEL_SAVE_DIR, f"{norm_prefix}.pth")
+    state_dict = torch.load(model_path, map_location=device)
+    ckpt_ksize = kernel_size
+    if "encoder.0.weight" in state_dict:
+        ckpt_ksize = state_dict["encoder.0.weight"].shape[-1]
+
     cnn_model = ConvNN(
         in_channels,
         layer_size1,
@@ -585,9 +597,9 @@ def snapshot_pred_16x8(
         layer_size3,
         layer_size4,
         out_channels,
-        kernel_size,
+        ckpt_ksize,
     ).to(device)
-    cnn_model.load_state_dict(torch.load(model_path, map_location=device))
+    cnn_model.load_state_dict(state_dict)
     cnn_model.eval()
 
     # ---- 5. Predict PDF -------------------------------------------------
@@ -659,6 +671,10 @@ def snapshot_pred_with_gate(
     input_tensor = (input_tensor - input_mean) / input_std
 
     model_path = os.path.join(MODEL_SAVE_DIR, f"cnn_{resolution}_{downsample}.pth")
+    state_dict = torch.load(model_path, map_location=device)
+    ckpt_ksize = kernel_size
+    if "encoder.0.weight" in state_dict:
+        ckpt_ksize = state_dict["encoder.0.weight"].shape[-1]
 
     cnn_model = ConvNN(
         in_channels,
@@ -667,10 +683,10 @@ def snapshot_pred_with_gate(
         layer_size3,
         layer_size4,
         out_channels,
-        kernel_size,
+        ckpt_ksize,
     ).to(device)
 
-    cnn_model.load_state_dict(torch.load(model_path, map_location=device))
+    cnn_model.load_state_dict(state_dict)
     cnn_model.eval()
 
     with torch.no_grad():
@@ -862,37 +878,39 @@ class MixingLayerGate(nn.Module):
 
 class GatedThresholdedSoftmax(nn.Module):
     """
-    Vorticity-gated PDF activation.
+    Differentiable Vorticity-gated PDF activation.
 
-    When gate ≈ 0: PDF collapses to a near-delta function at the argmax bin
-                   (single-phase cell — no sub-grid mixing).
-    When gate ≈ 1: PDF is the full ThresholdedSoftmax output
-                   (highly mixed cell).
-
-    Interpolation:
-        gated = gate * p_thresh + (1 - gate) * delta_peak
-    followed by renormalization so the output always sums to 1.
+    When gate ≈ 0: PDF collapses to a single-phase peak using a low-temp softmax.
+                   (Acts like a Delta function, but preserves gradients!)
+    When gate ≈ 1: PDF remains a broad multiphase distribution.
     """
-
-    def __init__(self, threshold=5e-3, eps=1e-12):
+    def __init__(self, threshold=5e-3, sharp_temp=0.05, eps=1e-12):
         super().__init__()
         self.threshold = threshold
+        self.sharp_temp = sharp_temp # Controls how "sharp" the delta function is
         self.eps = eps
 
     def forward(self, logits, gate):
-        # gate: (B, 1, H, W), broadcast over bin dim
-        p = F.softmax(logits, dim=1)  # (B, bins, H, W)
-        p = p * (p >= self.threshold).float()
-        p = p / (p.sum(dim=1, keepdim=True) + self.eps)
+        # --- 1. Multiphase (Broad) Branch ---
+        p_broad = F.softmax(logits, dim=1)
+        
+        # Hard thresholding is bad for gradients. Only do it during evaluation/inference.
+        if not self.training:
+            p_broad = p_broad * (p_broad >= self.threshold).float()
+            
+        p_broad = p_broad / (p_broad.sum(dim=1, keepdim=True) + self.eps)
 
-        # Build delta function at argmax bin
-        peak_idx = torch.argmax(p, dim=1, keepdim=True)  # (B, 1, H, W)
-        delta = torch.zeros_like(p).scatter_(1, peak_idx, 1.0)
+        # --- 2. Single-Phase (Sharp) Branch ---
+        # Replaces torch.argmax() with a low-temperature Softmax.
+        # This creates a differentiable Delta function!
+        p_sharp = F.softmax(logits / self.sharp_temp, dim=1)
 
-        # Interpolate: gate=0 → delta, gate=1 → full PDF
-        gated = gate * p + (1.0 - gate) * delta
+        # --- 3. Gated Interpolation ---
+        # gate=0 -> relies entirely on the differentiable sharp peak
+        # gate=1 -> relies entirely on the broad distribution
+        gated = gate * p_broad + (1.0 - gate) * p_sharp
 
-        # Renormalize
+        # Final renormalization for numerical stability
         return gated / (gated.sum(dim=1, keepdim=True) + self.eps)
 
 
@@ -966,11 +984,11 @@ class ConvNN(nn.Module):
             nn.Conv2d(encoder_in, layer_size1, kernel_size, padding=padding),
             nn.BatchNorm2d(layer_size1),
             nn.ReLU(),
-            nn.Dropout(dropout_rate),
+            nn.Dropout2d(dropout_rate),
             nn.Conv2d(layer_size1, layer_size2, kernel_size, padding=padding),
             nn.BatchNorm2d(layer_size2),
             nn.ReLU(),
-            nn.Dropout(dropout_rate),
+            nn.Dropout2d(dropout_rate),
             nn.Conv2d(layer_size2, layer_size3, kernel_size, padding=padding),
             nn.BatchNorm2d(layer_size3),
             nn.ReLU(),
@@ -1114,16 +1132,64 @@ def emissivity_from_pdf(pdf, rho, lambda_tensor):
     return emiss
 
 
+class MeanTemperatureLoss(nn.Module):
+    """
+    Enforces  <T>_pred  =  T_coarse  (volume-weighted identity).
+    Done in log10 space so the loss isn't dominated by the hot tail.
+    """
+    def __init__(self, logT_centers=None, eps=1e-12):
+        super().__init__()
+        # T_centers is a numpy array of geometric bin centers
+        if logT_centers is None:
+            logT_tensor = torch.tensor(np.log10(T_centers), dtype=torch.float32)
+        elif isinstance(logT_centers, torch.Tensor):
+            logT_tensor = logT_centers.clone().detach().float()
+        elif isinstance(logT_centers, np.ndarray):
+            if np.all(logT_centers > 100):
+                logT_tensor = torch.tensor(np.log10(logT_centers), dtype=torch.float32)
+            else:
+                logT_tensor = torch.tensor(logT_centers, dtype=torch.float32)
+        else:
+            logT_tensor = torch.as_tensor(logT_centers, dtype=torch.float32)
+
+        self.register_buffer(
+            "logT_centers",
+            logT_tensor
+        )
+        self.eps = eps
+
+    def forward(self, pred_pdf, T_coarse):
+        """
+        pred_pdf  : (B, bins, nx, ny)  — already a normalized PDF
+        T_coarse  : (B, 1, nx, ny)     — coarse-grained temperature field
+        """
+        # Predicted log-mean:  log10( sum_k p_k * T_k )
+        # Numerically stable version:  log10(sum p_k * 10^{logT_k})
+        logT = self.logT_centers.to(pred_pdf.device)          # (bins,)
+        logT = logT.view(1, -1, 1, 1)                          # broadcast
+        # weighted log-mean via logsumexp for stability
+        log_mean_pred = torch.logsumexp(
+            torch.log(pred_pdf + self.eps) + logT * np.log(10),
+            dim=1, keepdim=True
+        ) / np.log(10)                                         # (B,1,nx,ny)
+
+        log_T_coarse = torch.log10(T_coarse.clamp(min=1.0))   # (B,1,nx,ny)
+
+        return F.mse_loss(log_mean_pred, log_T_coarse)
+
+
 class PDFEmissivityLoss(nn.Module):
-    def __init__(self, alpha_emiss=1.0, alpha_profile=1.0):
+    def __init__(self, alpha_emiss=1.0, alpha_profile=1.0, alpha_mean_temp=0.0, logT_centers=None):
         super().__init__()
 
         self.alpha_emiss = alpha_emiss
         self.alpha_profile = alpha_profile
+        self.alpha_mean_temp = alpha_mean_temp
 
         self.activation = ThresholdedSoftmax()
+        self.mean_temp_loss = MeanTemperatureLoss(logT_centers)
 
-    def forward(self, logits, true_pdf, rho):
+    def forward(self, logits, true_pdf, rho, T_coarse=None):
 
         pred_pdf = self.activation(logits)
 
@@ -1140,14 +1206,10 @@ class PDFEmissivityLoss(nn.Module):
         emiss_pred = emissivity_from_pdf(pred_pdf, rho, lambda_tensor)
         emiss_true = emissivity_from_pdf(true_pdf, rho, lambda_tensor)
 
-        # BEFORE: collapsed to a single scalar per batch via max()
-        # max_emiss_pred = torch.amax(emiss_pred, dim=(2,3))  ← discards spatial info
-
-        # AFTER: keep all spatial cells, compute MSE across every (b, i, j)
+        # Keep all spatial cells, compute MSE across every (b, i, j)
         emiss_loss_pixelwise = F.mse_loss(
             torch.log10(emiss_pred + 1e-30), torch.log10(emiss_true + 1e-30)
         )
-        # F.mse_loss with default reduction='mean' averages over B*1*nx*ny automatically
 
         # Keep profile loss if you want — it's cheap and constrains large-scale structure
         profile_pred = emiss_pred.mean(dim=3)  # (B, 1, nx)
@@ -1156,10 +1218,16 @@ class PDFEmissivityLoss(nn.Module):
             torch.log10(profile_pred + 1e-30), torch.log10(profile_true + 1e-30)
         )
 
+        # Mean temperature loss
+        mean_temp_l = 0.0
+        if T_coarse is not None and self.alpha_mean_temp > 0:
+            mean_temp_l = self.mean_temp_loss(pred_pdf, T_coarse)
+
         total_loss = (
             pdf_loss
             + self.alpha_emiss * emiss_loss_pixelwise
             + self.alpha_profile * profile_loss
+            + self.alpha_mean_temp * mean_temp_l
         )
 
         return total_loss
@@ -1203,13 +1271,15 @@ class GatedPDFEmissivityLoss(nn.Module):
         alpha_gate=1.0,
         alpha_leak=1.0,
         alpha_active_pdf=25.0,   # NEW: Weight for the active window PDF shape
+        alpha_mean_temp=10.0,
         entropy_threshold=0.05,
         logT_min=3.0,
         logT_max=7.0,
         num_bins=40,
         logT_active_start=4.5,  
         logT_active_end=5.5,
-        mask_eps=0.0,           
+        mask_eps=0.0,
+        logT_centers=None,
     ):
         super().__init__()
         self.alpha_emiss = alpha_emiss
@@ -1217,6 +1287,7 @@ class GatedPDFEmissivityLoss(nn.Module):
         self.alpha_gate = alpha_gate
         self.alpha_leak = alpha_leak
         self.alpha_active_pdf = alpha_active_pdf
+        self.alpha_mean_temp = alpha_mean_temp
         self.entropy_threshold = entropy_threshold
         self.mask_eps = mask_eps
 
@@ -1230,8 +1301,9 @@ class GatedPDFEmissivityLoss(nn.Module):
         self.end_idx = int(round((logT_active_end - logT_min) / bin_width))
 
         self.activation = GatedThresholdedSoftmax()
+        self.mean_temp_loss = MeanTemperatureLoss(logT_centers)
 
-    def forward(self, logits, gate, true_pdf, rho):
+    def forward(self, logits, gate, true_pdf, rho, T_coarse=None):
         pred_pdf = self.activation(logits, gate)
 
         # --- Emissivity maps (needed first, to build the spatial mask) ---
@@ -1294,6 +1366,11 @@ class GatedPDFEmissivityLoss(nn.Module):
             num_bins=self.num_bins,
         )
 
+        # --- Mean temperature loss (<T>_pred = T_coarse) ---
+        mean_temp_loss = 0.0
+        if T_coarse is not None and self.alpha_mean_temp > 0:
+            mean_temp_loss = self.mean_temp_loss(pred_pdf, T_coarse)
+
         # --- Compile Total Loss ---
         total_loss = (
             global_pdf_loss                        # Unmasked, overall phases
@@ -1302,6 +1379,7 @@ class GatedPDFEmissivityLoss(nn.Module):
             + self.alpha_profile * profile_loss
             + self.alpha_gate * gate_loss
             + self.alpha_leak * leak_loss          # Checks total mass in the window
+            + self.alpha_mean_temp * mean_temp_loss # Enforces mean temperature matches T_coarse
         )
 
         return total_loss
@@ -1328,16 +1406,16 @@ if __name__ == "__main__":
         alpha_emiss=HYPERPARAMS["alpha_emiss"],
         alpha_profile=HYPERPARAMS["alpha_profile"],
         alpha_gate=HYPERPARAMS["alpha_gate"],
-        alpha_leak=HYPERPARAMS['alpha_leak']
+        alpha_leak=HYPERPARAMS['alpha_leak'],
+        alpha_mean_temp=HYPERPARAMS.get("alpha_mean_temp", 10.0),
     )
     # criterion = nn.KLDivLoss(reduction="batchmean")
     # criterion = KLWithLeakageLoss()
     # criterion = WassersteinLoss()
 
-    optimizer = torch.optim.Adam(
+    optimizer = torch.optim.AdamW(
         cnn_model.parameters(), lr=learning_rate, weight_decay=weight_decay
     )
-
     # Load dataset
     cnn_data = nn_data(resolution, downsample)
     input_tensor, output_tensor = cnn_data
@@ -1366,10 +1444,11 @@ if __name__ == "__main__":
 
     input_tensor_norm = (input_tensor - input_mean) / input_std
 
-    # Store raw (un-normalized) rho as a third tensor so the emissivity
-    # loss always receives the physical density, not the z-scored one.
-    rho_tensor = input_tensor[:, 0:1]  # (N, 1, nx, ny), un-normalized
-    dataset = TensorDataset(input_tensor_norm, output_tensor, rho_tensor)
+    # Store raw (un-normalized) rho and temp as tensors so the loss functions
+    # always receive physical quantities, not z-scored ones.
+    rho_tensor = input_tensor[:, 0:1]   # (N, 1, nx, ny), un-normalized density
+    temp_tensor = input_tensor[:, 1:2]  # (N, 1, nx, ny), un-normalized coarse-grain temp
+    dataset = TensorDataset(input_tensor_norm, output_tensor, rho_tensor, temp_tensor)
 
     num_samples = len(dataset)
     print("Number of samples:", num_samples)
@@ -1387,20 +1466,45 @@ if __name__ == "__main__":
     validation_loader = DataLoader(val_dataset, batch_size=batch_size)
     test_loader = DataLoader(test_dataset, batch_size=batch_size)
 
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(
+        optimizer,
+        max_lr=HYPERPARAMS["learning_rate"],
+        steps_per_epoch=len(train_loader),
+        epochs=num_epochs,
+        pct_start=0.2 # Spend the first 20% of epochs warming up
+    )
+
     epochs_array = []
     train_loss_arr = []
     val_loss_arr = []
 
     # Training loop
     for epoch in range(num_epochs):
+        # Calculate a ramp factor from 0.0 to 1.0 over the first 100 epochs
+        ramp = min(1.0, epoch / 100.0)
+
         cnn_model.train()
 
-        for inputs, labels, rho in train_loader:
+        for inputs, labels, rho, temp in train_loader:
+
+            # 1. Random horizontal flip (50% chance)
+            if torch.rand(1).item() > 0.5:
+                inputs = torch.flip(inputs, [3])
+                labels = torch.flip(labels, [3])
+                rho = torch.flip(rho, [3])
+                temp = torch.flip(temp, [3])
+                
+            # 2. Random vertical flip (50% chance)
+            if torch.rand(1).item() > 0.5:
+                inputs = torch.flip(inputs, [2])
+                labels = torch.flip(labels, [2])
+                rho = torch.flip(rho, [2])
+                temp = torch.flip(temp, [2])
+            
             logits, gate = cnn_model(inputs)
 
-            # rho is the un-normalized physical density from the dataset
-            # Pass logits, gate, labels, and rho to the gated loss
-            loss = criterion(logits, gate, labels, rho)
+            # Pass logits, gate, labels, rho, and temp to the gated loss
+            loss = criterion(logits, gate, labels, rho, temp)
 
             optimizer.zero_grad()
             loss.backward()
@@ -1408,6 +1512,7 @@ if __name__ == "__main__":
                 cnn_model.parameters(), max_norm=HYPERPARAMS["grad_clip_max_norm"]
             )
             optimizer.step()
+            scheduler.step()
 
         cnn_model.eval()
 
@@ -1416,20 +1521,20 @@ if __name__ == "__main__":
             val_loss_total = 0
 
             # Train evaluation
-            for x_batch, y_batch, rho_batch in train_loader:
+            for x_batch, y_batch, rho_batch, temp_batch in train_loader:
                 logits_b, gate_b = cnn_model(x_batch)
 
                 train_loss_total += criterion(
-                    logits_b, gate_b, y_batch, rho_batch
+                    logits_b, gate_b, y_batch, rho_batch, temp_batch
                 ).item()
 
             train_loss = train_loss_total / len(train_loader)
 
             # Validation evaluation
-            for x_batch, y_batch, rho_batch in validation_loader:
+            for x_batch, y_batch, rho_batch, temp_batch in validation_loader:
                 logits_b, gate_b = cnn_model(x_batch)
 
-                val_loss_total += criterion(logits_b, gate_b, y_batch, rho_batch).item()
+                val_loss_total += criterion(logits_b, gate_b, y_batch, rho_batch, temp_batch).item()
 
             val_loss = val_loss_total / len(validation_loader)
 
@@ -1466,10 +1571,10 @@ if __name__ == "__main__":
     with torch.no_grad():
         test_loss_total = 0
 
-        for x_batch, y_batch, rho_batch in test_loader:
+        for x_batch, y_batch, rho_batch, temp_batch in test_loader:
             logits_b, gate_b = cnn_model(x_batch)
 
-            test_loss_total += criterion(logits_b, gate_b, y_batch, rho_batch).item()
+            test_loss_total += criterion(logits_b, gate_b, y_batch, rho_batch, temp_batch).item()
 
         test_loss = test_loss_total / len(test_loader)
 

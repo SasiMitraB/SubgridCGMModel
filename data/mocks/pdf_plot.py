@@ -2,6 +2,7 @@
 
 import os
 import sys
+from multiprocessing.shared_memory import SharedMemory
 
 import matplotlib.animation as animation
 import matplotlib.colors as colors
@@ -35,12 +36,13 @@ RUN_PDF_COMPARE_ANIMATION = True
 RUN_COOLING_COMPARE_ANIMATION = True
 RUN_FOURWAY_COMPARE_ANIMATION = False
 RUN_DENSITY_GATE_ANIMATION = True
+RUN_GATE_ENTROPY_DIAGNOSTIC = True
 
 # =========================
 # SETTINGS
 # =========================
 DEFAULT_FINE_RESOLUTION = (1024, 512)
-DEFAULT_DOWNSAMPLE = 32
+DEFAULT_DOWNSAMPLE = 64
 
 
 def _parse_resolution(value: str, default: tuple[int, int]) -> tuple[int, int]:
@@ -123,6 +125,41 @@ def chunk_frames(nt, num_workers):
     return [c for c in chunks if len(c) > 0]
 
 
+def get_positive_percentiles(arr1, arr2, p_lo=1, p_hi=99):
+    """Compute percentile range across positive values of two arrays without full concatenation."""
+    pos1 = arr1[arr1 > 0]
+    pos2 = arr2[arr2 > 0]
+    if len(pos1) == 0 and len(pos2) == 0:
+        return 1e-28, 1e-18
+    if len(pos1) == 0:
+        return max(np.percentile(pos2, p_lo), 1e-10), np.percentile(pos2, p_hi)
+    if len(pos2) == 0:
+        return max(np.percentile(pos1, p_lo), 1e-10), np.percentile(pos1, p_hi)
+
+    p_lo_val = min(np.percentile(pos1, p_lo), np.percentile(pos2, p_lo))
+    p_hi_val = max(np.percentile(pos1, p_hi), np.percentile(pos2, p_hi))
+    return max(p_lo_val, 1e-10), p_hi_val
+
+
+def _worker_wrapper(worker_func, frames_list, temp_dir, nt, *args):
+    unpacked_args = []
+    shm_to_close = []
+    for arg in args:
+        if isinstance(arg, tuple) and len(arg) == 4 and arg[0] == "_SHM_":
+            _, shm_name, shape, dtype_str = arg
+            shm = SharedMemory(name=shm_name)
+            arr = np.ndarray(shape, dtype=np.dtype(dtype_str), buffer=shm.buf)
+            shm_to_close.append(shm)
+            unpacked_args.append(arr)
+        else:
+            unpacked_args.append(arg)
+    try:
+        return worker_func(frames_list, temp_dir, nt, *unpacked_args)
+    finally:
+        for shm in shm_to_close:
+            shm.close()
+
+
 def generate_parallel_animation(worker_func, nt, output_path, fps, num_workers=16, extra_args=None):
     import tempfile
     import shutil
@@ -138,62 +175,80 @@ def generate_parallel_animation(worker_func, nt, output_path, fps, num_workers=1
     
     if extra_args is None:
         extra_args = ()
-        
+
+    # Wrap large numpy arrays (> 1 MB) into SharedMemory to avoid 16x RAM duplication across workers
+    shm_list = []
+    processed_extra_args = []
+    for arg in extra_args:
+        if isinstance(arg, np.ndarray) and arg.nbytes > 1024 * 1024:
+            shm = SharedMemory(create=True, size=arg.nbytes)
+            shared_arr = np.ndarray(arg.shape, dtype=arg.dtype, buffer=shm.buf)
+            shared_arr[:] = arg[:]
+            shm_list.append(shm)
+            processed_extra_args.append(("_SHM_", shm.name, arg.shape, str(arg.dtype)))
+        else:
+            processed_extra_args.append(arg)
+
     print(f"Rendering {nt} frames in parallel using {len(chunks)} workers...")
     
-    # Run the worker function in parallel
-    with ProcessPoolExecutor(max_workers=num_workers) as executor:
-        futures = []
-        for fl in chunks:
-            futures.append(executor.submit(worker_func, fl, temp_dir, nt, *extra_args))
-        
-        # Track progress using progress files
-        completed_frames = set()
-        with tqdm(total=nt, desc=f"Rendering {os.path.basename(output_path)}") as pbar:
-            workers_done = False
-            while len(completed_frames) < nt:
-                # Check if all futures have completed
-                if not workers_done:
-                    workers_done = all(fut.done() for fut in futures)
-                    # Raise immediately if any worker threw an exception
-                    if workers_done:
-                        for fut in futures:
-                            fut.result()
-
-                try:
-                    files = os.listdir(temp_dir)
-                    for f in files:
-                        if f.startswith("progress_") and f.endswith(".txt"):
-                            parts = f.split("_")
-                            if len(parts) > 1:
-                                frame_num = int(parts[1].split(".")[0])
-                                if frame_num not in completed_frames:
-                                    completed_frames.add(frame_num)
-                                    pbar.update(1)
-                except FileNotFoundError:
-                    pass
-
-                if workers_done and len(completed_frames) < nt:
-                    # Workers are all done but we haven't seen all progress files yet.
-                    # Give the filesystem a moment to flush, then scan a few more times
-                    # before giving up (avoids an infinite loop on lost writes).
-                    time.sleep(0.05)
-                elif not workers_done:
-                    time.sleep(0.1)
+    try:
+        with ProcessPoolExecutor(max_workers=num_workers) as executor:
+            futures = []
+            for fl in chunks:
+                futures.append(
+                    executor.submit(_worker_wrapper, worker_func, fl, temp_dir, nt, *processed_extra_args)
+                )
             
-    print(f"Stitching frames together into {output_path} using ffmpeg...")
-    
-    cmd = [
-        "ffmpeg", "-y",
-        "-framerate", str(fps),
-        "-i", os.path.join(temp_dir, "frame_%04d.png"),
-        "-c:v", "libx264",
-        "-pix_fmt", "yuv420p",
-        output_path
-    ]
-    subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
-    
-    shutil.rmtree(temp_dir)
+            # Track progress using progress files
+            completed_frames = set()
+            stuck_counter = 0
+            with tqdm(total=nt, desc=f"Rendering {os.path.basename(output_path)}") as pbar:
+                workers_done = False
+                while len(completed_frames) < nt:
+                    if not workers_done:
+                        workers_done = all(fut.done() for fut in futures)
+                        if workers_done:
+                            for fut in futures:
+                                fut.result()
+
+                    try:
+                        files = os.listdir(temp_dir)
+                        for f in files:
+                            if f.startswith("progress_") and f.endswith(".txt"):
+                                parts = f.split("_")
+                                if len(parts) > 1:
+                                    frame_num = int(parts[1].split(".")[0])
+                                    if frame_num not in completed_frames:
+                                        completed_frames.add(frame_num)
+                                        pbar.update(1)
+                    except FileNotFoundError:
+                        pass
+
+                    if workers_done and len(completed_frames) < nt:
+                        stuck_counter += 1
+                        time.sleep(0.05)
+                        if stuck_counter > 100:  # 5 second timeout if all workers finished but markers missing
+                            print(f"Warning: workers completed but missing {nt - len(completed_frames)} frame progress markers.")
+                            break
+                    elif not workers_done:
+                        time.sleep(0.1)
+                
+        print(f"Stitching frames together into {output_path} using ffmpeg...")
+        
+        cmd = [
+            "ffmpeg", "-y",
+            "-framerate", str(fps),
+            "-i", os.path.join(temp_dir, "frame_%04d.png"),
+            "-c:v", "libx264",
+            "-pix_fmt", "yuv420p",
+            output_path
+        ]
+        subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=True)
+    finally:
+        for shm in shm_list:
+            shm.close()
+            shm.unlink()
+        shutil.rmtree(temp_dir)
 
 
 def worker_pdf_compare(frames_list, temp_dir, nt, nx, ny, nb, temp_pdf, conv_temp_pdf, true_cool, true_iso_cool, cnn_cool, log_temp_centers, active_bin_start, active_bin_end, snapshot_compare_path):
@@ -485,59 +540,61 @@ def worker_cooling_compare(frames_list, temp_dir, nt, cool_vmin, cool_vmax, true
     plt.close(fig3)
 
 
-def worker_density_gate(frames_list, temp_dir, nt, rho_vmin, rho_vmax, sim_data_rho, cg_rho, cnn_gate_maps, snapshot_density_path):
+def render_density_gate_sequential(nt, temp_dir, rho_vmin, rho_vmax, sim_data_rho, cg_rho, cnn_gate_maps, snapshot_density_path):
+    """Render every density-gate frame sequentially in a single process.
+
+    Using parallel workers here causes each worker to receive a full copy of
+    sim_data_rho, cg_rho, and cnn_gate_maps (all large arrays), which balloons
+    RAM and freezes Python.  Sequential rendering reuses a single figure and
+    never duplicates the arrays.
+    """
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     import numpy as np
-    import os
+    from tqdm import tqdm
 
     fig5, axes5 = plt.subplots(1, 3, figsize=(12, 7))
     ax_fine, ax_cg, ax_gate = axes5
 
     im_fine = ax_fine.imshow(
-        np.log10(sim_data_rho[0] + 1e-10), 
+        np.log10(sim_data_rho[0] + 1e-10),
         origin="lower", cmap="viridis", vmin=rho_vmin, vmax=rho_vmax
     )
-    ax_fine.set_title("True Density (Before CG) [$\log_{10}$]", fontsize=14)
+    ax_fine.set_title(r"True Density (Before CG) [$\log_{10}$]", fontsize=14)
     fig5.colorbar(im_fine, ax=ax_fine, fraction=0.046, pad=0.04)
 
     im_cg = ax_cg.imshow(
-        np.log10(cg_rho[0] + 1e-10), 
+        np.log10(cg_rho[0] + 1e-10),
         origin="lower", cmap="viridis", vmin=rho_vmin, vmax=rho_vmax
     )
-    ax_cg.set_title("Coarse-Grained Density [$\log_{10}$]", fontsize=14)
+    ax_cg.set_title(r"Coarse-Grained Density [$\log_{10}$]", fontsize=14)
     fig5.colorbar(im_cg, ax=ax_cg, fraction=0.046, pad=0.04)
 
     im_gate = ax_gate.imshow(
-        cnn_gate_maps[0], 
+        cnn_gate_maps[0],
         origin="lower", cmap="inferno", vmin=0.0, vmax=1.0
     )
-    ax_gate.set_title("CNN Gate Output $g(x,y)$", fontsize=14)
+    ax_gate.set_title(r"CNN Gate Output $g(x,y)$", fontsize=14)
     fig5.colorbar(im_gate, ax=ax_gate, fraction=0.046, pad=0.04)
 
     for ax in axes5:
         ax.set_xlabel("Y (cells)")
         ax.set_ylabel("X (cells)")
 
-    title5 = fig5.suptitle(f"Density & Gate Comparison | t = 0", fontsize=18, y=0.95)
+    title5 = fig5.suptitle("Density & Gate Comparison | t = 0", fontsize=18, y=0.95)
     plt.tight_layout(rect=[0, 0.03, 1, 0.95], w_pad=1.0)
 
-    for frame in frames_list:
+    for frame in tqdm(range(nt), desc="Rendering density gate frames"):
         im_fine.set_data(np.log10(sim_data_rho[frame] + 1e-10))
         im_cg.set_data(np.log10(cg_rho[frame] + 1e-10))
         im_gate.set_data(cnn_gate_maps[frame])
-        
         title5.set_text(f"Density & Gate Comparison | t = {frame}")
 
         if frame == 0:
             fig5.savefig(snapshot_density_path, dpi=300)
 
         fig5.savefig(os.path.join(temp_dir, f"frame_{frame:04d}.png"), dpi=100)
-        
-        # Write progress marker
-        with open(os.path.join(temp_dir, f"progress_{frame}.txt"), "w") as f:
-            pass
 
     plt.close(fig5)
 
@@ -555,6 +612,11 @@ def batch_predict_with_gate(sim_data, downsample, resolution, device):
     
     # 1. Load model once
     model_path = os.path.join(MODEL_SAVE_DIR, f"cnn_{resolution}_{downsample}.pth")
+    state_dict = torch.load(model_path, map_location=device)
+    ckpt_ksize = kernel_size
+    if "encoder.0.weight" in state_dict:
+        ckpt_ksize = state_dict["encoder.0.weight"].shape[-1]
+
     cnn_model = ConvNN(
         in_channels,
         layer_size1,
@@ -562,9 +624,9 @@ def batch_predict_with_gate(sim_data, downsample, resolution, device):
         layer_size3,
         layer_size4,
         out_channels,
-        kernel_size,
+        ckpt_ksize,
     ).to(device)
-    cnn_model.load_state_dict(torch.load(model_path, map_location=device))
+    cnn_model.load_state_dict(state_dict)
     cnn_model.eval()
     
     # 2. Load normalization stats once
@@ -798,7 +860,7 @@ if __name__ == '__main__':
     
         print(f"Saved animation → {mp4_path}")
     
-        plt.close()
+        plt.close(fig)
     
     
     # =========================
@@ -811,17 +873,17 @@ if __name__ == '__main__':
     print("Computing cooling rates (True Fine, True Isobaric, CNN Isobaric)...")
     
     # Shared constants — identical across all three computations
-    mu = 0.62
     kb = 1.380649e-16
     unit_fix = 1.975e27
     
     # ---- PDF bin centres (geometric mean of edges) ----
-    temp_bins = np.logspace(3, 7, nb + 1)
     temp_centers = np.sqrt(temp_bins[:-1] * temp_bins[1:])  # (nb,)
     
     # ---- Active cooling window for shading (Change #3) ----
-    active_bin_start = np.searchsorted(temp_centers, 10**4.5)
-    active_bin_end = np.searchsorted(temp_centers, 10**5.5)
+    logT_active_start = float(os.environ.get("LOGT_ACTIVE_START", "4.2"))
+    logT_active_end = float(os.environ.get("LOGT_ACTIVE_END", "6.0"))
+    active_bin_start = np.searchsorted(temp_centers, 10**logT_active_start)
+    active_bin_end = np.searchsorted(temp_centers, 10**logT_active_end)
     
     # ------------------------------------------------------------------
     # (A) Cool_True_Fine : fine-grid truth averaged to coarse blocks
@@ -878,6 +940,9 @@ if __name__ == '__main__':
         )
     
     print("Cooling computation done.")
+
+    # Free memory for fine-grid simulation arrays that are no longer needed
+    del sim_data.temp, sim_data.pressure, sim_data.ux, sim_data.uy, sim_data.eint, sim_data.ps
     
     # =========================
     # METRICS  (Change #4)
@@ -932,11 +997,9 @@ if __name__ == '__main__':
         axes[1].set_title("Cooling scatter coloured by CNN window mass")
         plt.tight_layout()
         plt.show()
+        plt.close(fig)
     
-        cg_temp = np.zeros((nt, nx, ny))
-    
-        for t in tqdm(range(nt), desc="Coarse-graining temperature (global scatter)"):
-            cg_temp[t] = sim_data.coarse_grain(sim_data.temp[t])
+
     
         # ============================================================
         # GLOBAL COOLING RATE DIAGNOSTICS: 2D Density & Residuals
@@ -1080,6 +1143,7 @@ if __name__ == '__main__':
             os.path.join(PDF_MOCKS_DIR, "pdf_cooling_scatter_threeway.png"), dpi=200
         )
         plt.show()
+        plt.close(fig_sc)
         print("Saved multi-panel cooling diagnostic plot.")
     
     
@@ -1140,6 +1204,7 @@ if __name__ == '__main__':
         fig_hist.tight_layout()
         fig_hist.savefig(os.path.join(PDF_MOCKS_DIR, "pdf_cooling_histogram.png"), dpi=200)
         plt.show()
+        plt.close(fig_hist)
         print("Saved histogram plot.")
     
     # =========================
@@ -1189,15 +1254,7 @@ if __name__ == '__main__':
         )
     
         # Compute global vmin/vmax for cooling rates
-        all_pos_cool = np.concatenate(
-            [true_iso_cool[true_iso_cool > 0], cnn_cool[cnn_cool > 0]]
-        )
-        if len(all_pos_cool) > 0:
-            cool_vmin = max(np.percentile(all_pos_cool, 1), 1e-10)
-            cool_vmax = np.percentile(all_pos_cool, 99)
-        else:
-            cool_vmin = 1e-28
-            cool_vmax = 1e-18
+        cool_vmin, cool_vmax = get_positive_percentiles(true_iso_cool, cnn_cool)
     
         generate_parallel_animation(
             worker_cooling_compare,
@@ -1227,12 +1284,7 @@ if __name__ == '__main__':
         snapshot_fourway_path = os.path.join(PDF_MOCKS_DIR, "pdf_fourway_compare_t0.png")
     
         # ---- Shared colormap + norm for cooling panels ----
-        all_pos_cool4 = np.concatenate([true_cool[true_cool > 0], cnn_cool[cnn_cool > 0]])
-        if len(all_pos_cool4) > 0:
-            cool4_vmin = max(np.percentile(all_pos_cool4, 1), 1e-10)
-            cool4_vmax = np.percentile(all_pos_cool4, 99)
-        else:
-            cool4_vmin, cool4_vmax = 1e-28, 1e-18
+        cool4_vmin, cool4_vmax = get_positive_percentiles(true_cool, cnn_cool)
         norm_cool4 = colors.LogNorm(vmin=cool4_vmin, vmax=cool4_vmax)
         cmap_cool4 = plt.get_cmap("magma")
     
@@ -1377,32 +1429,203 @@ if __name__ == '__main__':
     # Panels: Fine Density (log) | Coarse Density (log) | Gate Output
     # ============================================================
     if RUN_DENSITY_GATE_ANIMATION:
-        print("Creating density and gate comparison animation in parallel...")
-    
+        import tempfile, shutil, subprocess
+        print("Creating density and gate comparison animation (sequential)...")
+
         mp4_path_density = os.path.join(PDF_MOCKS_DIR, "pdf_density_gate_animation.mp4")
         snapshot_density_path = os.path.join(PDF_MOCKS_DIR, "pdf_density_gate_t0.png")
-    
-        # Determine consistent colorbar limits for the density plots using the coarse data
+
+        # Determine consistent colorbar limits from the coarse data
         pos_rho = cg_rho[cg_rho > 0]
         if len(pos_rho) > 0:
             rho_vmin = np.log10(max(np.percentile(pos_rho, 1), 1e-10))
             rho_vmax = np.log10(np.percentile(pos_rho, 99))
         else:
             rho_vmin, rho_vmax = -5, 5
-    
-        generate_parallel_animation(
-            worker_density_gate,
-            nt,
-            mp4_path_density,
-            fps=24,
-            num_workers=16,
-            extra_args=(
-                rho_vmin,
-                rho_vmax,
-                sim_data.rho,
-                cg_rho,
-                cnn_gate_maps,
+
+        _temp_dir = tempfile.mkdtemp()
+        try:
+            render_density_gate_sequential(
+                nt, _temp_dir,
+                rho_vmin, rho_vmax,
+                sim_data.rho, cg_rho, cnn_gate_maps,
                 snapshot_density_path,
             )
-        )
-        print(f"Saved density/gate animation → {mp4_path_density}")
+
+            print(f"Stitching density gate frames → {mp4_path_density}")
+            cmd = [
+                "ffmpeg", "-y",
+                "-framerate", "24",
+                "-i", os.path.join(_temp_dir, "frame_%04d.png"),
+                "-c:v", "libx264",
+                "-pix_fmt", "yuv420p",
+                mp4_path_density,
+            ]
+            res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            if res.returncode != 0:
+                print(f"ffmpeg error: {res.stderr.decode()}")
+            else:
+                print(f"Saved density/gate animation → {mp4_path_density}")
+        finally:
+            shutil.rmtree(_temp_dir)
+
+
+# ============================================================
+# GATE / ENTROPY vs RESIDUAL DIAGNOSTIC
+# Tests the hypothesis that CNN overprediction at low cooling
+# is driven by miscalibration of the mixing-layer gate against
+# the true PDF's Shannon entropy.
+# ============================================================
+
+if RUN_GATE_ENTROPY_DIAGNOSTIC:
+    print("Creating gate/entropy vs residual diagnostic plots...")
+
+    def add_running_median_linear(ax, xv, yv, n_bins=25, x_range=None):
+        """Same as add_running_median but for a LINEAR x-axis in [0, 1]
+        (gate values, normalized entropy) instead of log-spaced x."""
+        if x_range is None:
+            x_range = (xv.min(), xv.max())
+        bin_edges = np.linspace(x_range[0], x_range[1], n_bins + 1)
+        bin_idx = np.digitize(xv, bin_edges)
+        xs, meds, lo, hi = [], [], [], []
+        for b in range(1, n_bins + 1):
+            sel = bin_idx == b
+            if sel.sum() < 5:
+                continue
+            xs.append(0.5 * (bin_edges[b - 1] + bin_edges[b]))
+            yb = yv[sel]
+            meds.append(np.median(yb))
+            lo.append(np.percentile(yb, 16))
+            hi.append(np.percentile(yb, 84))
+        if len(xs) > 0:
+            ax.plot(xs, meds, color="cyan", lw=2, label="Median")
+            ax.fill_between(xs, lo, hi, color="cyan", alpha=0.2, label="16-84%")
+            ax.legend(fontsize=8, loc="upper left")
+
+    # ---- 1. Compute normalized entropy of the TRUE pdf, per pixel/timestep ----
+    # H = -sum_i p_i log(p_i), normalized to [0, 1] by log(n_bins)
+    eps_ent = 1e-12
+    true_entropy = -np.sum(
+        temp_pdf * np.log(temp_pdf + eps_ent), axis=1
+    )  # (nt, nx, ny)
+    true_entropy_norm = true_entropy / np.log(nb)  # (nt, nx, ny)
+
+    # ---- 2. Also compute predicted-PDF entropy, for comparison ----
+    pred_entropy = -np.sum(
+        conv_temp_pdf * np.log(conv_temp_pdf + eps_ent), axis=1
+    )  # (nt, nx, ny)
+    pred_entropy_norm = pred_entropy / np.log(nb)
+
+    # ---- 3. Residual: log10(CNN / True Isobaric), masked to positive pairs ----
+    SCATTER_MIN_GE = 1e0
+    mask_ge = (true_iso_cool >= SCATTER_MIN_GE) & (cnn_cool >= SCATTER_MIN_GE)
+
+    resid_flat = np.log10(cnn_cool[mask_ge] / true_iso_cool[mask_ge])
+    gate_flat = cnn_gate_maps[mask_ge]
+    true_ent_flat = true_entropy_norm[mask_ge]
+    pred_ent_flat = pred_entropy_norm[mask_ge]
+
+    print(f"  Gate/entropy diagnostic using {mask_ge.sum():,} / {mask_ge.size:,} points")
+
+    fig_ge, axes_ge = plt.subplots(2, 2, figsize=(14, 12))
+    ax_resid_gate = axes_ge[0, 0]
+    ax_resid_ent = axes_ge[0, 1]
+    ax_gate_vs_ent = axes_ge[1, 0]
+    ax_gate_hist = axes_ge[1, 1]
+
+    # Panel 1: Residual vs Gate value
+    hb_rg = ax_resid_gate.hexbin(
+        gate_flat, resid_flat,
+        gridsize=60,
+        bins="log",
+        cmap="viridis",
+        mincnt=1,
+        rasterized=True,
+    )
+    ax_resid_gate.axhline(0, color="r", linestyle="--", lw=1)
+    ax_resid_gate.set_xlabel("Gate value $g(x,y)$")
+    ax_resid_gate.set_ylabel(r"$\log_{10}$(CNN Isobaric / True Isobaric)")
+    ax_resid_gate.set_title(f"Residual vs Gate\n({mask_ge.sum():,} points)")
+    plt.colorbar(hb_rg, ax=ax_resid_gate, label="log$_{10}$(count)")
+    add_running_median_linear(ax_resid_gate, gate_flat, resid_flat, x_range=(0, 1))
+
+    # Panel 2: Residual vs True-PDF Entropy
+    hb_re = ax_resid_ent.hexbin(
+        true_ent_flat, resid_flat,
+        gridsize=60,
+        bins="log",
+        cmap="viridis",
+        mincnt=1,
+        rasterized=True,
+    )
+    ax_resid_ent.axhline(0, color="r", linestyle="--", lw=1)
+    ax_resid_ent.set_xlabel(r"Normalized true-PDF entropy $H/\log(n_{bins})$")
+    ax_resid_ent.set_ylabel(r"$\log_{10}$(CNN Isobaric / True Isobaric)")
+    ax_resid_ent.set_title(f"Residual vs True Entropy\n({mask_ge.sum():,} points)")
+    plt.colorbar(hb_re, ax=ax_resid_ent, label="log$_{10}$(count)")
+    add_running_median_linear(ax_resid_ent, true_ent_flat, resid_flat, x_range=(0, 1))
+
+    # Panel 3: Gate vs True Entropy (checks whether the gate is actually
+    # tracking the quantity it was trained to predict — a sharp diagonal
+    # here means the gate is well-calibrated; scatter/saturation means it isn't)
+    hb_ge = ax_gate_vs_ent.hexbin(
+        true_ent_flat, gate_flat,
+        gridsize=60,
+        bins="log",
+        cmap="viridis",
+        mincnt=1,
+        rasterized=True,
+    )
+    ax_gate_vs_ent.axvline(
+        float(os.environ.get("GATE_ENTROPY_THRESHOLD", "0.05")),
+        color="r", linestyle="--", lw=1, label="entropy_threshold",
+    )
+    ax_gate_vs_ent.set_xlabel(r"Normalized true-PDF entropy $H/\log(n_{bins})$")
+    ax_gate_vs_ent.set_ylabel("Gate value $g(x,y)$")
+    ax_gate_vs_ent.set_title(f"Gate Calibration Check\n({mask_ge.sum():,} points)")
+    ax_gate_vs_ent.legend(fontsize=8)
+    plt.colorbar(hb_ge, ax=ax_gate_vs_ent, label="log$_{10}$(count)")
+    add_running_median_linear(ax_gate_vs_ent, true_ent_flat, gate_flat, x_range=(0, 1))
+
+    # Panel 4: Gate value distribution, split by whether residual is
+    # over- or under-predicting, to see if overprediction pixels cluster
+    # at a particular (intermediate) gate value
+    over_mask = resid_flat > 0.1     # CNN overpredicts by > ~0.1 dex
+    under_mask = resid_flat < -0.1   # CNN underpredicts by > ~0.1 dex
+    near_mask = ~over_mask & ~under_mask
+
+    ax_gate_hist.hist(
+        gate_flat[over_mask], bins=50, range=(0, 1), density=True,
+        histtype="step", linewidth=2, color="crimson", label="Overpredict (>0.1 dex)",
+    )
+    ax_gate_hist.hist(
+        gate_flat[under_mask], bins=50, range=(0, 1), density=True,
+        histtype="step", linewidth=2, color="royalblue", label="Underpredict (<-0.1 dex)",
+    )
+    ax_gate_hist.hist(
+        gate_flat[near_mask], bins=50, range=(0, 1), density=True,
+        histtype="step", linewidth=2, color="grey", label="Near-accurate", alpha=0.7,
+    )
+    ax_gate_hist.set_xlabel("Gate value $g(x,y)$")
+    ax_gate_hist.set_ylabel("Probability Density")
+    ax_gate_hist.set_title("Gate distribution by prediction error bucket")
+    ax_gate_hist.legend(fontsize=9)
+
+    fig_ge.suptitle("Gate & Entropy Calibration Diagnostics", fontsize=16)
+    fig_ge.tight_layout()
+    fig_ge.savefig(
+        os.path.join(PDF_MOCKS_DIR, "pdf_gate_entropy_diagnostic.png"), dpi=200
+    )
+    plt.show()
+    plt.close(fig_ge)
+    print("Saved gate/entropy diagnostic plot.")
+
+    # ---- Quick numeric summary, printed for convenience ----
+    print("\n=== Gate/Entropy Diagnostic Summary ===")
+    print(f"  Fraction of points with gate < 0.1  : {(gate_flat < 0.1).mean()*100:.1f}%")
+    print(f"  Fraction of points with gate > 0.9  : {(gate_flat > 0.9).mean()*100:.1f}%")
+    print(f"  Median residual | gate < 0.1        : {np.median(resid_flat[gate_flat < 0.1]):+.3f} dex")
+    print(f"  Median residual | 0.1 <= gate <= 0.9: {np.median(resid_flat[(gate_flat >= 0.1) & (gate_flat <= 0.9)]):+.3f} dex")
+    print(f"  Median residual | gate > 0.9         : {np.median(resid_flat[gate_flat > 0.9]):+.3f} dex")
+    gate_entropy_corr, _ = pearsonr(gate_flat, true_ent_flat)
+    print(f"  Pearson corr(gate, true entropy)    : {gate_entropy_corr:.4f}")

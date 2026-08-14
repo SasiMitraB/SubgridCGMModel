@@ -99,23 +99,17 @@ def source_func(rho, pres, ux, uy, ps, fmcl):
 
     temp = (np.array(pres) * 1.59916e-14 / np.array(rho)) * (1.0 / 1.381e-16)
     # ------------------------------------------------------------
-    # Allocate source term
-    # ------------------------------------------------------------
-
-    source_term = np.zeros((5, shape[0], shape[1]))
-
-    # ------------------------------------------------------------
-    # Build input fields
+    # Build input fields & allocate source term
     # ------------------------------------------------------------
 
     fields = ["rho", "temp", "ux", "uy", "ps"]
 
-    shape = (resolution[0] // downsample, resolution[1] // downsample)
-
-    cg = {f"cg_{field}": np.zeros(shape) for field in fields}
-
+    cg = {}
     for field in fields:
         cg[f"cg_{field}"] = np.transpose(np.array(locals()[field]))
+
+    shape = cg["cg_rho"].shape
+    source_term = np.zeros((5, shape[0], shape[1]))
 
     pdf = snapshot_pred_16x8(
         rho=cg["cg_rho"],

@@ -101,23 +101,17 @@ def source_func(rho, pres, ux, uy, ps, fmcl):
 
     temp = (np.array(pres) * 1.59916e-14 / np.array(rho)) * (1.0 / 1.381e-16)
     # ------------------------------------------------------------
-    # Allocate source term
-    # ------------------------------------------------------------
-
-    source_term = np.zeros((5, shape[0], shape[1]))
-
-    # ------------------------------------------------------------
-    # Build input fields
+    # Build input fields & allocate source term
     # ------------------------------------------------------------
 
     fields = ["rho", "temp", "ux", "uy", "ps"]
 
-    shape = (resolution[0] // downsample, resolution[1] // downsample)
-
-    cg = {f"cg_{field}": np.zeros(shape) for field in fields}
-
+    cg = {}
     for field in fields:
         cg[f"cg_{field}"] = np.transpose(np.array(locals()[field]))
+
+    shape = cg["cg_rho"].shape
+    source_term = np.zeros((5, shape[0], shape[1]))
 
     pdf = snapshot_pred_16x8(
         rho=cg["cg_rho"],
@@ -178,30 +172,35 @@ def source_func(rho, pres, ux, uy, ps, fmcl):
 
     # 3. Integrate across the predicted subgrid PDF
     cool_rate = np.sum(pdf * cool_per_bin, axis=0)
-    #cool_rate = cool_rate[:, ::-1]
+
+    # Safety cap: bound energy cooling rate per cell relative to local thermal energy
+    # e_int = P / (gamma - 1)
+    e_int = np.transpose(pres) / (gamma - 1.0)
+    max_cool_rate = np.maximum(0.0, 0.5 * e_int / 0.001)
+    cool_rate = np.clip(cool_rate, 0.0, max_cool_rate)
 
     # energy source term
     source_term[3] = -cool_rate
 
-    # # ------------------------------------------------------------
-    # # Adaptive smoothing
-    # # ------------------------------------------------------------
+    # ------------------------------------------------------------
+    # Adaptive smoothing
+    # ------------------------------------------------------------
 
-    # for channel in range(3, 4):
-    #     v = source_term[channel]
+    for channel in range(3, 4):
+        v = source_term[channel]
 
-    #     w = np.clip(
-    #         (np.abs(v) - np.percentile(np.abs(v), 75))
-    #         / (np.percentile(np.abs(v), 90) - np.percentile(np.abs(v), 75) + 1e-12),
-    #         0,
-    #         1,
-    #     )
+        w = np.clip(
+            (np.abs(v) - np.percentile(np.abs(v), 75))
+            / (np.percentile(np.abs(v), 90) - np.percentile(np.abs(v), 75) + 1e-12),
+            0,
+            1,
+        )
 
-    #     A = gaussian_filter(v, 0.0)
+        A = gaussian_filter(v, 3)
 
-    #     B = gaussian_filter(v, kernel_size / 3)
+        B = gaussian_filter(v, kernel_size / 3)
 
-    #     source_term[channel] = (1 - w) * A + w * B
+        source_term[channel] = (1 - w) * A + w * B
 
     # ------------------------------------------------------------
     # Return shape

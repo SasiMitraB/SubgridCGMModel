@@ -20,8 +20,9 @@
 # Logs for each run land in the same output directory as <tag>.log.
 #
 # Environment overrides:
-#   MPI_NP   — number of MPI ranks (default: 4)
-#              nx2 must be divisible by MPI_NP for the default decomposition.
+#   MPI_NP   — number of MPI ranks (default: 24)
+#              Meshblocks are tiled 4×8 = 32 total across 24 ranks.
+#              Athena distributes round-robin: 8 ranks get 2 MBs, 16 get 1 MB.
 # =============================================================================
 
 set -euo pipefail
@@ -59,9 +60,11 @@ fi
 #
 # Usage: make_athinput <nx1> <nx2> <mb_nx1> <mb_nx2> <output_path>
 #
-# Meshblock sizes are chosen so that each MPI rank owns exactly one meshblock.
-# For MPI_NP ranks the default split tiles ranks along X2:
-#   mb_nx1 = nx1,  mb_nx2 = nx2 / MPI_NP
+# Meshblock decomposition: 4 tiles in X1, 8 tiles in X2 = 32 total meshblocks.
+# With MPI_NP=24 ranks, 8 ranks own 2 MBs and 16 ranks own 1 MB (round-robin).
+# This is the cleanest scheme for power-of-2 grids on 24 cores.
+#   mb_nx1 = nx1 / 4
+#   mb_nx2 = nx2 / 8
 # ---------------------------------------------------------------------------
 make_athinput() {
     local nx1="$1"
@@ -154,28 +157,36 @@ run_sim() {
 # ---------------------------------------------------------------------------
 # Resolution sweep
 #
-# Meshblock decomposition: MPI ranks tiled along the X2 (vertical) axis.
-#   mb_nx1 = nx1  (single tile in X1)
-#   mb_nx2 = nx2 / MPI_NP
+# Meshblock decomposition: 4×8 = 32 total meshblocks across MPI_NP=24 ranks.
+#   mb_nx1 = nx1 / 4   (4 tiles in X1)
+#   mb_nx2 = nx2 / 8   (8 tiles in X2)
 #
-# Requires: nx2 % MPI_NP == 0 for all three resolutions.
-# With the default MPI_NP=4: 256/4=64, 512/4=128, 1024/4=256 — all integer.
+# All power-of-2 grid sizes divide evenly:
+#   128/4=32, 256/4=64, 512/4=128, 1024/4=256  (mb_nx1 values)
+#   256/8=32, 512/8=64, 1024/8=128, 2048/8=256 (mb_nx2 values)
+#
+# 32 MBs across 24 ranks: 8 ranks get 2 MBs, 16 ranks get 1 MB (Athena
+# distributes via round-robin and handles this natively).
 # ---------------------------------------------------------------------------
 
-# --- 128 x 256 ---
-run_sim "128x256"   128  256  128 $((256  / MPI_NP))
+# --- 128 x 256 ---  mb: 32×32  (4×8=32 MBs)
+run_sim "128x256"   128  256   $((128 / 4)) $((256  / 8))
 
-# --- 256 x 512 ---
-run_sim "256x512"   256  512  256 $((512  / MPI_NP))
+# --- 256 x 512 ---  mb: 64×64  (4×8=32 MBs)
+run_sim "256x512"   256  512   $((256 / 4)) $((512  / 8))
 
-# --- 512 x 1024 ---
-run_sim "512x1024"  512 1024  512 $((1024 / MPI_NP))
+# --- 512 x 1024 ---  mb: 128×128  (4×8=32 MBs)
+run_sim "512x1024"  512 1024  $((512 / 4)) $((1024 / 8))
+
+# --- 1024x2048 ---  mb: 256×256  (4×8=32 MBs)
+run_sim "1024x2048"  1024 2048  $((1024 / 4)) $((2048 / 8))
 
 echo ""
 echo "============================================================"
-echo " All three resolutions completed successfully."
+echo " All four resolutions completed successfully."
 echo " Outputs:"
 echo "   ${SIM_OUTPUTS}/hr_mpi_128x256/"
 echo "   ${SIM_OUTPUTS}/hr_mpi_256x512/"
 echo "   ${SIM_OUTPUTS}/hr_mpi_512x1024/"
+echo "   ${SIM_OUTPUTS}/hr_mpi_1024x2048/"
 echo "============================================================"
