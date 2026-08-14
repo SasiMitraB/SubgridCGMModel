@@ -98,6 +98,11 @@ HYPERPARAMS = {
     "grad_clip_max_norm": 1.0,
 }
 
+np.random.seed(HYPERPARAMS["seed"])
+torch.manual_seed(HYPERPARAMS["seed"])
+if torch.cuda.is_available():
+    torch.cuda.manual_seed_all(HYPERPARAMS["seed"])
+
 # Set PyTorch device
 if torch.backends.mps.is_available():
     device = torch.device("mps")

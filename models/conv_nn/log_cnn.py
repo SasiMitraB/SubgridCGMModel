@@ -21,7 +21,12 @@ CACHE_PATH = os.environ.get('SUBGRID_CACHE_PATH', '/path/to/cache')
 import data_preprocess
 from data_preprocess import simulation_data
 
-np.random.seed(10)
+seed = 10
+np.random.seed(seed)
+torch.manual_seed(seed)
+if torch.cuda.is_available():
+    torch.cuda.manual_seed_all(seed)
+
 # device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
 device = torch.device('cpu')
 
