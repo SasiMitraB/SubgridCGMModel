@@ -106,7 +106,11 @@ log_temp_centers = 0.5 * (np.log10(temp_bins[:-1]) + np.log10(temp_bins[1:]))
 cmap = plt.get_cmap("inferno")
 norm = colors.Normalize(vmin=3.0, vmax=7.0)
 
-folder_path = f"/home/sasi/Projects/SubgridCGMModel/simulation_outputs/hr_build_1024/cache/sc{resolution}_{downsample}"
+CACHE_PATH = os.environ.get(
+    "SUBGRID_CACHE_PATH",
+    os.path.abspath(os.path.join(os.path.dirname(__file__), "../../simulation_outputs/hr_build_512/cache")),
+)
+folder_path = os.path.join(CACHE_PATH, f"sc{resolution}_{downsample}")
 
 PDF_MOCKS_DIR = os.environ.get("PDF_MOCKS_DIR", "mocks/pdf_naive")
 os.makedirs(PDF_MOCKS_DIR, exist_ok=True)
@@ -131,15 +135,15 @@ def get_positive_percentiles(arr1, arr2, p_lo=1, p_hi=99):
     pos1 = arr1[arr1 > 0]
     pos2 = arr2[arr2 > 0]
     if len(pos1) == 0 and len(pos2) == 0:
-        return 1e-28, 1e-18
+        return 1e-30, 1e-20   # physical CGS fallback (erg/cm³/s)
     if len(pos1) == 0:
-        return max(np.percentile(pos2, p_lo), 1e-10), np.percentile(pos2, p_hi)
+        return max(np.percentile(pos2, p_lo), 1e-40), np.percentile(pos2, p_hi)
     if len(pos2) == 0:
-        return max(np.percentile(pos1, p_lo), 1e-10), np.percentile(pos1, p_hi)
+        return max(np.percentile(pos1, p_lo), 1e-40), np.percentile(pos1, p_hi)
 
     p_lo_val = min(np.percentile(pos1, p_lo), np.percentile(pos2, p_lo))
     p_hi_val = max(np.percentile(pos1, p_hi), np.percentile(pos2, p_hi))
-    return max(p_lo_val, 1e-10), p_hi_val
+    return max(p_lo_val, 1e-40), p_hi_val
 
 
 def _worker_wrapper(worker_func, frames_list, temp_dir, nt, *args):
@@ -287,7 +291,7 @@ def generate_parallel_animation(worker_func, nt, output_path, fps, num_workers=1
         shutil.rmtree(temp_dir)
 
 
-def worker_pdf_compare(frames_list, temp_dir, nt, nx, ny, nb, temp_pdf, conv_temp_pdf, true_cool, true_iso_cool, cnn_cool, log_temp_centers, active_bin_start, active_bin_end, snapshot_compare_path):
+def worker_pdf_compare(frames_list, temp_dir, nt, nx, ny, nb, temp_pdf, conv_temp_pdf, true_iso_cool, cnn_cool, log_temp_centers, active_bin_start, active_bin_end, snapshot_compare_path):
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
@@ -460,11 +464,10 @@ def worker_pdf_compare(frames_list, temp_dir, nt, nx, ny, nb, temp_pdf, conv_tem
                 pred_lines[i, j].set_color(pred_color)
                 pred_texts[i, j].set_color(pred_color)
 
-                tc = true_cool[frame, ii, j]
                 tic = true_iso_cool[frame, ii, j]
                 pc = cnn_cool[frame, ii, j]
 
-                true_texts[i, j].set_text(f"F:{tc:.1e}\nI:{tic:.1e}")
+                true_texts[i, j].set_text(f"{tic:.1e}")
                 pred_texts[i, j].set_text(f"{pc:.1e}")
 
         fig2.suptitle(f"True vs Predicted PDFs | t = {frame}", fontsize=48, y=0.96)
@@ -894,102 +897,92 @@ if __name__ == '__main__':
     # TRUE vs PRED PDF COMPARISON
     # =========================
     # =====================================================================
-    # COOLING COMPUTATION BLOCK  (Changes #1, #2)
-    # Three separate cooling fields to isolate model error vs closure error
+    # COOLING COMPUTATION BLOCK
+    # Outputs are converted to physical CGS units (erg / cm³ / s)
     # =====================================================================
-    print("Computing cooling rates (True Fine, True Isobaric, CNN Isobaric)...")
+    print("Computing cooling rates (True PDF, CNN PDF)...")
     
-    # Shared constants — identical across all three computations
-    kb = 1.380649e-16
-    unit_fix = 1.975e27
+    # Shared constants from athinput
+    kb   = 1.3807e-16            # Boltzmann constant  [erg / K]
+    m_H  = 1.67262e-24           # Hydrogen mass        [g]
+    mu   = 0.62                  # Mean molecular weight
+    unit_fix = 1.975e27          # Code-unit energy-rate factor  (rho_0*L_0)/(m_H^2*v_0^3)
+    
+    # Code-unit -> physical number-density conversion from kh_radiative.athinput:
+    #   L_cgs = 3.08568e18 cm (1 pc), T_cgs = 3.15576e13 s (1 Myr), M_cgs = 4.91417e31 g
+    _L_cgs   = 3.08568e18         # 1 pc in cm
+    _T_cgs   = 3.15576e13         # 1 Myr in s
+    _M_cgs   = 4.91417e31         # code mass unit [g]
+    _RHO_cgs = _M_cgs / _L_cgs**3 # code density unit [g/cm³]  (~1.67262e-24 g/cm³)
+    n_to_cm3 = _RHO_cgs / (mu * m_H)  # cm⁻³ per code density unit (~1.6129 cm⁻³)
+    
+    # Factor: compute_cooling_rate output (code units) -> erg/cm³/s
+    _code_to_cgs = 1.0 / unit_fix
     
     # ---- PDF bin centres (geometric mean of edges) ----
     temp_centers = np.sqrt(temp_bins[:-1] * temp_bins[1:])  # (nb,)
     
-    # ---- Active cooling window for shading (Change #3) ----
+    # ---- Active cooling window for shading ----
     logT_active_start = float(os.environ.get("LOGT_ACTIVE_START", "4.2"))
     logT_active_end = float(os.environ.get("LOGT_ACTIVE_END", "6.0"))
     active_bin_start = np.searchsorted(temp_centers, 10**logT_active_start)
     active_bin_end = np.searchsorted(temp_centers, 10**logT_active_end)
     
     # ------------------------------------------------------------------
-    # (A) Cool_True_Fine : fine-grid truth averaged to coarse blocks
-    #     Uses compute_cooling_rate() in scalar mode — no approximation.
-    # ------------------------------------------------------------------
-    print("  (A) True Fine cooling...")
-    true_cool = np.zeros((nt, nx, ny))
-    for t in tqdm(range(nt), desc="True fine cooling"):
-        rho = sim_data.rho[t]
-        temp = sim_data.temp[t]
-        n = rho / mu
-        lam = lambda_cool(temp, mask=True)
-        fine_cool = lam * n**2 * unit_fix
-        true_cool[t] = sim_data.coarse_grain(fine_cool)
-    
-    
-    # ------------------------------------------------------------------
-    # (B) Coarse-grain pressure (shared by both isobaric variants)
+    # (B) Coarse-grain pressure  (kept for reference; not used in cooling)
     # ------------------------------------------------------------------
     cg_pressure = np.zeros((nt, nx, ny))
     for t in tqdm(range(nt), desc="Coarse-graining pressure"):
         cg_pressure[t] = sim_data.coarse_grain(sim_data.pressure[t])
     
     # ------------------------------------------------------------------
-    # (C) Cool_True_Isobaric : use TRUE PDF + isobaric n(T)=P/(kb*T)
-    #     If this disagrees badly with (A) → isobaric assumption is wrong.
+    # (C) Cool_True_PDF : use TRUE PDF, n = rho_cg / mu  (no isobaric assumption)
+    #     n² × Σᵢ PDF(Tᵢ) Λ(Tᵢ)
     # ------------------------------------------------------------------
-    print("  (C) True Isobaric cooling (using simulation PDF)...")
+    print("  (C) True PDF cooling (using simulation PDF)...")
     true_iso_cool = np.zeros((nt, nx, ny))
-    for t in tqdm(range(nt), desc="True isobaric cooling"):
+    for t in tqdm(range(nt), desc="True PDF cooling"):
         true_iso_cool[t] = compute_cooling_rate(
-            temp_pdf[t],  # (nb, nx, ny)  – true PDF
+            temp_pdf[t],   # (nb, nx, ny)  – true PDF
             temp_centers,  # (nb,)
-            pressure=cg_pressure[t],
             is_pdf=True,
-            is_isobaric=True,
-            T_unit=T_unit,
+            rho_cg=cg_rho[t],   # (nx, ny)  – coarse-grained code density
         )
     
     # ------------------------------------------------------------------
-    # (D) Cool_CNN_Isobaric : use CNN PDF + isobaric n(T)=P/(kb*T)
-    #     Compared to (C) this isolates the CNN's contribution only.
+    # (D) Cool_CNN_PDF : use CNN PDF, n = rho_cg / mu  (no isobaric assumption)
     # ------------------------------------------------------------------
-    print("  (D) CNN Isobaric cooling (using CNN PDF)...")
+    print("  (D) CNN PDF cooling (using CNN PDF)...")
     cnn_cool = np.zeros((nt, nx, ny))
-    for t in tqdm(range(nt), desc="CNN isobaric cooling"):
+    for t in tqdm(range(nt), desc="CNN PDF cooling"):
         cnn_cool[t] = compute_cooling_rate(
             conv_temp_pdf[t],  # (nb, nx, ny)  – CNN PDF
-            temp_centers,  # (nb,)
-            pressure=cg_pressure[t],
+            temp_centers,      # (nb,)
             is_pdf=True,
-            is_isobaric=True,
-            T_unit=T_unit,
+            rho_cg=cg_rho[t],  # (nx, ny)  – coarse-grained code density
         )
     
     print("Cooling computation done.")
+    
+    # ------------------------------------------------------------------
+    # Convert both cooling fields from code units -> physical erg/cm³/s
+    # ------------------------------------------------------------------
+    print("  Converting to physical units (erg / cm³ / s)...")
+    true_iso_cool *= _code_to_cgs
+    cnn_cool      *= _code_to_cgs
+    print("  Conversion done.")
 
     # Free memory for fine-grid simulation arrays that are no longer needed
     del sim_data.temp, sim_data.pressure, sim_data.ux, sim_data.uy, sim_data.eint, sim_data.ps
     
     # =========================
-    # METRICS  (Change #4)
+    # METRICS
     # =========================
     print("\n=== Quantitative Benchmarking Metrics ===")
-    # Flatten across all pixels and timesteps for a global assessment
-    print_metrics(
-        true_cool.flatten(),
-        true_iso_cool.flatten(),
-        "Physics Closure Error  (True Fine vs True Isobaric)",
-    )
     print_metrics(
         true_iso_cool.flatten(),
         cnn_cool.flatten(),
-        "CNN Prediction Error   (True Isobaric vs CNN Isobaric)",
-    )
-    print_metrics(
-        true_cool.flatten(),
-        cnn_cool.flatten(),
-        "Total Error            (True Fine vs CNN Isobaric)",
+        "CNN Prediction Error   (True PDF vs CNN PDF)",
     )
     
     # =========================
@@ -1035,11 +1028,10 @@ if __name__ == '__main__':
     
         from matplotlib.colors import LogNorm
     
-        SCATTER_MIN = 1e0  # Points with x OR y below this threshold are excluded entirely
+        SCATTER_MIN = 1e-40  # Exclude masked-zero cells; physical CGS values are ~1e-27 to 1e-17
     
-        # Flatten the three cooling fields (raw values; no eps clipping)
+        # Flatten the two cooling fields (raw values; no eps clipping)
         temp_flat = cg_temp.flatten()
-        flat_true = true_cool.flatten()
         flat_true_iso = true_iso_cool.flatten()
         flat_cnn = cnn_cool.flatten()
     
@@ -1062,40 +1054,11 @@ if __name__ == '__main__':
                 ax.fill_between(xs, lo, hi, color="cyan", alpha=0.2, label="16–84%")
                 ax.legend(fontsize=8, loc="upper left")
     
-        fig_sc, axes_sc = plt.subplots(2, 2, figsize=(14, 12))
-        ax_closure = axes_sc[0, 0]
-        ax_pred = axes_sc[0, 1]
-        ax_total = axes_sc[1, 0]
-        ax_resid = axes_sc[1, 1]
+        fig_sc, axes_sc = plt.subplots(1, 2, figsize=(14, 6))
+        ax_pred = axes_sc[0]
+        ax_resid = axes_sc[1]
     
-        # Panel 1: Physics Closure Error (True Fine vs True Isobaric)
-        mask1 = (flat_true >= SCATTER_MIN) & (flat_true_iso >= SCATTER_MIN)
-        xm1, ym1 = flat_true[mask1], flat_true_iso[mask1]
-        tm1 = np.clip(temp_flat[mask1], 1e3, None)
-    
-        hb1 = ax_closure.hexbin(
-            xm1, ym1,
-            C=tm1,
-            reduce_C_function=np.median,
-            xscale="log", yscale="log",
-            gridsize=60,
-            cmap="plasma",
-            norm=LogNorm(vmin=1e3, vmax=1e8),
-            mincnt=1,
-            rasterized=True,
-        )
-        if len(xm1):
-            _lim = [min(xm1.min(), ym1.min()), max(xm1.max(), ym1.max())]
-            ax_closure.plot(_lim, _lim, "r--", lw=1)
-        ax_closure.set_xscale("log")
-        ax_closure.set_yscale("log")
-        ax_closure.set_xlabel("True Fine")
-        ax_closure.set_ylabel("True Isobaric")
-        ax_closure.set_title(f"Physics Closure Error\n({mask1.sum():,} / {len(flat_true):,} points)")
-        plt.colorbar(hb1, ax=ax_closure, label="Median Temperature (K)")
-        add_running_median(ax_closure, xm1, ym1)
-    
-        # Panel 2: CNN Prediction Error (True Isobaric vs CNN Isobaric)
+        # Panel 1: CNN Prediction Error (True PDF vs CNN PDF)
         mask2 = (flat_true_iso >= SCATTER_MIN) & (flat_cnn >= SCATTER_MIN)
         xm2, ym2 = flat_true_iso[mask2], flat_cnn[mask2]
     
@@ -1113,37 +1076,13 @@ if __name__ == '__main__':
             ax_pred.plot(_lim, _lim, "r--", lw=1)
         ax_pred.set_xscale("log")
         ax_pred.set_yscale("log")
-        ax_pred.set_xlabel("True Isobaric")
-        ax_pred.set_ylabel("CNN Isobaric")
+        ax_pred.set_xlabel("True PDF Cooling (erg / cm$^3$ / s)")
+        ax_pred.set_ylabel("CNN PDF Cooling (erg / cm$^3$ / s)")
         ax_pred.set_title(f"CNN Prediction Error\n({mask2.sum():,} / {len(flat_true_iso):,} points)")
         plt.colorbar(hb2, ax=ax_pred, label="log$_{10}$(count)")
         add_running_median(ax_pred, xm2, ym2)
     
-        # Panel 3: Total Error (True Fine vs CNN Isobaric)
-        mask3 = (flat_true >= SCATTER_MIN) & (flat_cnn >= SCATTER_MIN)
-        xm3, ym3 = flat_true[mask3], flat_cnn[mask3]
-    
-        hb3 = ax_total.hexbin(
-            xm3, ym3,
-            xscale="log", yscale="log",
-            gridsize=60,
-            bins="log",
-            cmap="viridis",
-            mincnt=1,
-            rasterized=True,
-        )
-        if len(xm3):
-            _lim = [min(xm3.min(), ym3.min()), max(xm3.max(), ym3.max())]
-            ax_total.plot(_lim, _lim, "r--", lw=1)
-        ax_total.set_xscale("log")
-        ax_total.set_yscale("log")
-        ax_total.set_xlabel("True Fine")
-        ax_total.set_ylabel("CNN Isobaric")
-        ax_total.set_title(f"Total Error\n({mask3.sum():,} / {len(flat_true):,} points)")
-        plt.colorbar(hb3, ax=ax_total, label="log$_{10}$(count)")
-        add_running_median(ax_total, xm3, ym3)
-    
-        # Panel 4: CNN Residuals (log10(CNN / True) vs True Isobaric)
+        # Panel 2: CNN Residuals (log10(CNN / True) vs True PDF)
         mask4 = (flat_true_iso >= SCATTER_MIN) & (flat_cnn >= SCATTER_MIN)
         xm4, ym4 = flat_true_iso[mask4], np.log10(flat_cnn[mask4] / flat_true_iso[mask4])
     
@@ -1158,8 +1097,8 @@ if __name__ == '__main__':
         )
         ax_resid.axhline(0, color="r", linestyle="--", lw=1)
         ax_resid.set_xscale("log")
-        ax_resid.set_xlabel("True Isobaric")
-        ax_resid.set_ylabel(r"$\log_{10}$(CNN Isobaric / True Isobaric)")
+        ax_resid.set_xlabel("True PDF Cooling (erg / cm$^3$ / s)")
+        ax_resid.set_ylabel(r"$\log_{10}$(CNN / True PDF)")
         ax_resid.set_title(f"CNN Residuals\n({mask4.sum():,} / {len(flat_true_iso):,} points)")
         plt.colorbar(hb4, ax=ax_resid, label="log$_{10}$(count)")
         add_running_median(ax_resid, xm4, ym4)
@@ -1167,11 +1106,11 @@ if __name__ == '__main__':
         fig_sc.suptitle("Cooling Rate Comparisons & Diagnostics (All Pixels, All Timesteps)", fontsize=16)
         fig_sc.tight_layout()
         fig_sc.savefig(
-            os.path.join(PDF_MOCKS_DIR, "pdf_cooling_scatter_threeway.png"), dpi=200
+            os.path.join(PDF_MOCKS_DIR, "pdf_cooling_scatter_twoway.png"), dpi=200
         )
         plt.show()
         plt.close(fig_sc)
-        print("Saved multi-panel cooling diagnostic plot.")
+        print("Saved cooling diagnostic plot.")
     
     
     # ============================================================
@@ -1181,11 +1120,10 @@ if __name__ == '__main__':
         print("Creating improved histogram plots...")
     
         _fields = {
-            "True Fine": true_cool.flatten(),
-            "True Isobaric": true_iso_cool.flatten(),
-            "CNN Isobaric": cnn_cool.flatten(),
+            "True PDF": true_iso_cool.flatten(),
+            "CNN PDF": cnn_cool.flatten(),
         }
-        _colors = ["steelblue", "darkorange", "mediumseagreen"]
+        _colors = ["darkorange", "mediumseagreen"]
     
         fig_hist, (ax_zero, ax_pos) = plt.subplots(1, 2, figsize=(14, 5))
     
@@ -1221,7 +1159,7 @@ if __name__ == '__main__':
                 color=col,
             )
     
-        ax_pos.set_xlabel(r"$\log_{10}$(Cooling Rate)")
+        ax_pos.set_xlabel(r"$\log_{10}$(Cooling Rate [erg / cm$^3$ / s])")
         ax_pos.set_ylabel("Probability Density")
         ax_pos.set_title(r"Distribution of Positive $\log_{10}$(Cooling)")
         ax_pos.legend()
@@ -1255,7 +1193,6 @@ if __name__ == '__main__':
                 nb,
                 temp_pdf,
                 conv_temp_pdf,
-                true_cool,
                 true_iso_cool,
                 cnn_cool,
                 log_temp_centers,
@@ -1311,7 +1248,7 @@ if __name__ == '__main__':
         snapshot_fourway_path = os.path.join(PDF_MOCKS_DIR, "pdf_fourway_compare_t0.png")
     
         # ---- Shared colormap + norm for cooling panels ----
-        cool4_vmin, cool4_vmax = get_positive_percentiles(true_cool, cnn_cool)
+        cool4_vmin, cool4_vmax = get_positive_percentiles(true_iso_cool, cnn_cool)
         norm_cool4 = colors.LogNorm(vmin=cool4_vmin, vmax=cool4_vmax)
         cmap_cool4 = plt.get_cmap("magma")
     
@@ -1325,15 +1262,15 @@ if __name__ == '__main__':
         norm_gate = colors.Normalize(vmin=0.0, vmax=1.0)
         cmap_gate = plt.get_cmap("viridis")
     
-        # ---- Build figure: 4 image panels + 4 colorbars ----
-        fig4 = plt.figure(figsize=(22, 6))
+        # ---- Build figure: 3 image panels + 3 colorbars ----
+        fig4 = plt.figure(figsize=(18, 6))
         fig4.patch.set_facecolor("#0d0d0d")
     
-        # gridspec: 4 image cols + 4 narrow cbar cols
+        # gridspec: 3 image cols + 3 narrow cbar cols
         gs4 = fig4.add_gridspec(
             1,
-            8,
-            width_ratios=[1, 0.05, 1, 0.05, 1, 0.05, 1, 0.05],
+            6,
+            width_ratios=[1, 0.05, 1, 0.05, 1, 0.05],
             top=0.82,
             bottom=0.12,
             left=0.05,
@@ -1345,21 +1282,13 @@ if __name__ == '__main__':
             (
                 gs4[0],
                 gs4[1],
-                "True Cooling",
-                cmap_cool4,
-                norm_cool4,
-                "Cooling Rate\n(erg / cm³ / s)",
-            ),
-            (
-                gs4[2],
-                gs4[3],
                 "Predicted Cooling",
                 cmap_cool4,
                 norm_cool4,
                 "Cooling Rate\n(erg / cm³ / s)",
             ),
-            (gs4[4], gs4[5], "Vorticity ω", cmap_vort, norm_vort, "Vorticity (code units)"),
-            (gs4[6], gs4[7], "Gate g(x,y)", cmap_gate, norm_gate, "Gate value ∈ (0, 1)"),
+            (gs4[2], gs4[3], "Vorticity ω", cmap_vort, norm_vort, "Vorticity (code units)"),
+            (gs4[4], gs4[5], "Gate g(x,y)", cmap_gate, norm_gate, "Gate value ∈ (0, 1)"),
         ]
     
         axes4, ims4, cbars4 = [], [], []
@@ -1373,7 +1302,7 @@ if __name__ == '__main__':
             axes4.append(ax)
     
             cax = fig4.add_subplot(cbar_spec)
-            axes4.append(cax)  # store for reference
+            axes4.append(cax)
     
             sm = plt.cm.ScalarMappable(cmap=cmap_p, norm=norm_p)
             sm.set_array([])
@@ -1382,16 +1311,13 @@ if __name__ == '__main__':
             cb.ax.tick_params(colors="white", labelsize=7)
             cbars4.append(cb)
     
-        # Unpack only the image axes (indices 0, 2, 4, 6)
-        ax_tc, _, ax_pc, _, ax_vt, _, ax_gt, _ = [fig4.axes[k] for k in range(8)]
+        # Unpack only the image axes (indices 0, 2, 4)
+        ax_pc, _, ax_vt, _, ax_gt, _ = [fig4.axes[k] for k in range(6)]
     
         def _clip_cool(arr, frame):
             return np.clip(arr[frame], cool4_vmin, None)
     
         # Initial imshow frames
-        im_tc4 = ax_tc.imshow(
-            _clip_cool(true_cool, 0), origin="lower", cmap=cmap_cool4, norm=norm_cool4
-        )
         im_pc4 = ax_pc.imshow(
             _clip_cool(cnn_cool, 0), origin="lower", cmap=cmap_cool4, norm=norm_cool4
         )
@@ -1402,12 +1328,12 @@ if __name__ == '__main__':
             cnn_gate_maps[0], origin="lower", cmap=cmap_gate, norm=norm_gate
         )
     
-        for ax in [ax_tc, ax_pc, ax_vt, ax_gt]:
+        for ax in [ax_pc, ax_vt, ax_gt]:
             ax.set_xlabel("Y (cells)", fontsize=9, color="white")
             ax.set_ylabel("X (cells)", fontsize=9, color="white")
     
         title4 = fig4.suptitle(
-            "True Cooling | Predicted Cooling | Vorticity | Gate   —   t = 0",
+            "Predicted Cooling | Vorticity | Gate   —   t = 0",
             fontsize=15,
             color="white",
             y=0.97,
@@ -1415,31 +1341,29 @@ if __name__ == '__main__':
         )
     
         def init_fourway():
-            im_tc4.set_data(_clip_cool(true_cool, 0))
             im_pc4.set_data(_clip_cool(cnn_cool, 0))
             im_vt4.set_data(cnn_vort_maps[0])
             im_gt4.set_data(cnn_gate_maps[0])
-            return [im_tc4, im_pc4, im_vt4, im_gt4]
+            return [im_pc4, im_vt4, im_gt4]
     
         def update_fourway(frame):
-            im_tc4.set_data(_clip_cool(true_cool, frame))
             im_pc4.set_data(_clip_cool(cnn_cool, frame))
             im_vt4.set_data(cnn_vort_maps[frame])
             im_gt4.set_data(cnn_gate_maps[frame])
             title4.set_text(
-                f"True Cooling | Predicted Cooling | Vorticity | Gate   —   t = {frame}"
+                f"Predicted Cooling | Vorticity | Gate   —   t = {frame}"
             )
             if frame == 0:
                 fig4.savefig(snapshot_fourway_path, dpi=300, facecolor=fig4.get_facecolor())
-                print(f"Saved four-way snapshot → {snapshot_fourway_path}")
-            return [im_tc4, im_pc4, im_vt4, im_gt4]
+                print(f"Saved three-panel snapshot → {snapshot_fourway_path}")
+            return [im_pc4, im_vt4, im_gt4]
     
         anim4 = animation.FuncAnimation(
             fig4, update_fourway, frames=nt, init_func=init_fourway, blit=False
         )
     
-        print("Saving four-way comparison MP4...")
-        with tqdm(total=nt, desc="Saving four-way MP4") as pbar:
+        print("Saving three-panel comparison MP4...")
+        with tqdm(total=nt, desc="Saving three-panel MP4") as pbar:
             anim4.save(
                 mp4_path_fourway,
                 writer="ffmpeg",
@@ -1447,7 +1371,7 @@ if __name__ == '__main__':
                 progress_callback=lambda i, n: pbar.update(1),
             )
     
-        print(f"Saved four-way comparison animation → {mp4_path_fourway}")
+        print(f"Saved three-panel comparison animation → {mp4_path_fourway}")
         plt.close(fig4)
     
     
@@ -1544,7 +1468,7 @@ if RUN_GATE_ENTROPY_DIAGNOSTIC:
     pred_entropy_norm = pred_entropy / np.log(nb)
 
     # ---- 3. Residual: log10(CNN / True Isobaric), masked to positive pairs ----
-    SCATTER_MIN_GE = 1e0
+    SCATTER_MIN_GE = 1e-40  # physical CGS units: ~1e-27 to 1e-17 erg/cm³/s
     mask_ge = (true_iso_cool >= SCATTER_MIN_GE) & (cnn_cool >= SCATTER_MIN_GE)
 
     resid_flat = np.log10(cnn_cool[mask_ge] / true_iso_cool[mask_ge])

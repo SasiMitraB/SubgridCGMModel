@@ -288,47 +288,61 @@ def lambda_cool(temp, mask=False):
 # CENTRALIZED COOLING FUNCTION  (Change #1)
 # =========================
 def compute_cooling_rate(
-    rho_or_pdf, temp, pressure=None, is_pdf=False, is_isobaric=False, T_unit=None
+    rho_or_pdf, temp, pressure=None, is_pdf=False, is_isobaric=False, T_unit=None,
+    rho_cg=None,
 ):
     """
     Standardized cooling calculation using internal Code Units.
-    Both modes calculate an effective `rho_code` and pass it through the exact same physics.
+
+    Formula:  Cooling = n² × Σᵢ PDF(Tᵢ) × Λ(Tᵢ) × unit_fix
+
+    where n = rho / (mu) is the coarse-cell number density.
+    Λ(Tᵢ) is evaluated with mask=True so only the active cooling window
+    (LOGT_ACTIVE_START – LOGT_ACTIVE_END) contributes.
+
+    Modes
+    -----
+    is_pdf=False : Fine-grid scalar path.
+        rho_or_pdf  — code density field (any shape)
+        temp        — temperature field (same shape)
+        Returns     — cooling rate field (same shape)
+
+    is_pdf=True  : PDF-integrated path.
+        rho_or_pdf  — PDF array of shape (nb, nx, ny)
+        temp        — T_centers array of shape (nb,)
+        rho_cg      — coarse-grained code density (nx, ny)  [REQUIRED]
+        Returns     — cooling rate field (nx, ny)
     """
     mu = 0.62
-    unit_fix = 1.975e27  # The grouped conversion (rho_0 * L_0) / (m_H^2 * v_0^3)
+    unit_fix = 1.975e27  # grouped conversion: (rho_0 * L_0) / (m_H^2 * v_0^3)
 
     if not is_pdf:
         # --- Mode 1: Fine-grid scalar path ---
-        # We ALREADY have the code density.
         rho_eff = rho_or_pdf
         lam = lambda_cool(temp, mask=True)
-
         n_code = rho_eff / mu
         return lam * (n_code**2) * unit_fix
 
     else:
         # --- Mode 2: PDF-integrated path ---
-        pdf = rho_or_pdf  # (nb, nx, ny)
-        T_centers = temp  # (nb,)
-        lam = lambda_cool(T_centers, mask=True)  # (nb,)
+        # n² × Σᵢ PDF(Tᵢ) Λ(Tᵢ)   where n = rho_cg / mu (constant per cell)
+        if rho_cg is None:
+            raise ValueError(
+                "rho_cg must be provided for PDF-mode cooling "
+                "(coarse-grained code density, shape (nx, ny))."
+            )
 
-        if is_isobaric:
-            if T_unit is None:
-                raise ValueError("T_unit must be provided for isobaric calculation.")
+        pdf = rho_or_pdf         # (nb, nx, ny)
+        T_centers = temp         # (nb,)
+        lam = lambda_cool(T_centers, mask=True)  # (nb,)  — masked to active window
 
-            # Reconstruct the code density that WOULD exist at this temperature under isobaric assumption
-            # Formula: rho_code = P_code * (T_unit / T_phys)
-            # Shapes : (nx, ny)  * ( scalar / (nb,) ) -> (nb, nx, ny)
-            rho_eff = pressure[None, :, :] * (T_unit / T_centers[:, None, None])
-        else:
-            raise ValueError("Non-isobaric PDF cooling not supported here.")
+        # Σᵢ PDF(Tᵢ) Λ(Tᵢ)  →  (nx, ny)
+        lambda_sum = np.sum(pdf * lam[:, None, None], axis=0)
 
-        n_code = rho_eff / mu
+        # n = rho_cg / mu  →  (nx, ny)
+        n_cg = rho_cg / mu
 
-        # Now it is mathematically identical to the fine-grid path!
-        cooling_per_bin = lam[:, None, None] * (n_code**2) * unit_fix
-
-        return np.sum(pdf * cooling_per_bin, axis=0)  # (nx,ny)
+        return (n_cg**2) * lambda_sum * unit_fix  # (nx, ny)
 
 
 lambda_vals = lambda_cool(T_centers)
@@ -1085,11 +1099,13 @@ def isobaric_emissivity_from_pdf(
     unit_fix=1.975e27,
 ):
     """
-    Computes cell-averaged radiative cooling emissivity under the local isobaric assumption:
-        P_subgrid(T) = P_coarse  =>  n(T) = n_coarse * (T_coarse / T)
-        Emissivity per bin = n(T)^2 * Lambda(T)
-                           = (rho / mu)^2 * (T_coarse / T)^2 * Lambda(T) * unit_fix
-        Cell Emissivity    = sum_i [ pdf_i * n(T_i)^2 * Lambda(T_i) ]
+    Computes cell-averaged radiative cooling emissivity:
+
+        Emissivity = n² × Σᵢ PDF(Tᵢ) × Λ(Tᵢ) × unit_fix
+
+    where n = rho_cg / mu is the coarse-cell number density (constant per cell).
+    Λ(Tᵢ) should already be masked to the active cooling window before being
+    passed as `lambda_tensor`.
 
     Parameters:
     -----------
@@ -1098,11 +1114,11 @@ def isobaric_emissivity_from_pdf(
     rho : torch.Tensor of shape (B, 1, H, W)
         Coarse-grained code density.
     T_coarse : torch.Tensor of shape (B, 1, H, W)
-        Coarse-grained temperature (in K).
+        Coarse-grained temperature (in K).  [kept for API compatibility; not used]
     T_centers_tensor : torch.Tensor of shape (bins,)
-        Temperature bin centers (in K).
+        Temperature bin centers (in K).    [kept for API compatibility; not used]
     lambda_tensor : torch.Tensor of shape (bins,)
-        Cooling curve Lambda(T) in erg cm^3 / s.
+        Cooling curve Λ(T) in erg cm³/s, pre-masked to the active window.
     mu : float
         Mean molecular weight (default 0.62).
     unit_fix : float
@@ -1111,14 +1127,16 @@ def isobaric_emissivity_from_pdf(
     Returns:
     --------
     emiss : torch.Tensor of shape (B, 1, H, W)
-        Isobaric emissivity in code units.
+        Cell emissivity in code units.
     """
-    w = (lambda_tensor.to(pdf.device) / (T_centers_tensor.to(pdf.device) ** 2)).view(
-        1, -1, 1, 1
-    )
-    weighted_sum = torch.sum(pdf * w, dim=1, keepdim=True)
+    # Σᵢ PDF(Tᵢ) Λ(Tᵢ)  →  (B, 1, H, W)
+    lam = lambda_tensor.to(pdf.device).view(1, -1, 1, 1)
+    lambda_sum = torch.sum(pdf * lam, dim=1, keepdim=True)
+
+    # n = rho_cg / mu  →  (B, 1, H, W)
     n_coarse = rho / mu
-    emiss = (n_coarse**2) * (T_coarse**2) * weighted_sum * unit_fix
+
+    emiss = (n_coarse**2) * lambda_sum * unit_fix
     return emiss
 
 
@@ -1158,7 +1176,9 @@ class IsobaricEmissivityLoss(nn.Module):
         else:
             lam_t = torch.tensor(lambda_tensor_input, dtype=torch.float32)
 
-        w = lam_t / (tc**2)
+        # Weight = Λ(T)  (masked to active window).
+        # Normalize to [0, 1] to prevent float32 underflow / gradient explosion.
+        w = lam_t
         w_max = w.max()
         if w_max > 0:
             w_norm = w / w_max

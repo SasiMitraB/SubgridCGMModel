@@ -39,6 +39,7 @@ from .simulation_data import SimulationData
 _DEFAULT_CMAPS: dict[str, str] = {
     "density":     "inferno",
     "pressure":    "inferno",
+    "eint":        "inferno",
     "temperature": "inferno",
     "velx":        "seismic",
     "vely":        "seismic",
@@ -53,6 +54,7 @@ _DEFAULT_CMAPS: dict[str, str] = {
 _TITLES: dict[str, str] = {
     "density":     "log10(Density)",
     "pressure":    "log10(Pressure)",
+    "eint":        "log10(Internal Energy)",
     "temperature": "log10(Temperature)",
     "velx":        "$v_x$ (km/s)",
     "vely":        "$v_y$ (km/s)",
@@ -78,12 +80,12 @@ def _prepare_field_data(
     *,
     log_scale: bool = True,
 ) -> np.ndarray:
-    """Apply log10 to density, pressure, and temperature fields when log_scale is True."""
+    """Apply log10 to density, pressure, eint, and temperature fields when log_scale is True."""
     if log_scale:
         if field_name == "density":
             floor = 1e-10 * sim.units.density
             return np.log10(np.maximum(data, floor))
-        elif field_name == "pressure":
+        elif field_name in ("pressure", "eint"):
             floor = 1e-10 * sim.units.pressure
             return np.log10(np.maximum(data, floor))
         elif field_name == "temperature":
@@ -502,6 +504,8 @@ class MatplotlibVisualization(Visualization):
         fps: int = 60,
         dpi: int = 150,
         writer: str | None = "ffmpeg",
+        crf: int = 10,
+        lossless: bool = False,
         progress_bar: bool = True,
         **kwargs,
     ) -> None:
@@ -520,6 +524,10 @@ class MatplotlibVisualization(Visualization):
             Resolution in dots per inch. Default is 150.
         writer : str, optional
             Video encoder to use (default: "ffmpeg").
+        crf : int, optional
+            Constant Rate Factor / Quantization Parameter (lower = less compression / higher quality, default: 10).
+        lossless : bool, optional
+            If True, encode with true lossless compression. Default is False.
         progress_bar : bool, optional
             Whether to display a progress bar. Default is True.
         """
@@ -596,18 +604,54 @@ class MatplotlibVisualization(Visualization):
                 else:
                     list(executor.map(_render_frame_worker, tasks))
 
-            ffmpeg_cmd = [
-                "ffmpeg", "-y",
-                "-framerate", str(fps),
-                "-i", os.path.join(tmpdir, "frame_%06d.png"),
-                "-c:v", "libx264",
-                "-pix_fmt", "yuv420p",
-                "-preset", "fast",
-                str(filename_path),
-            ]
-            res = subprocess.run(ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-            if res.returncode != 0:
-                raise RuntimeError(f"FFmpeg encoding failed:\n{res.stderr}")
+            # Detect available encoders and configure high quality / low compression
+            encoders_to_try = []
+            try:
+                enc_check = subprocess.run(
+                    ["ffmpeg", "-hide_banner", "-encoders"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.DEVNULL,
+                    text=True,
+                    check=False,
+                )
+                stdout = enc_check.stdout
+            except Exception:
+                stdout = ""
+
+            if "h264_nvenc" in stdout:
+                if lossless:
+                    encoders_to_try.append(["-c:v", "h264_nvenc", "-preset", "p7", "-tune", "lossless"])
+                else:
+                    encoders_to_try.append(["-c:v", "h264_nvenc", "-preset", "p7", "-rc", "constqp", "-qp", str(crf)])
+
+            if "libx264" in stdout:
+                if lossless:
+                    encoders_to_try.append(["-c:v", "libx264", "-crf", "0", "-preset", "slow"])
+                else:
+                    encoders_to_try.append(["-c:v", "libx264", "-crf", str(crf), "-preset", "slow"])
+
+            encoders_to_try.append(["-c:v", "mpeg4", "-qscale:v", "1"])
+
+            encoded = False
+            last_err = ""
+            for enc_args in encoders_to_try:
+                ffmpeg_cmd = [
+                    "ffmpeg", "-y",
+                    "-framerate", str(fps),
+                    "-i", os.path.join(tmpdir, "frame_%06d.png"),
+                    "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2",
+                    *enc_args,
+                    "-pix_fmt", "yuv420p",
+                    str(filename_path),
+                ]
+                res = subprocess.run(ffmpeg_cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+                if res.returncode == 0:
+                    encoded = True
+                    break
+                last_err = res.stderr
+
+            if not encoded:
+                raise RuntimeError(f"FFmpeg encoding failed:\n{last_err}")
 
             print(f"[{self._sim.basename}] Saved animation ({total_frames} frames using {n_jobs} cores) to: {filename_path}")
 

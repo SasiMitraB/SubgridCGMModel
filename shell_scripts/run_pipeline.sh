@@ -49,7 +49,7 @@ set -euo pipefail
 PROJECT_ROOT="/home/sasi/Projects/SubgridCGMModel"
 
 # ---- Canonical HR output (training data source; not re-run here) ----
-HR_SIM_OUTPUT="${PROJECT_ROOT}/simulation_outputs/hr_build_1024"
+HR_SIM_OUTPUT="${PROJECT_ROOT}/simulation_outputs/hr_build_512"
 HR_BIN_DIR="${HR_SIM_OUTPUT}/bin"
 
 # ---- LR 5 Myr base simulation (Step 2) ----
@@ -166,9 +166,9 @@ PY
 )
 export PDF_CNN_RESOLUTION PDF_CNN_DOWNSAMPLE
 
-# Active cooling window log10(T) bounds (default: 4.2 to 6.0)
-export LOGT_ACTIVE_START="${LOGT_ACTIVE_START:-4.2}"
-export LOGT_ACTIVE_END="${LOGT_ACTIVE_END:-6.0}"
+# Active cooling window log10(T) bounds (default: 4.1 to 5.9)
+export LOGT_ACTIVE_START="${LOGT_ACTIVE_START:-4.1}"
+export LOGT_ACTIVE_END="${LOGT_ACTIVE_END:-5.9}"
 
 # ---------------------------------------------------------------------------
 # Write a manifest of all key paths for this run

@@ -74,10 +74,13 @@ def _resolve_scalar(raw_fields: dict, *candidates: str) -> Optional[np.ndarray]:
     return None
 
 
-def _resolve_all(raw_fields: dict) -> dict[str, np.ndarray]:
+def _resolve_all(raw_fields: dict, gamma: float = 5.0 / 3.0) -> dict[str, np.ndarray]:
     """
-    Normalise raw VTK field names to the standard library keys:
-    density, pressure, velx, vely, velz, bx, by, bz.
+    Normalise raw field names to the standard library keys:
+    density, pressure, eint, velx, vely, velz, bx, by, bz.
+
+    When raw files output internal energy density ('eint'), actual pressure
+    is derived via P = (gamma - 1) * eint.
 
     Missing fields are silently omitted (not every simulation has B-fields).
     """
@@ -87,11 +90,6 @@ def _resolve_all(raw_fields: dict) -> dict[str, np.ndarray]:
     arr = _resolve_scalar(raw_fields, "rho", "dens")
     if arr is not None:
         out["density"] = arr
-
-    # Pressure / internal energy
-    arr = _resolve_scalar(raw_fields, "press", "eint")
-    if arr is not None:
-        out["pressure"] = arr
 
     # Velocities — may come as a single vector field "vel" or as separate scalars
     if "vel" in raw_fields:
@@ -104,6 +102,34 @@ def _resolve_all(raw_fields: dict) -> dict[str, np.ndarray]:
         for key, src in [("velx", "velx"), ("vely", "vely"), ("velz", "velz")]:
             if src in raw_fields:
                 out[key] = raw_fields[src]
+
+    # Handle velocities from momenta if reading conserved variables (hydro_u)
+    if "density" in out:
+        for v_key, mom_key in [("velx", "mom1"), ("vely", "mom2"), ("velz", "mom3")]:
+            if v_key not in out and mom_key in raw_fields:
+                out[v_key] = raw_fields[mom_key] / (out["density"] + 1e-30)
+
+    # Pressure and internal energy
+    arr_press = _resolve_scalar(raw_fields, "press", "pressure", "p")
+    arr_eint = _resolve_scalar(raw_fields, "eint", "internal_energy")
+    arr_ener = _resolve_scalar(raw_fields, "ener", "total_energy")
+
+    if arr_press is not None:
+        out["pressure"] = arr_press
+        out["eint"] = arr_press / (gamma - 1.0)
+    elif arr_eint is not None:
+        out["eint"] = arr_eint
+        out["pressure"] = arr_eint * (gamma - 1.0)
+    elif arr_ener is not None:
+        # Total energy E = e_int + 0.5 * rho * v^2
+        e_kin = 0.0
+        if "density" in out:
+            rho = out["density"]
+            vsq = sum(out[v] ** 2 for v in ("velx", "vely", "velz") if v in out)
+            e_kin = 0.5 * rho * vsq
+        e_int = arr_ener - e_kin
+        out["eint"] = e_int
+        out["pressure"] = e_int * (gamma - 1.0)
 
     # Passive scalars — Athena output uses s_00, s_01, ... for primitive scalars
     # and r_00, r_01, ... for conserved scalar mass densities.
@@ -147,6 +173,7 @@ class Frame:
     # Physical fields (None when not present in this simulation)
     density:  Optional[np.ndarray] = None
     pressure: Optional[np.ndarray] = None
+    eint:     Optional[np.ndarray] = None
     velx:     Optional[np.ndarray] = None
     vely:     Optional[np.ndarray] = None
     velz:     Optional[np.ndarray] = None
@@ -187,7 +214,7 @@ class Frame:
 
     def __repr__(self) -> str:
         available = [
-            k for k in ("density", "pressure", "temperature", "velx", "vely", "velz", "bx", "by", "bz")
+            k for k in ("density", "pressure", "eint", "temperature", "velx", "vely", "velz", "bx", "by", "bz")
             if getattr(self, k) is not None
         ]
         available.extend(sorted(self.scalars))
@@ -435,6 +462,7 @@ class SimulationData:
                 f"Available range: {self._frame_numbers[0]} – {self._frame_numbers[-1]}"
             )
 
+        gamma = self.gamma if self.gamma is not None else 5.0 / 3.0
         if self._file_format == "vtk":
             raw    = parse_athena_vtk(self._hydro_files[num], dtype=self._dtype)
             merged = dict(raw["fields"])
@@ -443,7 +471,7 @@ class SimulationData:
                 bcc_raw = parse_athena_vtk(self._bcc_files[num], dtype=self._dtype)
                 merged.update(bcc_raw["fields"])
 
-            return _resolve_all(merged), raw["time"], raw["x"], raw["y"]
+            return _resolve_all(merged, gamma=gamma), raw["time"], raw["x"], raw["y"]
 
         elif self._file_format == "bin":
             data_h = bin_reader.read_all_ranks_binary_as_athdf(str(self._hydro_files[num]), dtype=self._dtype)
@@ -469,7 +497,7 @@ class SimulationData:
                         else:
                             merged[k] = val
 
-            return _resolve_all(merged), time_val, x_code, y_code
+            return _resolve_all(merged, gamma=gamma), time_val, x_code, y_code
 
     def _infer_scalar_fields(self) -> list[str]:
         """Discover scalar field names from the first available frame."""
@@ -595,7 +623,7 @@ class SimulationData:
     @property
     def fields_available(self) -> list[str]:
         """Normalised field names available in this simulation."""
-        base = ["density", "pressure", "velx", "vely"]
+        base = ["density", "pressure", "eint", "velx", "vely"]
         if self._physics == "mhd":
             base += ["bx", "by"]
         if "density" in base and "pressure" in base:
@@ -682,8 +710,13 @@ class SimulationData:
 
     @property
     def pressure(self) -> _FieldAccessor:
-        """Accessor for the pressure (or internal energy) field."""
+        """Accessor for the pressure field."""
         return self._get_accessor("pressure")
+
+    @property
+    def eint(self) -> _FieldAccessor:
+        """Accessor for the internal energy density field."""
+        return self._get_accessor("eint")
 
     @property
     def temperature(self) -> _FieldAccessor:
@@ -756,7 +789,7 @@ class SimulationData:
             y=y_code * u.length,
             units=u,
             **{k: scaled_fields.get(k)
-               for k in ("density", "pressure", "velx", "vely", "velz", "bx", "by", "bz")},
+               for k in ("density", "pressure", "eint", "velx", "vely", "velz", "bx", "by", "bz")},
             scalars=scalar_fields,
         )
 

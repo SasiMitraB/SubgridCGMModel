@@ -42,6 +42,7 @@ import math
 _DERIVED_LABELS: dict[str, str] = {
     "density":  "ρ",
     "pressure": "P",
+    "eint":     "e_int",
     "velx":     "v_x",
     "vely":     "v_y",
     "velz":     "v_z",
@@ -170,6 +171,7 @@ class Units:
         mapping: dict[str, float] = {
             "density":  self.density,
             "pressure": self.pressure,
+            "eint":     self.pressure,
             "velx":     self.velocity,
             "vely":     self.velocity,
             "velz":     self.velocity,

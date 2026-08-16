@@ -78,6 +78,9 @@ class simulation_data():
     total_width: float = 20 # pc
     resolution: tuple = (512, 256) 
     gamma: float = 5./3.
+    mu: float = 0.62
+    kb: float = 1.3807e-16
+    P_unit: float = 1.59916e-14
 
     def __init__(self: "simulation_data") -> None:
 
@@ -129,8 +132,8 @@ class simulation_data():
             except Exception:
                 pass
 
-            self.pressure[idx] = 2./3. * self.eint[idx]
-            self.temp[idx] = (self.pressure[idx] * 1.59916e-14 / self.rho[idx]) * (1. / 1.381e-16)
+            self.pressure[idx] = (self.gamma - 1.0) * self.eint[idx]
+            self.temp[idx] = (self.pressure[idx] * self.P_unit / self.rho[idx]) * (self.mu / self.kb)
 
         os.chdir(cwd)
         return
@@ -374,7 +377,7 @@ class simulation_data():
                                                 self.coarse_grain(self.uy[i]*(self.gamma*self.pressure[i]/(self.gamma-1) + self.rho[i]*(self.ux[i]**2 + self.uy[i]**2)/2))]), dx, dy)
 
             # cooling flux
-            temp = (cg_pressure[i]/cg_rho[i]) * 1.59916e-14 / 1.381e-16 # mass weighted temperature
+            temp = (cg_pressure[i]/cg_rho[i]) * self.P_unit * (self.mu / self.kb) # mass weighted temperature
             # temp = cg_temp[i] # volume weighted temperature
             rho_cgs = cg_rho[i] 
             mu = 0.62   

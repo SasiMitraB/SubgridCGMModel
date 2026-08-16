@@ -28,12 +28,12 @@ simulations = [
         'datafolder': os.path.join(SIM_ROOT, 'hr_mpi_512x1024'),
         'save_path':  os.path.join(OUT_ROOT, 'hr_mpi_512x1024.mp4'),
     },
-    {
-        'name':       'hr_mpi_1024x2048',
-        'athinp':     os.path.join(SIM_ROOT, 'hr_mpi_1024x2048', 'kh_radiative_1024x2048.athinput'),
-        'datafolder': os.path.join(SIM_ROOT, 'hr_mpi_1024x2048'),
-        'save_path':  os.path.join(OUT_ROOT, 'hr_mpi_1024x2048.mp4'),
-    },
+#     {
+#         'name':       'hr_mpi_1024x2048',
+#         'athinp':     os.path.join(SIM_ROOT, 'hr_mpi_1024x2048', 'kh_radiative_1024x2048.athinput'),
+#         'datafolder': os.path.join(SIM_ROOT, 'hr_mpi_1024x2048'),
+#         'save_path':  os.path.join(OUT_ROOT, 'hr_mpi_1024x2048.mp4'),
+#     },
 ]
 
 # ── Render and save each simulation ─────────────────────────────────────────

@@ -45,9 +45,11 @@ import torch.nn.functional as F
 from pdf_cnn import (
     ConvNN,
     batch_size,
+    compute_cooling_rate,
     device,
     dropout_rate,
     in_channels,
+    isobaric_emissivity_from_pdf,
     kernel_size,
     lambda_cool,
     layer_size1,
@@ -71,6 +73,9 @@ layer_size5 = 512
 total_length: float = 20
 total_width: float = 10
 gamma: float = 5.0 / 3.0
+P_unit: float = 1.59916e-14
+mu: float = 0.62
+kb: float = 1.3807e-16
 T_edges = np.logspace(3.0, 7.0, out_channels + 1)
 T_centers = np.sqrt(T_edges[:-1] * T_edges[1:])
 logT_centers = torch.log10(torch.tensor(T_centers, dtype=torch.float32))
@@ -92,12 +97,13 @@ def source_func(rho, pres, ux, uy, ps, fmcl):
     global input_mean, input_std
     global device
     global total_length, total_width
+    global P_unit, mu, kb
 
     # ------------------------------------------------------------
-    # Temperature
+    # Temperature (matches data_preprocess.py formula)
     # ------------------------------------------------------------
 
-    temp = (np.array(pres) * 1.59916e-14 / np.array(rho)) * (1.0 / 1.381e-16)
+    temp = (np.array(pres) * P_unit / np.array(rho)) * (mu / kb)
     # ------------------------------------------------------------
     # Build input fields & allocate source term
     # ------------------------------------------------------------
@@ -145,32 +151,31 @@ def source_func(rho, pres, ux, uy, ps, fmcl):
         dx = total_width / rho.shape[1]
 
     # ------------------------------------------------------------
-    # Cooling source term (Corrected for Code Units + Isobaric)
+    # Cooling source term (Code Units)
     # ------------------------------------------------------------
-    # Physics constants matching your simulation scales
-    T_unit = 115.797      # derived from (1.59916e-14 / 1.381e-16)
-    mu = 0.62             # mean molecular weight
-    unit_fix = 1.975e27   # grouped conversion factor for code units
+    # Uses isobaric_emissivity_from_pdf from training: n^2 * \sum_i PDF(T_i) * Lambda(T_i) * unit_fix (in code units)
+    lambda_tensor = torch.tensor(lambda_cool(T_centers, mask=True), dtype=torch.float32)
+    pdf_tensor = torch.from_numpy(pdf).unsqueeze(0).float()
+    rho_tensor = torch.from_numpy(cg["cg_rho"]).unsqueeze(0).unsqueeze(0).float()
+    temp_tensor = torch.from_numpy(cg["cg_temp"]).unsqueeze(0).unsqueeze(0).float()
+    t_centers_tensor = torch.tensor(T_centers, dtype=torch.float32)
 
-    nb = out_channels
-    temp_bins = np.logspace(3, 7, nb + 1)
-    temp_centers = np.sqrt(temp_bins[:-1] * temp_bins[1:])
-    T = temp_centers[:, None, None]
+    emiss = isobaric_emissivity_from_pdf(
+        pdf=pdf_tensor,
+        rho=rho_tensor,
+        T_coarse=temp_tensor,
+        T_centers_tensor=t_centers_tensor,
+        lambda_tensor=lambda_tensor,
+        mu=mu,
+        unit_fix=1.975e27,
+    )
+    cool_rate = emiss.squeeze().cpu().numpy()
 
-    # Pressure is in Code Units
-    P_code = np.transpose(pres)[None, :, :]
-
-    # 1. Isobaric Density Reconstruction (IN CODE UNITS)
-    rho_per_bin = P_code * (T_unit / T)
-    n_code_per_bin = rho_per_bin / mu
-
-    # 2. Emissivity per bin (converted back to Code Units)
-    lam = lambda_cool(T, mask=True)
-    cool_per_bin = lam * (n_code_per_bin**2) * unit_fix
-
-    # 3. Integrate across the predicted subgrid PDF
-    cool_rate = np.sum(pdf * cool_per_bin, axis=0)
-    #cool_rate = cool_rate[:, ::-1]
+    # Safety cap: bound energy cooling rate per cell relative to local thermal energy
+    # e_int = P / (gamma - 1)
+    e_int = np.transpose(pres) / (gamma - 1.0)
+    max_cool_rate = np.maximum(0.0, 0.5 * e_int / 0.001)
+    cool_rate = np.clip(cool_rate, 0.0, max_cool_rate)
 
     # energy source term
     source_term[3] = -cool_rate

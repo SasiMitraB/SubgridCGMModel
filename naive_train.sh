@@ -1,8 +1,8 @@
 #!/bin/bash
-export SUBGRID_DATA_PATH='/home/sasi/Projects/SubgridCGMModel/simulation_outputs/hr_build_1024/bin'
-export SUBGRID_CACHE_PATH='/home/sasi/Projects/SubgridCGMModel/simulation_outputs/hr_build_1024/cache'
-export PDF_CNN_RESOLUTION='1024,512'
-export PDF_CNN_DOWNSAMPLE='64'
+export SUBGRID_DATA_PATH='/home/sasi/Projects/SubgridCGMModel/simulation_outputs/hr_build_512/bin'
+export SUBGRID_CACHE_PATH='/home/sasi/Projects/SubgridCGMModel/simulation_outputs/hr_build_512/cache'
+export PDF_CNN_RESOLUTION='512,256'
+export PDF_CNN_DOWNSAMPLE='32'
 
 . /home/sasi/Projects/SubgridCGMModel/venv/bin/activate
 

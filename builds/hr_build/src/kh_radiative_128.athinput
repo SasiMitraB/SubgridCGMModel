@@ -53,33 +53,23 @@ ism_cooling = true
 hrate 	    = 0
 
 <problem>
+# Copied straight from https://github.com/ArnavK04/Structure-of-Turbulent-Radiative-Mixing-Layers/blob/main/inputs/kh_cooling1.athinput
 iprob = 1               # flag to select setup
-amp   = 0.01            # amplitude of sinusoidal perturbation (vshear/100)
-sigma = 0.25            # width of gaussian profile
-
-#vx_hot = 30.784         # hot phase velocity (~ +30.1 km/s)
-vx_hot = 28.2653        #new velocity consistent with Dimotakis
-#vx_hot = 0.0
-#vx_hot = 56.5306
-#vx_cold = -0.3078 	    # cold phase velocity (~ -0.301 km/s)
-vx_cold = -2.8265
-#vx_cold = -5.6530
-
-a_char = 0.0625		    # width of tanh profile
-#a_char = 0.125
-rho_cold = 0.1
+amp   = 0.05            # amplitude of sinusoidal perturbation (vshear/100)
+sigma = 0.5             # width of gaussian profile
+vx_hot = 28.1818182     # hot phase velocity (~ +30.1 km/s)
+vx_cold = -2.8181818 	# cold phase velocity (~ -0.301 km/s)
+a_char = 0.125		# width of tanh profile
+rho_cold = 0.1 
 rho_hot  = 0.001
-press = 13.925145161290322 # Since mu was updated, even pressure should be updated from 8.63359
-#cold_frac = 0.16666667	# fraction of region occupied by cold gas
-cold_frac = 0.5000000
-#cold_frac = 0.3300000
+press = 14.02645        # pressure = 2.22685e-13 dyne cm^-3
+cold_frac = 0.66666667  # fraction of region occupied by cold gas
 
 <units>
-length_cgs  = 3.08568e+18
-mass_cgs    = 4.91417e+31
-time_cgs    = 3.15576e+13
+length_cgs  = 3.08568e+18  
+mass_cgs    = 4.91417e+31   
+time_cgs    = 3.15576e+13             
 mu = 0.62
-# This is because we're in plasma and things need to be ionized.
 
 # Units :-
 # length = 1 pc = 3.08568e+18 cm
@@ -90,6 +80,8 @@ mu = 0.62
 # energy   = 4.69834e+41 ergs
 # power    = 1.48881e+28 erg/s
 # energy density/pressure = 1.59916e-14 dyne/cm^2
+# temperature unit = 71.2937
+
 
 <output1>
 file_type  = hst       # History data dump

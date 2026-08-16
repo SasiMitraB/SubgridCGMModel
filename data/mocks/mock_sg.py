@@ -33,8 +33,8 @@ import subprocess
 from functools import partial
 
 
-LOGT_ACTIVE_START = float(os.environ.get("LOGT_ACTIVE_START", "4.2"))
-LOGT_ACTIVE_END = float(os.environ.get("LOGT_ACTIVE_END", "6.0"))
+LOGT_ACTIVE_START = float(os.environ.get("LOGT_ACTIVE_START", "4.1"))
+LOGT_ACTIVE_END = float(os.environ.get("LOGT_ACTIVE_END", "5.9"))
 bins_pdf = np.logspace(LOGT_ACTIVE_START, LOGT_ACTIVE_END, 200)
 window = 10
 
@@ -77,12 +77,15 @@ def parallel_save_animation(render_func, frames_list, output_path, fps=10, num_w
         with ctx.Pool(processes=num_workers) as pool:
             list(tqdm(pool.imap(worker, frames_list), total=len(frames_list), desc=os.path.basename(output_path)))
 
-        # Stitch frames with ffmpeg
+        # Stitch frames with ffmpeg.
+        # Use h264_nvenc (NVIDIA hardware encoder) since libx264 is not available
+        # in this ffmpeg build. Falls back to mpeg4 if nvenc is unavailable.
         cmd = [
             'ffmpeg', '-y',
             '-r', str(fps),
             '-i', os.path.join(temp_dir, 'frame_%04d.png'),
-            '-c:v', 'libx264',
+            '-c:v', 'h264_nvenc',
+            '-preset', 'p4',
             '-pix_fmt', 'yuv420p',
             output_path
         ]
@@ -102,13 +105,14 @@ def render_frame_all_fields(frame, temp_dir):
     import numpy as np
     import os
 
-    fig, axs = plt.subplots(6, 3, figsize=(8, 20))
+    fig, axs = plt.subplots(6, 4, figsize=(11, 20))
     for i in range(6):
         f_hr = fields_hr[i][frame]
+        f_cg_hr = fields_cg_hr[i][frame]
         f_sg = fields_sg[i][frame]
         f_lr = fields_lr[i][frame]
 
-        arr = np.concatenate([f_hr.flatten(), f_sg.flatten(), f_lr.flatten()])
+        arr = np.concatenate([f_hr.flatten(), f_cg_hr.flatten(), f_sg.flatten(), f_lr.flatten()])
         use_log = (i == 0 or i == 1)
         vmin, vmax, norm = compute_color_limits(arr, use_log=use_log)
 
@@ -116,13 +120,17 @@ def render_frame_all_fields(frame, temp_dir):
         axs[i, 0].set_title(f"HR {titles[i]}")
         plt.colorbar(im0, ax=axs[i, 0], fraction=0.035, pad=0.02)
 
-        im1 = axs[i, 1].imshow(f_sg, origin='lower', cmap='plasma', norm=norm, vmin=None if norm else vmin, vmax=None if norm else vmax)
-        axs[i, 1].set_title(f"SG {titles[i]}")
+        im1 = axs[i, 1].imshow(f_cg_hr, origin='lower', cmap='plasma', norm=norm, vmin=None if norm else vmin, vmax=None if norm else vmax)
+        axs[i, 1].set_title(f"CG HR {titles[i]}")
         plt.colorbar(im1, ax=axs[i, 1], fraction=0.035, pad=0.02)
 
-        im2 = axs[i, 2].imshow(f_lr, origin='lower', cmap='plasma', norm=norm, vmin=None if norm else vmin, vmax=None if norm else vmax)
-        axs[i, 2].set_title(f"LR {titles[i]}")
+        im2 = axs[i, 2].imshow(f_sg, origin='lower', cmap='plasma', norm=norm, vmin=None if norm else vmin, vmax=None if norm else vmax)
+        axs[i, 2].set_title(f"SG {titles[i]}")
         plt.colorbar(im2, ax=axs[i, 2], fraction=0.035, pad=0.02)
+
+        im3 = axs[i, 3].imshow(f_lr, origin='lower', cmap='plasma', norm=norm, vmin=None if norm else vmin, vmax=None if norm else vmax)
+        axs[i, 3].set_title(f"LR {titles[i]}")
+        plt.colorbar(im3, ax=axs[i, 3], fraction=0.035, pad=0.02)
 
     for ax in axs.flat:
         ax.set_xlabel(f"Timestep: {frame}")
@@ -140,13 +148,14 @@ def render_frame_cons_fields(frame, temp_dir):
     import numpy as np
     import os
 
-    fig, axs = plt.subplots(6, 3, figsize=(8, 20))
+    fig, axs = plt.subplots(6, 4, figsize=(11, 20))
     for i in range(6):
         f_hr = cons_fields_hr[i][frame]
+        f_cg_hr = cons_fields_cg_hr[i][frame]
         f_sg = cons_fields_sg[i][frame]
         f_lr = cons_fields_lr[i][frame]
 
-        arr = np.concatenate([f_hr.flatten(), f_sg.flatten(), f_lr.flatten()])
+        arr = np.concatenate([f_hr.flatten(), f_cg_hr.flatten(), f_sg.flatten(), f_lr.flatten()])
         use_log = (i == 0 or i == 3)
         vmin, vmax, norm = compute_color_limits(arr, use_log=use_log)
 
@@ -154,13 +163,17 @@ def render_frame_cons_fields(frame, temp_dir):
         plt.colorbar(im0, ax=axs[i, 0], fraction=0.035, pad=0.02)
         axs[i, 0].set_title(f"HR {cons_titles[i]}")
 
-        im1 = axs[i, 1].imshow(f_sg, origin="lower", cmap="plasma", norm=norm, vmin=None if norm else vmin, vmax=None if norm else vmax)
+        im1 = axs[i, 1].imshow(f_cg_hr, origin="lower", cmap="plasma", norm=norm, vmin=None if norm else vmin, vmax=None if norm else vmax)
         plt.colorbar(im1, ax=axs[i, 1], fraction=0.035, pad=0.02)
-        axs[i, 1].set_title(f"SG {cons_titles[i]}")
+        axs[i, 1].set_title(f"CG HR {cons_titles[i]}")
 
-        im2 = axs[i, 2].imshow(f_lr, origin="lower", cmap="plasma", norm=norm, vmin=None if norm else vmin, vmax=None if norm else vmax)
+        im2 = axs[i, 2].imshow(f_sg, origin="lower", cmap="plasma", norm=norm, vmin=None if norm else vmin, vmax=None if norm else vmax)
         plt.colorbar(im2, ax=axs[i, 2], fraction=0.035, pad=0.02)
-        axs[i, 2].set_title(f"LR {cons_titles[i]}")
+        axs[i, 2].set_title(f"SG {cons_titles[i]}")
+
+        im3 = axs[i, 3].imshow(f_lr, origin="lower", cmap="plasma", norm=norm, vmin=None if norm else vmin, vmax=None if norm else vmax)
+        plt.colorbar(im3, ax=axs[i, 3], fraction=0.035, pad=0.02)
+        axs[i, 3].set_title(f"LR {cons_titles[i]}")
 
     for ax in axs.flat:
         ax.set_xlabel(f"Timestep: {frame}")
@@ -178,7 +191,7 @@ def render_frame_rho(frame, temp_dir):
     import numpy as np
     import os
 
-    fig, axs = plt.subplots(1, 3, figsize=(10, 5))
+    fig, axs = plt.subplots(1, 4, figsize=(14, 4.5))
 
     # To match original static colorbar, we compute limits from frame 0
     vmin_hr = hr_rho[0][hr_rho[0] > 0].min()
@@ -187,17 +200,23 @@ def render_frame_rho(frame, temp_dir):
     axs[0].set_title(rf"HR (${hr_resolution[0]} \times {hr_resolution[1]}$) Density")
     plt.colorbar(im_hr_rho, ax=axs[0], fraction=0.046, pad=0.04)
 
+    vmin_cg_hr = cg_hr_rho[0][cg_hr_rho[0] > 0].min()
+    vmax_cg_hr = cg_hr_rho[0].max()
+    im_cg_hr_rho = axs[1].imshow(cg_hr_rho[frame], origin="lower", cmap="plasma", norm=LogNorm(vmin=vmin_cg_hr, vmax=vmax_cg_hr))
+    axs[1].set_title(rf"CG HR (${resolution[0]} \times {resolution[1]}$) Density")
+    plt.colorbar(im_cg_hr_rho, ax=axs[1], fraction=0.046, pad=0.04)
+
     vmin_sg = rho[0][rho[0] > 0].min()
     vmax_sg = rho[0].max()
-    im_rho = axs[1].imshow(rho[frame], origin="lower", cmap="plasma", norm=LogNorm(vmin=vmin_sg, vmax=vmax_sg))
-    axs[1].set_title(rf"SG (${resolution[0]} \times {resolution[1]}$) Density (sigma=3)")
-    plt.colorbar(im_rho, ax=axs[1], fraction=0.046, pad=0.04)
+    im_rho = axs[2].imshow(rho[frame], origin="lower", cmap="plasma", norm=LogNorm(vmin=vmin_sg, vmax=vmax_sg))
+    axs[2].set_title(rf"SG (${resolution[0]} \times {resolution[1]}$) Density")
+    plt.colorbar(im_rho, ax=axs[2], fraction=0.046, pad=0.04)
 
     vmin_lr = lr_rho[0][lr_rho[0] > 0].min()
     vmax_lr = lr_rho[0].max()
-    im_lr_rho = axs[2].imshow(lr_rho[frame], origin="lower", cmap="plasma", norm=LogNorm(vmin=vmin_lr, vmax=vmax_lr))
-    axs[2].set_title(rf"LR (${lr_resolution[0]} \times {lr_resolution[1]}$) Density")
-    plt.colorbar(im_lr_rho, ax=axs[2], fraction=0.046, pad=0.04)
+    im_lr_rho = axs[3].imshow(lr_rho[frame], origin="lower", cmap="plasma", norm=LogNorm(vmin=vmin_lr, vmax=vmax_lr))
+    axs[3].set_title(rf"LR (${lr_resolution[0]} \times {lr_resolution[1]}$) Density")
+    plt.colorbar(im_lr_rho, ax=axs[3], fraction=0.046, pad=0.04)
 
     for ax in axs.flat:
         ax.set_xlabel(f"Timestep: {frame}")
@@ -226,10 +245,12 @@ def render_frame_temp_pdf(frame, temp_dir):
     ax.set_title(f"Time step {frame + 1}")
     end = min(frame + window, temp.shape[0])
     h_hr, _ = np.histogram(hr_temp[frame:end].ravel(), bins=bins_pdf, density=True)
+    h_cg_hr, _ = np.histogram(cg_hr_temp[frame:end].ravel(), bins=bins_pdf, density=True)
     h_lr, _ = np.histogram(lr_temp[frame:end].ravel(), bins=bins_pdf, density=True)
     h_sg, _ = np.histogram(temp[frame:end].ravel(), bins=bins_pdf, density=True)
 
     ax.plot(bins_pdf[:-1], h_hr, lw=2.0, ls="-",  marker="^", markersize=4, label="HR")
+    ax.plot(bins_pdf[:-1], h_cg_hr, lw=2.0, ls=":", marker="d", markersize=4, label="CG HR")
     ax.plot(bins_pdf[:-1], h_sg, lw=2.0, ls="-.", marker="o", markersize=4, label="SG")
     ax.plot(bins_pdf[:-1], h_lr, lw=2.0, ls="--", marker="s", markersize=4, label="LR")
     ax.legend()
@@ -242,7 +263,7 @@ def render_frame_temp_pdf(frame, temp_dir):
 def render_frame_cooling_rate(frame, temp_dir):
     """
     Render one frame of the cooling-rate comparison animation.
-    Panels: HR Full-Res | SG (snapshot_pred_16x8) | LR
+    Panels: HR Full-Res | CG HR | SG (snapshot_pred_16x8) | LR
     Matches the viridis colormap, percentile LogNorm scaling, and layout of pdf_plot.py.
     """
     import matplotlib
@@ -252,17 +273,18 @@ def render_frame_cooling_rate(frame, temp_dir):
     import numpy as np
     import os
 
-    f_hr = emis_hr[frame]   # full-resolution HR emissivity
+    f_hr = emis_hr[frame]       # full-resolution HR emissivity
+    f_cg_hr = emis_cg_hr[frame] # coarse-grained HR emissivity
     f_sg = emis_sg[frame]
     f_lr = emis_lr[frame]
 
     norm_cool = colors.LogNorm(vmin=cool_vmin, vmax=cool_vmax)
     cmap_cool = plt.get_cmap("viridis")
 
-    fig = plt.figure(figsize=(15, 5))
+    fig = plt.figure(figsize=(19, 5))
     gs = fig.add_gridspec(
-        1, 4,
-        width_ratios=[1, 1, 1, 0.04],
+        1, 5,
+        width_ratios=[1, 1, 1, 1, 0.04],
         wspace=0.25,
         top=0.86, bottom=0.15, left=0.05, right=0.94
     )
@@ -274,13 +296,15 @@ def render_frame_cooling_rate(frame, temp_dir):
     )
 
     ax_hr = fig.add_subplot(gs[0])
-    ax_sg = fig.add_subplot(gs[1])
-    ax_lr = fig.add_subplot(gs[2])
+    ax_cg_hr = fig.add_subplot(gs[1])
+    ax_sg = fig.add_subplot(gs[2])
+    ax_lr = fig.add_subplot(gs[3])
 
-    cool_axes = [ax_hr, ax_sg, ax_lr]
-    cool_fields = [f_hr, f_sg, f_lr]
+    cool_axes = [ax_hr, ax_cg_hr, ax_sg, ax_lr]
+    cool_fields = [f_hr, f_cg_hr, f_sg, f_lr]
     cool_labels = [
         f"HR ({hr_resolution[0]}×{hr_resolution[1]})",
+        f"CG HR ({resolution[0]}×{resolution[1]})",
         f"SG ({resolution[0]}×{resolution[1]})",
         f"LR ({lr_resolution[0]}×{lr_resolution[1]})",
     ]
@@ -297,7 +321,7 @@ def render_frame_cooling_rate(frame, temp_dir):
         ax.set_ylabel("X (pixels)", fontsize=11)
 
     # Shared colorbar for cooling rate
-    cbar_ax_cool = fig.add_subplot(gs[3])
+    cbar_ax_cool = fig.add_subplot(gs[4])
     sm_cool = plt.cm.ScalarMappable(cmap=cmap_cool, norm=norm_cool)
     sm_cool.set_array([])
     cbar_cool = fig.colorbar(sm_cool, cax=cbar_ax_cool)
@@ -396,6 +420,7 @@ temp = sim_data.temp
 ien = sim_data.eint
 ux = sim_data.ux
 uy = sim_data.uy
+ps = sim_data.ps
 fmcl = sim_data.frho
 
 cons_rho = sim_data.cons_rho
@@ -424,6 +449,7 @@ lr_pres = lr_sim_data.pressure[: rho.shape[0]]
 lr_ux = lr_sim_data.ux[: rho.shape[0]]
 lr_uy = lr_sim_data.uy[: rho.shape[0]]
 lr_ien = lr_sim_data.eint[: rho.shape[0]]
+lr_ps = lr_sim_data.ps[: rho.shape[0]]
 
 lr_sim_data.input_cons_data(lr_file_path, start=501)
 lr_cons_rho = lr_sim_data.cons_rho[: rho.shape[0]]
@@ -434,16 +460,17 @@ lr_cons_ps = lr_sim_data.cons_ps[: rho.shape[0]]
 
 lr_fmcl = (lr_temp < 1e5).astype(float)
 
-hr_resolution = (1024, 512)
-hr_downsample = 64
-hr_file_path = os.path.join(PROJECT_ROOT, "simulation_outputs/hr_build_1024")
+hr_resolution = (int(_cnn_res[0]), int(_cnn_res[1]))
+hr_downsample = _cnn_ds
+hr_file_path = os.environ.get("HR_SIM_OUTPUT", os.path.join(PROJECT_ROOT, "simulation_outputs/hr_build_512"))
 hr_sim_data = simulation_data()
 hr_sim_data.resolution = hr_resolution
 hr_sim_data.down_sample = hr_downsample
 # hr_sim_data.input_data(hr_file_path)
 # hr_rho = hr_sim_data.rho
 # hr_temp = hr_sim_data.temp
-hr_folder_path = os.path.join(PROJECT_ROOT, f"simulation_outputs/hr_build_1024/cache/sc{hr_resolution}_{hr_downsample}")
+hr_cache_base = os.environ.get("SUBGRID_CACHE_PATH", os.path.join(hr_file_path, "cache"))
+hr_folder_path = os.path.join(hr_cache_base, f"sc{hr_resolution}_{hr_downsample}")
 # Memory-map the large HR arrays so the OS pages them in on demand
 # instead of loading every frame into RAM at once.
 _n = rho.shape[0]
@@ -453,6 +480,7 @@ hr_pres = np.load(f"{hr_folder_path}/pressure.npy", mmap_mode="r")[-_n:]
 hr_ux   = np.load(f"{hr_folder_path}/ux.npy",       mmap_mode="r")[-_n:]
 hr_uy   = np.load(f"{hr_folder_path}/uy.npy",       mmap_mode="r")[-_n:]
 hr_ien  = np.load(f"{hr_folder_path}/eint.npy",     mmap_mode="r")[-_n:]
+hr_ps   = np.load(f"{hr_folder_path}/ps.npy",       mmap_mode="r")[-_n:]
 
 hr_cons_rho  = np.load(f"{hr_folder_path}/cons_rho.npy",  mmap_mode="r")[-_n:]
 hr_cons_momx = np.load(f"{hr_folder_path}/cons_mx.npy",   mmap_mode="r")[-_n:]
@@ -461,6 +489,33 @@ hr_cons_ener = np.load(f"{hr_folder_path}/cons_ener.npy", mmap_mode="r")[-_n:]
 hr_cons_ps   = np.load(f"{hr_folder_path}/cons_ps.npy",   mmap_mode="r")[-_n:]
 
 hr_fmcl = (hr_temp < 1e5).astype(float)
+
+
+def coarse_grain_array(arr, ds=64):
+    """Coarse grains a 2D or 3D array by factor ds."""
+    if arr.ndim == 2:
+        return arr.reshape(arr.shape[0] // ds, ds, arr.shape[1] // ds, ds).mean(axis=(1, 3))
+    elif arr.ndim == 3:
+        return arr.reshape(arr.shape[0], arr.shape[1] // ds, ds, arr.shape[2] // ds, ds).mean(axis=(2, 4))
+    else:
+        raise ValueError(f"Unsupported array dimension: {arr.ndim}")
+
+
+# Coarse-grained HR primitive fields
+cg_hr_rho  = coarse_grain_array(hr_rho,  hr_downsample)
+cg_hr_temp = coarse_grain_array(hr_temp, hr_downsample)
+cg_hr_pres = coarse_grain_array(hr_pres, hr_downsample)
+cg_hr_ux   = coarse_grain_array(hr_ux,   hr_downsample)
+cg_hr_uy   = coarse_grain_array(hr_uy,   hr_downsample)
+cg_hr_ien  = coarse_grain_array(hr_ien,  hr_downsample)
+
+# Coarse-grained HR conserved fields
+cg_hr_cons_rho  = coarse_grain_array(hr_cons_rho,  hr_downsample)
+cg_hr_cons_momx = coarse_grain_array(hr_cons_momx, hr_downsample)
+cg_hr_cons_momy = coarse_grain_array(hr_cons_momy, hr_downsample)
+cg_hr_cons_ener = coarse_grain_array(hr_cons_ener, hr_downsample)
+cg_hr_cons_ps   = coarse_grain_array(hr_cons_ps,   hr_downsample)
+cg_hr_fmcl      = coarse_grain_array(hr_fmcl,      hr_downsample)
 
 
 def compute_mean_std(arr, logspace=False):
@@ -478,11 +533,11 @@ def compute_mean_std(arr, logspace=False):
 
 
 quantities = [
-    ("Density", hr_rho * n_to_cm3, rho * n_to_cm3, lr_rho * n_to_cm3, r"$\log_{10}(n \ [\mathrm{cm}^{-3}])$", True),
-    ("Temperature", hr_temp, temp, lr_temp, r"$\log_{10}(T \ [\mathrm{K}])$", True),
-    ("Pressure", hr_pres * P_over_kB_to_K_cm3, pres * P_over_kB_to_K_cm3, lr_pres * P_over_kB_to_K_cm3, r"$P/k_B \ [\mathrm{K} \ \mathrm{cm}^{-3}]$", False),
-    ("Ux Velocity", hr_ux * vel_to_km_s, ux * vel_to_km_s, lr_ux * vel_to_km_s, r"$u_x \ [\mathrm{km} \ \mathrm{s}^{-1}]$", False),
-    ("Uy Velocity", hr_uy * vel_to_km_s, uy * vel_to_km_s, lr_uy * vel_to_km_s, r"$u_y \ [\mathrm{km} \ \mathrm{s}^{-1}]$", False),
+    ("Density", cg_hr_rho * n_to_cm3, rho * n_to_cm3, lr_rho * n_to_cm3, r"$\log_{10}(n \ [\mathrm{cm}^{-3}])$", True),
+    ("Temperature", cg_hr_temp, temp, lr_temp, r"$\log_{10}(T \ [\mathrm{K}])$", True),
+    ("Pressure", cg_hr_pres * P_over_kB_to_K_cm3, pres * P_over_kB_to_K_cm3, lr_pres * P_over_kB_to_K_cm3, r"$P/k_B \ [\mathrm{K} \ \mathrm{cm}^{-3}]$", False),
+    ("Ux Velocity", cg_hr_ux * vel_to_km_s, ux * vel_to_km_s, lr_ux * vel_to_km_s, r"$u_x \ [\mathrm{km} \ \mathrm{s}^{-1}]$", False),
+    ("Uy Velocity", cg_hr_uy * vel_to_km_s, uy * vel_to_km_s, lr_uy * vel_to_km_s, r"$u_y \ [\mathrm{km} \ \mathrm{s}^{-1}]$", False),
 ]
 
 fig, axs = plt.subplots(5, 1, figsize=(9, 20))
@@ -499,7 +554,7 @@ for idx, (title, hr_arr, sg_arr, lr_arr, ylabel, is_log) in enumerate(quantities
 
     ax = axs[idx]
 
-    ax.plot(y_hr, hr_mean, lw=2, ls="-",  marker="^", markersize=4, label=f"HR ({hr_resolution[0]}×{hr_resolution[1]})")
+    ax.plot(y_hr, hr_mean, lw=2, ls="-",  marker="^", markersize=4, label=f"CG HR ({resolution[0]}×{resolution[1]})")
     ax.fill_between(y_hr, hr_mean - hr_std, hr_mean + hr_std, alpha=0.25)
 
     ax.plot(y_sg, sg_mean, lw=2, ls="-.", marker="o", markersize=5, label=f"SG ({resolution[0]}×{resolution[1]})")
@@ -524,12 +579,12 @@ plt.close(fig)
 print("profiles_mean_with_std_all.png saved")
 
 quantities_cons = [
-    ("Conserved Density", hr_cons_rho * n_to_cm3, cons_rho * n_to_cm3, lr_cons_rho * n_to_cm3, r"$n \ [\mathrm{cm}^{-3}]$"),
-    ("Conserved MomX", hr_cons_momx * mflux_to_Msun_yr_kpc2, cons_momx * mflux_to_Msun_yr_kpc2, lr_cons_momx * mflux_to_Msun_yr_kpc2, r"$\rho u_x \ [M_\odot \ \mathrm{yr}^{-1} \ \mathrm{kpc}^{-2}]$"),
-    ("Conserved MomY", hr_cons_momy * mflux_to_Msun_yr_kpc2, cons_momy * mflux_to_Msun_yr_kpc2, lr_cons_momy * mflux_to_Msun_yr_kpc2, r"$\rho u_y \ [M_\odot \ \mathrm{yr}^{-1} \ \mathrm{kpc}^{-2}]$"),
-    ("Conserved Energy", hr_cons_ener * P_cgs, cons_ener * P_cgs, lr_cons_ener * P_cgs, r"$E \ [\mathrm{erg} \ \mathrm{cm}^{-3}]$"),
-    ("Passive Scalar", hr_cons_ps, cons_ps, lr_cons_ps, "Passive Scalar"),
-    ("fmcl (T < 1e5)", hr_fmcl, fmcl, lr_fmcl, r"$f_{\mathrm{mcl}} \ (T < 10^5 \ \mathrm{K})$"),
+    ("Conserved Density", cg_hr_cons_rho * n_to_cm3, cons_rho * n_to_cm3, lr_cons_rho * n_to_cm3, r"$n \ [\mathrm{cm}^{-3}]$"),
+    ("Conserved MomX", cg_hr_cons_momx * mflux_to_Msun_yr_kpc2, cons_momx * mflux_to_Msun_yr_kpc2, lr_cons_momx * mflux_to_Msun_yr_kpc2, r"$\rho u_x \ [M_\odot \ \mathrm{yr}^{-1} \ \mathrm{kpc}^{-2}]$"),
+    ("Conserved MomY", cg_hr_cons_momy * mflux_to_Msun_yr_kpc2, cons_momy * mflux_to_Msun_yr_kpc2, lr_cons_momy * mflux_to_Msun_yr_kpc2, r"$\rho u_y \ [M_\odot \ \mathrm{yr}^{-1} \ \mathrm{kpc}^{-2}]$"),
+    ("Conserved Energy", cg_hr_cons_ener * P_cgs, cons_ener * P_cgs, lr_cons_ener * P_cgs, r"$E \ [\mathrm{erg} \ \mathrm{cm}^{-3}]$"),
+    ("Passive Scalar", cg_hr_cons_ps, cons_ps, lr_cons_ps, "Passive Scalar"),
+    ("fmcl (T < 1e5)", cg_hr_fmcl, fmcl, lr_fmcl, r"$f_{\mathrm{mcl}} \ (T < 10^5 \ \mathrm{K})$"),
 ]
 
 fig, axs = plt.subplots(6, 1, figsize=(9, 24))
@@ -546,7 +601,7 @@ for idx, (title, hr_arr, sg_arr, lr_arr, ylabel) in enumerate(quantities_cons):
 
     ax = axs[idx]
 
-    ax.plot(y_hr, hr_mean, lw=2, ls="-",  marker="^", markersize=4, label=f"HR ({hr_resolution[0]}×{hr_resolution[1]})")
+    ax.plot(y_hr, hr_mean, lw=2, ls="-",  marker="^", markersize=4, label=f"CG HR ({resolution[0]}×{resolution[1]})")
     ax.fill_between(y_hr, hr_mean - hr_std, hr_mean + hr_std, alpha=0.25)
 
     ax.plot(y_sg, sg_mean, lw=2, ls="-.", marker="o", markersize=5, label=f"SG ({resolution[0]}×{resolution[1]})")
@@ -577,7 +632,7 @@ def make_derived_plot(hr_field, sg_field, lr_field, title, ylabel, ax, conv_fact
     y_sg = np.linspace(-10.0, 10.0, len(sg_mean))
     y_lr = np.linspace(-10.0, 10.0, len(lr_mean))
 
-    ax.plot(y_hr, hr_mean, lw=2, ls="-",  marker="^", markersize=4, label=f"HR ({hr_resolution[0]}×{hr_resolution[1]})")
+    ax.plot(y_hr, hr_mean, lw=2, ls="-",  marker="^", markersize=4, label=f"CG HR ({resolution[0]}×{resolution[1]})")
     ax.fill_between(y_hr, hr_mean - hr_std, hr_mean + hr_std, alpha=0.25)
 
     ax.plot(y_sg, sg_mean, lw=2, ls="-.", marker="o", markersize=5, label=f"SG ({resolution[0]}×{resolution[1]})")
@@ -597,17 +652,17 @@ def make_derived_plot(hr_field, sg_field, lr_field, title, ylabel, ax, conv_fact
 # Compute only what's needed for the next plot, then free immediately.
 
 # 1. rho * ux
-hr_rho_ux = hr_rho * hr_ux
+cg_hr_rho_ux = coarse_grain_array(hr_rho * hr_ux, hr_downsample)
 sg_rho_ux = rho * ux
 lr_rho_ux = lr_rho * lr_ux
 
 # 2. rho * ux * uy
-hr_rho_ux_uy = hr_rho * hr_ux * hr_uy
+cg_hr_rho_ux_uy = coarse_grain_array(hr_rho * hr_ux * hr_uy, hr_downsample)
 sg_rho_ux_uy = rho * ux * uy
 lr_rho_ux_uy = lr_rho * lr_ux * lr_uy
 
 # 3. p + rho * uy^2
-hr_mom_flux_y = hr_pres + hr_rho * hr_uy**2
+cg_hr_mom_flux_y = coarse_grain_array(hr_pres + hr_rho * hr_uy**2, hr_downsample)
 sg_mom_flux_y = pres + rho * uy**2
 lr_mom_flux_y = lr_pres + lr_rho * lr_uy**2
 
@@ -617,7 +672,7 @@ fig, axs = plt.subplots(3, 1, figsize=(9, 15))
 plt.subplots_adjust(hspace=0.35)
 
 make_derived_plot(
-    hr_rho_ux,
+    cg_hr_rho_ux,
     sg_rho_ux,
     lr_rho_ux,
     r"$\rho u_x$ (Avg over X) — Mean ± 1σ",
@@ -627,7 +682,7 @@ make_derived_plot(
 )
 
 make_derived_plot(
-    hr_rho_ux_uy,
+    cg_hr_rho_ux_uy,
     sg_rho_ux_uy,
     lr_rho_ux_uy,
     r"$\rho u_x u_y$ (Avg over X) — Mean ± 1σ",
@@ -637,7 +692,7 @@ make_derived_plot(
 )
 
 make_derived_plot(
-    hr_mom_flux_y,
+    cg_hr_mom_flux_y,
     sg_mom_flux_y,
     lr_mom_flux_y,
     r"$p + \rho u_y^2$ (Avg over X) — Mean ± 1σ",
@@ -653,9 +708,9 @@ plt.close(fig)
 print("derived_quantities_mean_with_std.png saved")
 
 # Free derived arrays now that the plot is done
-del hr_rho_ux, sg_rho_ux, lr_rho_ux
-del hr_rho_ux_uy, sg_rho_ux_uy, lr_rho_ux_uy
-del hr_mom_flux_y, sg_mom_flux_y, lr_mom_flux_y
+del cg_hr_rho_ux, sg_rho_ux, lr_rho_ux
+del cg_hr_rho_ux_uy, sg_rho_ux_uy, lr_rho_ux_uy
+del cg_hr_mom_flux_y, sg_mom_flux_y, lr_mom_flux_y
 gc.collect()
 
 nt = hr_rho.shape[0]
@@ -665,15 +720,15 @@ def compute_E(rho, ux, uy, pres, gamma=1.6667):
     return pres / (gamma - 1) + 0.5 * rho * (ux**2 + uy**2)
 
 
-hr_mass_x = hr_rho * hr_ux
-hr_mass_y = hr_rho * hr_uy
-hr_T_xx = hr_rho * hr_ux**2 + hr_pres
-hr_T_xy = hr_rho * hr_ux * hr_uy
-hr_T_yy = hr_rho * hr_uy**2 + hr_pres
+cg_hr_mass_x = coarse_grain_array(hr_rho * hr_ux, hr_downsample)
+cg_hr_mass_y = coarse_grain_array(hr_rho * hr_uy, hr_downsample)
+cg_hr_T_xx = coarse_grain_array(hr_rho * hr_ux**2 + hr_pres, hr_downsample)
+cg_hr_T_xy = coarse_grain_array(hr_rho * hr_ux * hr_uy, hr_downsample)
+cg_hr_T_yy = coarse_grain_array(hr_rho * hr_uy**2 + hr_pres, hr_downsample)
 
 hr_E = compute_E(hr_rho, hr_ux, hr_uy, hr_pres)
-hr_E_flux_x = (hr_E + hr_pres) * hr_ux
-hr_E_flux_y = (hr_E + hr_pres) * hr_uy
+cg_hr_E_flux_x = coarse_grain_array((hr_E + hr_pres) * hr_ux, hr_downsample)
+cg_hr_E_flux_y = coarse_grain_array((hr_E + hr_pres) * hr_uy, hr_downsample)
 
 sg_mass_x = rho * ux
 sg_mass_y = rho * uy
@@ -700,28 +755,28 @@ fig, axs = plt.subplots(4, 2, figsize=(12, 16))
 plt.subplots_adjust(hspace=0.35)
 
 make_derived_plot(
-    hr_mass_x, sg_mass_x, lr_mass_x, r"Mass Flux ($\rho u_x$)", r"$\rho u_x \ [M_\odot \ \mathrm{yr}^{-1} \ \mathrm{kpc}^{-2}]$", axs[0, 0], conv_factor=mflux_to_Msun_yr_kpc2
+    cg_hr_mass_x, sg_mass_x, lr_mass_x, r"Mass Flux ($\rho u_x$)", r"$\rho u_x \ [M_\odot \ \mathrm{yr}^{-1} \ \mathrm{kpc}^{-2}]$", axs[0, 0], conv_factor=mflux_to_Msun_yr_kpc2
 )
 make_derived_plot(
-    hr_mass_y, sg_mass_y, lr_mass_y, r"Mass Flux ($\rho u_y$)", r"$\rho u_y \ [M_\odot \ \mathrm{yr}^{-1} \ \mathrm{kpc}^{-2}]$", axs[0, 1], conv_factor=mflux_to_Msun_yr_kpc2
-)
-
-make_derived_plot(
-    hr_T_xx, sg_T_xx, lr_T_xx, r"Momentum Flux $T_{xx} = \rho u_x^2 + p$", r"$T_{xx} \ [\mathrm{dyn} \ \mathrm{cm}^{-2}]$", axs[1, 0], conv_factor=P_cgs
-)
-make_derived_plot(
-    hr_T_xy, sg_T_xy, lr_T_xy, r"Momentum Flux $T_{xy} = \rho u_x u_y$", r"$T_{xy} \ [\mathrm{dyn} \ \mathrm{cm}^{-2}]$", axs[1, 1], conv_factor=P_cgs
+    cg_hr_mass_y, sg_mass_y, lr_mass_y, r"Mass Flux ($\rho u_y$)", r"$\rho u_y \ [M_\odot \ \mathrm{yr}^{-1} \ \mathrm{kpc}^{-2}]$", axs[0, 1], conv_factor=mflux_to_Msun_yr_kpc2
 )
 
 make_derived_plot(
-    hr_T_xy, sg_T_xy, lr_T_xy, r"Momentum Flux $T_{yx} = \rho u_x u_y$", r"$T_{yx} \ [\mathrm{dyn} \ \mathrm{cm}^{-2}]$", axs[2, 0], conv_factor=P_cgs
+    cg_hr_T_xx, sg_T_xx, lr_T_xx, r"Momentum Flux $T_{xx} = \rho u_x^2 + p$", r"$T_{xx} \ [\mathrm{dyn} \ \mathrm{cm}^{-2}]$", axs[1, 0], conv_factor=P_cgs
 )
 make_derived_plot(
-    hr_T_yy, sg_T_yy, lr_T_yy, r"Momentum Flux $T_{yy} = \rho u_y^2 + p$", r"$T_{yy} \ [\mathrm{dyn} \ \mathrm{cm}^{-2}]$", axs[2, 1], conv_factor=P_cgs
+    cg_hr_T_xy, sg_T_xy, lr_T_xy, r"Momentum Flux $T_{xy} = \rho u_x u_y$", r"$T_{xy} \ [\mathrm{dyn} \ \mathrm{cm}^{-2}]$", axs[1, 1], conv_factor=P_cgs
 )
 
 make_derived_plot(
-    hr_E_flux_x,
+    cg_hr_T_xy, sg_T_xy, lr_T_xy, r"Momentum Flux $T_{yx} = \rho u_x u_y$", r"$T_{yx} \ [\mathrm{dyn} \ \mathrm{cm}^{-2}]$", axs[2, 0], conv_factor=P_cgs
+)
+make_derived_plot(
+    cg_hr_T_yy, sg_T_yy, lr_T_yy, r"Momentum Flux $T_{yy} = \rho u_y^2 + p$", r"$T_{yy} \ [\mathrm{dyn} \ \mathrm{cm}^{-2}]$", axs[2, 1], conv_factor=P_cgs
+)
+
+make_derived_plot(
+    cg_hr_E_flux_x,
     sg_E_flux_x,
     lr_E_flux_x,
     r"Energy Flux $(E+p)u_x$",
@@ -730,7 +785,7 @@ make_derived_plot(
     conv_factor=P_cgs * V_cgs,
 )
 make_derived_plot(
-    hr_E_flux_y,
+    cg_hr_E_flux_y,
     sg_E_flux_y,
     lr_E_flux_y,
     r"Energy Flux $(E+p)u_y$",
@@ -764,9 +819,15 @@ dy_hr = (sim_data.total_length * len_to_pc) / hr_resolution[0]
 dx_hr = (sim_data.total_width * len_to_pc) / hr_resolution[1]
 
 for i in tqdm(range(nt), desc="Divergence Fluxes"):
-    hr_div_mass[i] = np.mean(divergence([hr_mass_x[i], hr_mass_y[i]], dx_hr, dy_hr), axis=1)
-    hr_div_momx[i] = np.mean(divergence([hr_T_xx[i], hr_T_xy[i]], dx_hr, dy_hr), axis=1)
-    hr_div_momy[i] = np.mean(divergence([hr_T_xy[i], hr_T_yy[i]], dx_hr, dy_hr), axis=1)
+    hr_mx_i = hr_rho[i] * hr_ux[i]
+    hr_my_i = hr_rho[i] * hr_uy[i]
+    hr_txx_i = hr_rho[i] * hr_ux[i]**2 + hr_pres[i]
+    hr_txy_i = hr_rho[i] * hr_ux[i] * hr_uy[i]
+    hr_tyy_i = hr_rho[i] * hr_uy[i]**2 + hr_pres[i]
+
+    hr_div_mass[i] = np.mean(divergence([hr_mx_i, hr_my_i], dx_hr, dy_hr), axis=1)
+    hr_div_momx[i] = np.mean(divergence([hr_txx_i, hr_txy_i], dx_hr, dy_hr), axis=1)
+    hr_div_momy[i] = np.mean(divergence([hr_txy_i, hr_tyy_i], dx_hr, dy_hr), axis=1)
 
     sg_div_mass[i] = divergence([sg_mass_x[i], sg_mass_y[i]], dx, dy)
     sg_div_momx[i] = divergence([sg_T_xx[i], sg_T_xy[i]], dx, dy)
@@ -776,17 +837,21 @@ for i in tqdm(range(nt), desc="Divergence Fluxes"):
     lr_div_momx[i] = divergence([lr_T_xx[i], lr_T_xy[i]], dx, dy)
     lr_div_momy[i] = divergence([lr_T_xy[i], lr_T_yy[i]], dx, dy)
 
+cg_hr_div_mass = hr_div_mass.reshape(nt, resolution[0], hr_downsample).mean(axis=2)
+cg_hr_div_momx = hr_div_momx.reshape(nt, resolution[0], hr_downsample).mean(axis=2)
+cg_hr_div_momy = hr_div_momy.reshape(nt, resolution[0], hr_downsample).mean(axis=2)
+
 fig, axs = plt.subplots(3, 1, figsize=(10, 13))
 plt.subplots_adjust(hspace=0.35)
 
 make_derived_plot(
-    hr_div_mass, sg_div_mass, lr_div_mass, r"Div Mass Flux ($\nabla \cdot \mathbf{j}$)", r"$\nabla \cdot (\rho \mathbf{u}) \ [M_\odot \ \mathrm{yr}^{-1} \ \mathrm{kpc}^{-2} \ \mathrm{pc}^{-1}]$", axs[0], conv_factor=mflux_to_Msun_yr_kpc2
+    cg_hr_div_mass, sg_div_mass, lr_div_mass, r"Div Mass Flux ($\nabla \cdot \mathbf{j}$)", r"$\nabla \cdot (\rho \mathbf{u}) \ [M_\odot \ \mathrm{yr}^{-1} \ \mathrm{kpc}^{-2} \ \mathrm{pc}^{-1}]$", axs[0], conv_factor=mflux_to_Msun_yr_kpc2
 )
 make_derived_plot(
-    hr_div_momx, sg_div_momx, lr_div_momx, r"Div MomX Flux ($\nabla \cdot \mathbf{T}_x$)", r"$\nabla \cdot \mathbf{T}_x \ [\mathrm{dyn} \ \mathrm{cm}^{-2} \ \mathrm{pc}^{-1}]$", axs[1], conv_factor=P_cgs
+    cg_hr_div_momx, sg_div_momx, lr_div_momx, r"Div MomX Flux ($\nabla \cdot \mathbf{T}_x$)", r"$\nabla \cdot \mathbf{T}_x \ [\mathrm{dyn} \ \mathrm{cm}^{-2} \ \mathrm{pc}^{-1}]$", axs[1], conv_factor=P_cgs
 )
 make_derived_plot(
-    hr_div_momy, sg_div_momy, lr_div_momy, r"Div MomY Flux ($\nabla \cdot \mathbf{T}_y$)", r"$\nabla \cdot \mathbf{T}_y \ [\mathrm{dyn} \ \mathrm{cm}^{-2} \ \mathrm{pc}^{-1}]$", axs[2], conv_factor=P_cgs
+    cg_hr_div_momy, sg_div_momy, lr_div_momy, r"Div MomY Flux ($\nabla \cdot \mathbf{T}_y$)", r"$\nabla \cdot \mathbf{T}_y \ [\mathrm{dyn} \ \mathrm{cm}^{-2} \ \mathrm{pc}^{-1}]$", axs[2], conv_factor=P_cgs
 )
 
 plt.tight_layout()
@@ -796,9 +861,10 @@ plt.close(fig)
 print("divergence_fluxes_mean_std.png saved")
 
 # Free all flux/divergence arrays now that both plots are done
-del hr_mass_x, hr_mass_y, hr_T_xx, hr_T_xy, hr_T_yy
-del hr_E, hr_E_flux_x, hr_E_flux_y
+del cg_hr_mass_x, cg_hr_mass_y, cg_hr_T_xx, cg_hr_T_xy, cg_hr_T_yy
+del hr_E, cg_hr_E_flux_x, cg_hr_E_flux_y
 del hr_div_mass, hr_div_momx, hr_div_momy
+del cg_hr_div_mass, cg_hr_div_momx, cg_hr_div_momy
 del sg_mass_x, sg_mass_y, sg_T_xx, sg_T_xy, sg_T_yy
 del sg_E, sg_E_flux_x, sg_E_flux_y
 del sg_div_mass, sg_div_momx, sg_div_momy
@@ -890,19 +956,21 @@ plt.close()
 print("Cold mass evolution plot saved (with fit slopes)")
 
 fields_hr = [hr_rho, hr_temp, hr_pres, hr_ux, hr_uy, hr_ien]
+fields_cg_hr = [cg_hr_rho, cg_hr_temp, cg_hr_pres, cg_hr_ux, cg_hr_uy, cg_hr_ien]
 fields_sg = [rho, temp, pres, ux, uy, ien]
 fields_lr = [lr_rho, lr_temp, lr_pres, lr_ux, lr_uy, lr_ien]
 
 titles = ["Density", "Temperature", "Pressure", "Ux", "Uy", "Internal Energy"]
 
-fig, axs = plt.subplots(6, 3, figsize=(8, 20))
+fig, axs = plt.subplots(6, 4, figsize=(11, 20))
 
 for i in range(6):
     f0_hr = fields_hr[i][0]
+    f0_cg_hr = fields_cg_hr[i][0]
     f0_sg = fields_sg[i][0]
     f0_lr = fields_lr[i][0]
 
-    arr0 = np.concatenate([f0_hr.flatten(), f0_sg.flatten(), f0_lr.flatten()])
+    arr0 = np.concatenate([f0_hr.flatten(), f0_cg_hr.flatten(), f0_sg.flatten(), f0_lr.flatten()])
     use_log = (i == 0 or i == 1)
     vmin0, vmax0, norm0 = compute_color_limits(arr0, use_log=use_log)
 
@@ -910,13 +978,17 @@ for i in range(6):
     axs[i, 0].set_title(f"HR {titles[i]}")
     plt.colorbar(axs[i, 0].images[0], ax=axs[i, 0], fraction=0.035, pad=0.02)
 
-    axs[i, 1].imshow(f0_sg, origin="lower", cmap="plasma", norm=norm0)
-    axs[i, 1].set_title(f"SG {titles[i]}")
+    axs[i, 1].imshow(f0_cg_hr, origin="lower", cmap="plasma", norm=norm0)
+    axs[i, 1].set_title(f"CG HR {titles[i]}")
     plt.colorbar(axs[i, 1].images[0], ax=axs[i, 1], fraction=0.035, pad=0.02)
 
-    axs[i, 2].imshow(f0_lr, origin="lower", cmap="plasma", norm=norm0)
-    axs[i, 2].set_title(f"LR {titles[i]}")
+    axs[i, 2].imshow(f0_sg, origin="lower", cmap="plasma", norm=norm0)
+    axs[i, 2].set_title(f"SG {titles[i]}")
     plt.colorbar(axs[i, 2].images[0], ax=axs[i, 2], fraction=0.035, pad=0.02)
+
+    axs[i, 3].imshow(f0_lr, origin="lower", cmap="plasma", norm=norm0)
+    axs[i, 3].set_title(f"LR {titles[i]}")
+    plt.colorbar(axs[i, 3].images[0], ax=axs[i, 3], fraction=0.035, pad=0.02)
 
 plt.tight_layout()
 plt.savefig(save_path + "all_fields_snapshot.png", dpi=200)
@@ -934,6 +1006,15 @@ cons_fields_hr = [
     hr_cons_ener,
     hr_cons_ps,
     hr_fmcl,
+]
+
+cons_fields_cg_hr = [
+    cg_hr_cons_rho,
+    cg_hr_cons_momx,
+    cg_hr_cons_momy,
+    cg_hr_cons_ener,
+    cg_hr_cons_ps,
+    cg_hr_fmcl,
 ]
 
 cons_fields_sg = [cons_rho, cons_momx, cons_momy, cons_ener, cons_ps, fmcl]
@@ -1069,6 +1150,7 @@ n_hr = hr_rho * n_to_cm3
 n_lr = lr_rho * n_to_cm3
 
 emis_hr = n_hr**2 * lambda_cool(hr_temp, mask=True)
+emis_cg_hr = coarse_grain_array(emis_hr, hr_downsample)
 emis_lr = n_lr**2 * lambda_cool(lr_temp, mask=True)  # no narrow-T mask: LR uses full ISM cooling curve
 
 _cnn_res = os.environ.get("PDF_CNN_RESOLUTION", "1024,512").split(",")
@@ -1076,24 +1158,25 @@ _fine_res = (int(_cnn_res[0]), int(_cnn_res[1]))
 _cnn_ds = int(os.environ.get("PDF_CNN_DOWNSAMPLE", "64"))
 T_edges = np.logspace(3.0, 7.0, out_channels + 1)
 T_centers = np.sqrt(T_edges[:-1] * T_edges[1:])
-T_unit = 115.797
 
 emis_sg = np.zeros_like(rho)
 print("Computing SG subgrid cooling rate using snapshot_pred_16x8...")
 for t in tqdm(range(rho.shape[0])):
     pdf_t = snapshot_pred_16x8(
-        rho[t], temp[t], ux[t], uy[t], fmcl[t],
+        rho[t], temp[t], ux[t], uy[t], ps[t],
         fine_resolution=_fine_res, downsample=_cnn_ds,
     )
     cool_code = compute_cooling_rate(
-        pdf_t, T_centers, pressure=pres[t],
-        is_pdf=True, is_isobaric=True, T_unit=T_unit
+        pdf_t, T_centers,
+        is_pdf=True, rho_cg=rho[t]
     )
     # Convert code units cooling rate back to CGS emissivity (erg cm^-3 s^-1)
-    emis_sg[t] = cool_code * (n_to_cm3**2) / unit_fix
+    # compute_cooling_rate already computes n_code^2 * sum(PDF*Lambda) * unit_fix
+    emis_sg[t] = cool_code / unit_fix
 
 all_pos_cool = np.concatenate([
     emis_hr[emis_hr > 0],
+    emis_cg_hr[emis_cg_hr > 0],
     emis_sg[emis_sg > 0],
     emis_lr[emis_lr > 0],
 ])
@@ -1215,7 +1298,7 @@ print("temperature_pdfs_all_weightings.png saved")
 # ============================================================
 # <n^2 Lambda(T)> profile vs y
 # Averaged over x and time
-# HR uses FULL-resolution fields
+# CG HR uses Coarse-Grained HR fields
 # ============================================================
 
 
@@ -1227,13 +1310,13 @@ print("temperature_pdfs_all_weightings.png saved")
 # shape: (time, y, x)
 
 # Average over x
-emis_hr_xavg = np.mean(emis_hr, axis=2)
+emis_cg_hr_xavg = np.mean(emis_cg_hr, axis=2)
 emis_sg_xavg = np.mean(emis_sg, axis=2)
 emis_lr_xavg = np.mean(emis_lr, axis=2)
 
 # Average over time
-emis_hr_mean = np.mean(emis_hr_xavg, axis=0)
-emis_hr_std = np.std(emis_hr_xavg, axis=0)
+emis_cg_hr_mean = np.mean(emis_cg_hr_xavg, axis=0)
+emis_cg_hr_std = np.std(emis_cg_hr_xavg, axis=0)
 
 emis_sg_mean = np.mean(emis_sg_xavg, axis=0)
 emis_sg_std = np.std(emis_sg_xavg, axis=0)
@@ -1246,7 +1329,7 @@ emis_lr_std = np.std(emis_lr_xavg, axis=0)
 # y coordinates
 # ------------------------------------------------------------
 
-y_hr = np.linspace(-10.0, 10.0, hr_rho.shape[1])
+y_cg_hr = np.linspace(-10.0, 10.0, emis_cg_hr.shape[1])
 y_sg = np.linspace(-10.0, 10.0, rho.shape[1])
 y_lr = np.linspace(-10.0, 10.0, lr_rho.shape[1])
 
@@ -1256,7 +1339,7 @@ y_lr = np.linspace(-10.0, 10.0, lr_rho.shape[1])
 # Integral over y
 # ------------------------------------------------------------
 
-int_hr = np.trapezoid(emis_hr_mean, y_hr)
+int_cg_hr = np.trapezoid(emis_cg_hr_mean, y_cg_hr)
 int_sg = np.trapezoid(emis_sg_mean, y_sg)
 int_lr = np.trapezoid(emis_lr_mean, y_lr)
 
@@ -1269,13 +1352,13 @@ fig, ax = plt.subplots(figsize=(7, 5))
 
 ax.set_yscale("log")
 
-# HR
-ax.plot(y_hr, emis_hr_mean, lw=2, ls="-", marker="^", markersize=4, label=rf"HR (Sig_c = {int_hr:.2e})")
+# CG HR
+ax.plot(y_cg_hr, emis_cg_hr_mean, lw=2, ls="-", marker="^", markersize=4, label=rf"CG HR (Sig_c = {int_cg_hr:.2e})")
 
 ax.fill_between(
-    y_hr,
-    np.clip(emis_hr_mean - emis_hr_std, 1e-30, None),
-    emis_hr_mean + emis_hr_std,
+    y_cg_hr,
+    np.clip(emis_cg_hr_mean - emis_cg_hr_std, 1e-30, None),
+    emis_cg_hr_mean + emis_cg_hr_std,
     alpha=0.25,
 )
 
@@ -1302,7 +1385,7 @@ ax.fill_between(
 ax.set_xlabel(r"$y \ [\mathrm{pc}]$")
 ax.set_ylabel(r"$\langle n^2 \Lambda(T) \rangle \ [\mathrm{erg} \ \mathrm{cm}^{-3} \ \mathrm{s}^{-1}]$")
 
-all_emis_vals = np.concatenate([emis_hr_mean, emis_sg_mean, emis_lr_mean])
+all_emis_vals = np.concatenate([emis_cg_hr_mean, emis_sg_mean, emis_lr_mean])
 pos_vals = all_emis_vals[all_emis_vals > 0]
 if len(pos_vals) > 0:
     ymin = max(pos_vals.min() * 0.5, 1e-10)
@@ -1330,8 +1413,8 @@ parallel_save_animation(
 )
 print("Cooling rate evolution animation saved")
 
-del emis_hr, emis_sg, emis_lr
-del emis_hr_xavg, emis_sg_xavg, emis_lr_xavg
+del emis_hr, emis_cg_hr, emis_sg, emis_lr
+del emis_cg_hr_xavg, emis_sg_xavg, emis_lr_xavg
 gc.collect()
 
 # # --- data arrays (nt, ny, nx) ---
