@@ -184,10 +184,10 @@ def source_func(rho, pres, ux, uy, ps, fmcl, bdt=None):
     # e_int = P / (gamma - 1).  The cap prevents removing more than 50% of a
     # cell's internal energy per timestep.  We use the actual Athena half-timestep
     # (bdt) passed from C++; fall back to a conservative default only if not provided.
-    e_int = np.transpose(pres) / (gamma - 1.0)
-    dt_cap = float(bdt) if (bdt is not None and float(bdt) > 0.0) else 0.001
-    max_cool_rate = np.maximum(0.0, 0.5 * e_int / dt_cap)
-    cool_rate = np.clip(cool_rate, 0.0, max_cool_rate)
+    # e_int = np.transpose(pres) / (gamma - 1.0)
+    # dt_cap = float(bdt) if (bdt is not None and float(bdt) > 0.0) else 0.001
+    # max_cool_rate = np.maximum(0.0, 0.5 * e_int / dt_cap)
+    # cool_rate = np.clip(cool_rate, 0.0, max_cool_rate)
 
     # energy source term
     source_term[3] = -cool_rate

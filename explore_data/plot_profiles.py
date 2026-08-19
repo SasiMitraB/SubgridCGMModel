@@ -53,12 +53,12 @@ simulations = [
         "athinp":     SIM_ROOT / "hr_mpi_256x512" / "kh_radiative_256x512.athinput",
         "datafolder": SIM_ROOT / "hr_mpi_256x512",
     },
-    # {
-    #     "name":       "hr_mpi_512x1024",
-    #     "label":      r"$512 \times 1024$",
-    #     "athinp":     SIM_ROOT / "hr_mpi_512x1024" / "kh_radiative_512x1024.athinput",
-    #     "datafolder": SIM_ROOT / "hr_mpi_512x1024",
-    # },
+    {
+        "name":       "hr_mpi_512x1024",
+        "label":      r"$512 \times 1024$",
+        "athinp":     SIM_ROOT / "hr_mpi_512x1024" / "kh_radiative_512x1024.athinput",
+        "datafolder": SIM_ROOT / "hr_mpi_512x1024",
+    },
     # {
     #     "name":       "hr_mpi_1024x2048",
     #     "label":      r"$1024 \times 2048$",

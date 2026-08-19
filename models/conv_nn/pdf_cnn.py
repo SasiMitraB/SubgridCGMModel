@@ -24,6 +24,7 @@
 
 import matplotlib.pyplot as plt
 import numpy as np
+from tqdm import tqdm
 import torch
 
 torch.cuda.empty_cache()
@@ -91,6 +92,8 @@ HYPERPARAMS = {
     "alpha_gate": 50,
     "alpha_mean_temp": 10,
     "alpha_emiss": float(os.environ.get("PDF_CNN_ALPHA_EMISS", "10.0")),
+    "alpha_active_kl": float(os.environ.get("PDF_CNN_ALPHA_ACTIVE_KL", "1.0")),
+    "alpha_inactive_kl": float(os.environ.get("PDF_CNN_ALPHA_INACTIVE_KL", "0.1")),
     "train_fraction": 0.50,
     "val_fraction": 0.25,
     "grad_clip_max_norm": 1.0,
@@ -130,6 +133,9 @@ T_edges = np.logspace(3.0, 7.0, out_channels + 1)
 T_centers = np.sqrt(T_edges[:-1] * T_edges[1:])
 
 logT_centers = torch.log10(torch.tensor(T_centers, dtype=torch.float32))
+
+LOGT_ACTIVE_START = float(os.environ.get("LOGT_ACTIVE_START", "4.2"))
+LOGT_ACTIVE_END = float(os.environ.get("LOGT_ACTIVE_END", "6.0"))
 
 
 # New Version that truncates to 10^4.5 to 10^5.5
@@ -276,9 +282,7 @@ def lambda_cool(temp, mask=False):
         logcool = (lhd[ipps + 1] * dx - lhd[ipps] * (dx - 0.04)) * 25.0
         lam[mask_mid] = 10.0**logcool
     if mask:
-        logt_start = float(os.environ.get("LOGT_ACTIVE_START", "4.2"))
-        logt_end = float(os.environ.get("LOGT_ACTIVE_END", "6.0"))
-        mask_off = (logt < logt_start) | (logt > logt_end)
+        mask_off = (logt < LOGT_ACTIVE_START) | (logt > LOGT_ACTIVE_END)
         lam[mask_off] = 0.0
 
     return lam
@@ -539,6 +543,7 @@ def snapshot_pred_16x8(
     ps: np.ndarray,
     fine_resolution: tuple = (512, 256),
     downsample: int = 32,
+    model_save_dir: str = None,
 ) -> np.ndarray:
     """
     Predict pixel temperature PDFs for a snapshot whose fields are ALREADY
@@ -550,10 +555,12 @@ def snapshot_pred_16x8(
         Already-coarse input fields.
     fine_resolution : tuple, default (1024, 512)
         Fine-grid resolution the saved model was trained against. Used ONLY
-        to build the model/normalization file names. Since 16×8 =
-        (1024/64, 512/64), the defaults are (1024, 512) and downsample=64.
+        to build the model/normalization file names.
     downsample : int, default 64
         Downsample factor that produced the 16×8 grid; used only for naming.
+    model_save_dir : str, optional
+        Directory where model weights and normalization files are saved.
+        Defaults to os.environ["MODEL_SAVES_DIR"] or module default.
 
     Returns
     -------
@@ -581,15 +588,15 @@ def snapshot_pred_16x8(
     input_tensor = torch.from_numpy(stack).unsqueeze(0).to(device)  # (1, 5, 16, 8)
 
     # ---- 3. Load normalization statistics -------------------------------
-    # File-name convention matches the trainer: f"cnn_{resolution}_{downsample}_*"
+    save_dir = model_save_dir or os.environ.get("MODEL_SAVES_DIR", MODEL_SAVE_DIR)
     norm_prefix = f"cnn_{fine_resolution}_{downsample}"
 
     input_mean = torch.tensor(
-        np.load(os.path.join(MODEL_SAVE_DIR, f"{norm_prefix}_input_mean.npy")),
+        np.load(os.path.join(save_dir, f"{norm_prefix}_input_mean.npy")),
         dtype=torch.float32,
     ).to(device)
     input_std = torch.tensor(
-        np.load(os.path.join(MODEL_SAVE_DIR, f"{norm_prefix}_input_std.npy")),
+        np.load(os.path.join(save_dir, f"{norm_prefix}_input_std.npy")),
         dtype=torch.float32,
     ).to(device)
 
@@ -601,7 +608,7 @@ def snapshot_pred_16x8(
     input_tensor = (input_tensor - input_mean) / input_std
 
     # ---- 4. Load model --------------------------------------------------
-    model_path = os.path.join(MODEL_SAVE_DIR, f"{norm_prefix}.pth")
+    model_path = os.path.join(save_dir, f"{norm_prefix}.pth")
     state_dict = torch.load(model_path, map_location=device)
     ckpt_ksize = kernel_size
     if "encoder.0.weight" in state_dict:
@@ -1199,10 +1206,61 @@ class IsobaricEmissivityLoss(nn.Module):
         return F.mse_loss(log_pred, log_true)
 
 
+class ZonedSymmetricKLLoss(nn.Module):
+    """
+    Splits the bidirectional (Jeffreys) KL between predicted and true PDFs
+    into two pieces along the temperature-bin axis:
+
+      D_active   : bins inside [LOGT_ACTIVE_START, LOGT_ACTIVE_END]
+      D_inactive : all remaining bins
+
+    total = alpha_active * mean(D_active) + alpha_inactive * mean(D_inactive)
+    """
+
+    def __init__(
+        self,
+        active_bin_mask=None,
+        alpha_active=1.0,
+        alpha_inactive=0.1,
+        eps=1e-12,
+    ):
+        super().__init__()
+        if active_bin_mask is None:
+            logt = np.log10(T_centers)
+            mask_np = (logt >= LOGT_ACTIVE_START) & (logt <= LOGT_ACTIVE_END)
+            active_bin_mask = torch.tensor(mask_np, dtype=torch.float32)
+        elif not isinstance(active_bin_mask, torch.Tensor):
+            active_bin_mask = torch.tensor(active_bin_mask, dtype=torch.float32)
+
+        # (1, bins, 1, 1) so it broadcasts against (B, bins, nx, ny)
+        self.register_buffer("active_mask", active_bin_mask.view(1, -1, 1, 1).float())
+        self.alpha_active = alpha_active
+        self.alpha_inactive = alpha_inactive
+        self.eps = eps
+
+    def forward(self, pred_pdf, true_pdf):
+        mask = self.active_mask.to(pred_pdf.device)
+
+        kl_fwd = true_pdf * (
+            torch.log(true_pdf + self.eps) - torch.log(pred_pdf + self.eps)
+        )
+        kl_rev = pred_pdf * (
+            torch.log(pred_pdf + self.eps) - torch.log(true_pdf + self.eps)
+        )
+        kl_map = kl_fwd + kl_rev  # (B, bins, nx, ny) — per-bin symmetric KL
+
+        kl_active = torch.sum(kl_map * mask, dim=1)  # (B, nx, ny)
+        kl_inactive = torch.sum(kl_map * (1.0 - mask), dim=1)  # (B, nx, ny)
+
+        loss_active, loss_inactive = torch.mean(kl_active), torch.mean(kl_inactive)
+        total = self.alpha_active * loss_active + self.alpha_inactive * loss_inactive
+        return total, loss_active.detach(), loss_inactive.detach()
+
+
 class GatedPDFLoss(nn.Module):
     """
-    Composite PDF loss with 4 core terms:
-      1. Bidirectional (forward + reverse) KL divergence
+    Composite PDF loss with core terms:
+      1. Zoned bidirectional KL divergence (active vs inactive temperature zones)
       2. Gate supervision loss (BCE against entropy-derived threshold)
       3. Mean temperature matching loss (<T>_pred vs T_coarse in log-space)
       4. Isobaric emissivity matching loss (MSE on log10(emissivity))
@@ -1213,6 +1271,8 @@ class GatedPDFLoss(nn.Module):
         alpha_gate=50.0,
         alpha_mean_temp=10.0,
         alpha_emiss=10.0,
+        alpha_active_kl=1.0,
+        alpha_inactive_kl=0.1,
         entropy_threshold=0.05,
         logT_centers=None,
         T_centers=None,
@@ -1225,6 +1285,10 @@ class GatedPDFLoss(nn.Module):
         self.entropy_threshold = entropy_threshold
 
         self.activation = GatedThresholdedSoftmax()
+        self.zoned_kl = ZonedSymmetricKLLoss(
+            alpha_active=alpha_active_kl,
+            alpha_inactive=alpha_inactive_kl,
+        )
         self.mean_temp_loss = MeanTemperatureLoss(logT_centers)
         self.emiss_loss = IsobaricEmissivityLoss(
             T_centers_input=T_centers, lambda_tensor_input=lambda_tensor
@@ -1233,14 +1297,8 @@ class GatedPDFLoss(nn.Module):
     def forward(self, logits, gate, true_pdf, rho=None, T_coarse=None):
         pred_pdf = self.activation(logits, gate)
 
-        # 1. Forward and Reverse KL Divergence
-        kl_forward = true_pdf * (
-            torch.log(true_pdf + 1e-12) - torch.log(pred_pdf + 1e-12)
-        )
-        kl_reverse = pred_pdf * (
-            torch.log(pred_pdf + 1e-12) - torch.log(true_pdf + 1e-12)
-        )
-        kl_loss = torch.mean(torch.sum(kl_forward + kl_reverse, dim=1))
+        # 1. Zoned symmetric KL (replaces the old flat kl_loss)
+        kl_loss, kl_active, kl_inactive = self.zoned_kl(pred_pdf, true_pdf)
 
         # 2. Gate supervision loss (safely clamped to avoid BCE assertion errors)
         entropy = -(true_pdf * torch.log(true_pdf + 1e-12)).sum(dim=1, keepdim=True)
@@ -1250,14 +1308,18 @@ class GatedPDFLoss(nn.Module):
         gate_loss = F.binary_cross_entropy(gate_clamped, gate_target)
 
         # 3. Mean temperature matching loss
-        mean_temp_loss = 0.0
-        if T_coarse is not None and self.alpha_mean_temp > 0:
-            mean_temp_loss = self.mean_temp_loss(pred_pdf, T_coarse)
+        mean_temp_loss = (
+            self.mean_temp_loss(pred_pdf, T_coarse)
+            if T_coarse is not None and self.alpha_mean_temp > 0
+            else 0.0
+        )
 
         # 4. Isobaric emissivity matching loss
-        emiss_loss = 0.0
-        if self.alpha_emiss > 0:
-            emiss_loss = self.emiss_loss(pred_pdf, true_pdf)
+        emiss_loss = (
+            self.emiss_loss(pred_pdf, true_pdf)
+            if self.alpha_emiss > 0
+            else 0.0
+        )
 
         total_loss = (
             kl_loss
@@ -1274,9 +1336,59 @@ GatedPDFEmissivityLoss = GatedPDFLoss
 
 
 if __name__ == "__main__":
+    import argparse
+
+    parser = argparse.ArgumentParser(description="Train PDF CNN with configurable hyperparameters")
+    parser.add_argument("--alpha_active_kl", type=float, default=HYPERPARAMS.get("alpha_active_kl", 1.0), help="Active zone KL loss weight")
+    parser.add_argument("--alpha_inactive_kl", type=float, default=HYPERPARAMS.get("alpha_inactive_kl", 0.1), help="Inactive zone KL loss weight")
+    parser.add_argument("--alpha_gate", type=float, default=HYPERPARAMS["alpha_gate"], help="Gate loss weight")
+    parser.add_argument("--alpha_mean_temp", type=float, default=HYPERPARAMS.get("alpha_mean_temp", 10.0), help="Mean temperature loss weight")
+    parser.add_argument("--alpha_emiss", type=float, default=HYPERPARAMS.get("alpha_emiss", 10.0), help="Emissivity loss weight")
+    # Compatibility arguments
+    parser.add_argument("--alpha_profile", type=float, default=None, help="Profile loss weight (alias)")
+    parser.add_argument("--alpha_leak", type=float, default=None, help="Leak loss weight (alias)")
+    parser.add_argument("--alpha_active_pdf", type=float, default=None, help="Active PDF loss weight (alias)")
+    parser.add_argument("--num_epochs", type=int, default=HYPERPARAMS["num_epochs"], help="Number of training epochs")
+    parser.add_argument("--learning_rate", type=float, default=HYPERPARAMS["learning_rate"], help="Learning rate")
+    parser.add_argument("--batch_size", type=int, default=HYPERPARAMS["batch_size"], help="Batch size")
+    parser.add_argument("--model_save_dir", type=str, default=None, help="Directory to save model weights")
+    parser.add_argument("--loss_plot_dir", type=str, default=None, help="Directory to save loss plots")
+
+    args, _ = parser.parse_known_args()
+
+    HYPERPARAMS["alpha_active_kl"] = args.alpha_active_kl
+    HYPERPARAMS["alpha_inactive_kl"] = args.alpha_inactive_kl
+    HYPERPARAMS["alpha_gate"] = args.alpha_gate
+    HYPERPARAMS["alpha_mean_temp"] = args.alpha_mean_temp
+    HYPERPARAMS["alpha_emiss"] = args.alpha_emiss
+    HYPERPARAMS["num_epochs"] = args.num_epochs
+    HYPERPARAMS["learning_rate"] = args.learning_rate
+    HYPERPARAMS["batch_size"] = args.batch_size
+
+    num_epochs = HYPERPARAMS["num_epochs"]
+    learning_rate = HYPERPARAMS["learning_rate"]
+    batch_size = HYPERPARAMS["batch_size"]
+
+    if args.model_save_dir:
+        MODEL_SAVE_DIR = args.model_save_dir
+        os.makedirs(MODEL_SAVE_DIR, exist_ok=True)
+
+    if args.loss_plot_dir:
+        LOSS_PLOT_DIR = args.loss_plot_dir
+        os.makedirs(LOSS_PLOT_DIR, exist_ok=True)
+
     file_path = DATA_PATH
 
     print("Training all fluxes model")
+    print(
+        f"Hyperparameters: alpha_active_kl={HYPERPARAMS['alpha_active_kl']}, "
+        f"alpha_inactive_kl={HYPERPARAMS['alpha_inactive_kl']}, "
+        f"alpha_gate={HYPERPARAMS['alpha_gate']}, "
+        f"alpha_mean_temp={HYPERPARAMS['alpha_mean_temp']}, "
+        f"alpha_emiss={HYPERPARAMS['alpha_emiss']}, "
+        f"epochs={num_epochs}, lr={learning_rate}"
+    )
+    print(f"Saving model to: {MODEL_SAVE_DIR}")
 
     # torch.cuda.empty_cache()
 
@@ -1295,6 +1407,8 @@ if __name__ == "__main__":
         alpha_gate=HYPERPARAMS["alpha_gate"],
         alpha_mean_temp=HYPERPARAMS.get("alpha_mean_temp", 10.0),
         alpha_emiss=HYPERPARAMS.get("alpha_emiss", 10.0),
+        alpha_active_kl=HYPERPARAMS.get("alpha_active_kl", 1.0),
+        alpha_inactive_kl=HYPERPARAMS.get("alpha_inactive_kl", 0.1),
     )
     # criterion = nn.KLDivLoss(reduction="batchmean")
     # criterion = KLWithLeakageLoss()
@@ -1366,7 +1480,7 @@ if __name__ == "__main__":
     val_loss_arr = []
 
     # Training loop
-    for epoch in range(num_epochs):
+    for epoch in tqdm(range(num_epochs), desc='Training Loop'):
         # Calculate a ramp factor from 0.0 to 1.0 over the first 100 epochs
         ramp = min(1.0, epoch / 100.0)
 
@@ -1431,12 +1545,12 @@ if __name__ == "__main__":
 
             val_loss = val_loss_total / len(validation_loader)
 
-        if (epoch + 1) % print_every == 0:
-            print(
-                f"Epoch [{epoch + 1}/{num_epochs}] "
-                f"Train Loss: {train_loss:.6f} | "
-                f"Val Loss: {val_loss:.6f}"
-            )
+        # if (epoch + 1) % print_every == 0:
+        #     print(
+        #         f"Epoch [{epoch + 1}/{num_epochs}] "
+        #         f"Train Loss: {train_loss:.6f} | "
+        #         f"Val Loss: {val_loss:.6f}"
+        #     )
 
         epochs_array.append(epoch + 1)
         train_loss_arr.append(train_loss)

@@ -45,8 +45,8 @@
     "rst_dt": 1.0
   },
   "hr": {
-    "nx1": 256,
-    "nx2": 512,
+    "nx1": 512,
+    "nx2": 1024,
     "mb_nx1": 64,
     "mb_nx2": 64,
     "ndiag": 100,
@@ -55,7 +55,7 @@
     "user_srcs": false
   },
   "lr": {
-    "downsample_factor": 32,
+    "downsample_factor": 64,
     "mb_nx1": 8,
     "mb_nx2": 16,
     "ndiag": 100,
