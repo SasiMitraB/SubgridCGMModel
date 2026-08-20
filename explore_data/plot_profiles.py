@@ -42,29 +42,12 @@ OUT_ROOT.mkdir(parents=True, exist_ok=True)
 # ── Simulation configurations ────────────────────────────────────────────────
 simulations = [
     {
-        "name":       "hr_mpi_128x256",
-        "label":      r"$128 \times 256$",
-        "athinp":     SIM_ROOT / "hr_mpi_128x256" / "kh_radiative_128x256.athinput",
-        "datafolder": SIM_ROOT / "hr_mpi_128x256",
+        "name":       "hr_512",
+        "label":      r"$512 \times 256$",
+        "athinp":     "/home/sasi/Projects/SubgridCGMModel/simulation_outputs/hr_build_512/kh_radiative_256x512.athinput",
+        "datafolder": "/home/sasi/Projects/SubgridCGMModel/simulation_outputs/hr_build_512",
+        "downsample": 32,
     },
-    {
-        "name":       "hr_mpi_256x512",
-        "label":      r"$256 \times 512$",
-        "athinp":     SIM_ROOT / "hr_mpi_256x512" / "kh_radiative_256x512.athinput",
-        "datafolder": SIM_ROOT / "hr_mpi_256x512",
-    },
-    {
-        "name":       "hr_mpi_512x1024",
-        "label":      r"$512 \times 1024$",
-        "athinp":     SIM_ROOT / "hr_mpi_512x1024" / "kh_radiative_512x1024.athinput",
-        "datafolder": SIM_ROOT / "hr_mpi_512x1024",
-    },
-    # {
-    #     "name":       "hr_mpi_1024x2048",
-    #     "label":      r"$1024 \times 2048$",
-    #     "athinp":     SIM_ROOT / "hr_mpi_1024x2048" / "kh_radiative_1024x2048.athinput",
-    #     "datafolder": SIM_ROOT / "hr_mpi_1024x2048",
-    # },
 ]
 
 # ── Physical constants ────────────────────────────────────────────────────────
@@ -145,6 +128,14 @@ def lambda_cool(temp: np.ndarray, mask: bool = True) -> np.ndarray:
     return lam[0] if scalar_input else lam
 
 
+# ── Coarse-graining helper ────────────────────────────────────────────────────
+
+def coarse_grain_2d(arr: np.ndarray, ds: int = 32) -> np.ndarray:
+    """Coarse-grain a 2D array of shape (ny, nx) by factor ds."""
+    ny, nx = arr.shape
+    return arr.reshape(ny // ds, ds, nx // ds, ds).mean(axis=(1, 3))
+
+
 # ── Field extractors ─────────────────────────────────────────────────────────
 
 def compute_physical_fields(frame: ergane.simulation_data.Frame) -> dict[str, np.ndarray]:
@@ -192,6 +183,53 @@ def compute_physical_fields(frame: ergane.simulation_data.Frame) -> dict[str, np
     }
 
 
+def compute_coarse_grained_fields(frame: ergane.simulation_data.Frame, ds: int = 32) -> dict[str, np.ndarray]:
+    """
+    Compute coarse-grained versions of physical fields matching mock_sg.py:
+      - Primitive fields (rho, P, T, vx, vy) are coarse-grained by factor ds.
+      - Cooling rate emis_cg is the coarse-grained fine cooling rate n_H^2 Lambda(T).
+      - Fluxes are coarse-grained fine fluxes.
+    """
+    rho_cgs = frame.density
+    P_cgs   = frame.pressure
+    temp_K  = frame.temperature
+    vx_kms  = frame.velx
+    vy_kms  = frame.vely
+
+    n_H = rho_cgs / (MU * M_H)
+    lam = lambda_cool(temp_K, mask=True)
+    q_cool = (n_H ** 2) * lam
+    flux_x = n_H * (vx_kms * CM_PER_KM)
+    flux_y = n_H * (vy_kms * CM_PER_KM)
+
+    # Coarse grain primitives and quantities
+    rho_cg  = coarse_grain_2d(rho_cgs, ds)
+    n_H_cg  = rho_cg / (MU * M_H)
+    temp_cg = coarse_grain_2d(temp_K, ds)
+    P_cg    = coarse_grain_2d(P_cgs, ds)
+    vx_cg   = coarse_grain_2d(vx_kms, ds)
+    vy_cg   = coarse_grain_2d(vy_kms, ds)
+
+    # Cooling rate: coarse-grained fine emissivity (matching mock_sg.py emis_cg_hr)
+    q_cool_cg = coarse_grain_2d(q_cool, ds)
+    flux_x_cg = coarse_grain_2d(flux_x, ds)
+    flux_y_cg = coarse_grain_2d(flux_y, ds)
+
+    log10_nH_cg = np.log10(np.maximum(n_H_cg, 1e-30))
+    log10_T_cg  = np.log10(np.maximum(temp_cg, 1.0))
+
+    return {
+        "log10_number_density": log10_nH_cg,
+        "log10_temperature":    log10_T_cg,
+        "cooling":              q_cool_cg,
+        "pressure":             P_cg,
+        "velx":                 vx_cg,
+        "vely":                 vy_cg,
+        "flux_x":               flux_x_cg,
+        "flux_y":               flux_y_cg,
+    }
+
+
 def x_average_profile(frame: ergane.simulation_data.Frame, values: np.ndarray) -> np.ndarray:
     """Compute the x-averaged profile of a 2-D field as a function of y."""
     if values.ndim != 2:
@@ -229,10 +267,10 @@ FIELD_CONFIGS = [
     },
     {
         "key":       "cooling",
-        "title":     r"Cooling Rate Profile $\langle q_{\rm cool} \rangle_x$",
-        "ylabel":    r"$\langle q_{\rm cool} \rangle_x \ [\mathrm{erg\ s^{-1}\ cm^{-3}}]$",
+        "title":     r"Mean Cooling Rate Profile vs $y$",
+        "ylabel":    r"$\langle n^2 \Lambda(T) \rangle \ [\mathrm{erg} \ \mathrm{cm}^{-3} \ \mathrm{s}^{-1}]$",
         "filename":  "profile_cooling_rate",
-        "yscale":    "linear",
+        "yscale":    "log",
     },
     {
         "key":       "pressure",
@@ -282,8 +320,9 @@ def main():
     for sim in simulations:
         name  = sim["name"]
         label = sim["label"]
+        ds    = sim.get("downsample", 32)
         print(f"\n{'='*60}")
-        print(f"  Computing profiles for {name} ({label})")
+        print(f"  Computing profiles for {name} ({label}, downsample={ds})")
         print(f"{'='*60}")
 
         sim_data = ergane.SimulationData(
@@ -302,40 +341,59 @@ def main():
 
         # Pre-read grid
         frame0 = sim_data.get_frame(frame_nums[0])
-        y_pc   = get_y_coords_pc(frame0)
-        ny     = y_pc.size
+        y_pc_raw = get_y_coords_pc(frame0)
+        ny_raw   = y_pc_raw.size
+        nx_raw   = frame0.xc.size
 
-        # Storage for all 8 fields: field_name -> array of shape (n_avg, ny)
-        field_stacks = {cfg["key"]: np.zeros((n_avg, ny), dtype=np.float64) for cfg in FIELD_CONFIGS}
+        ny_cg = ny_raw // ds
+        nx_cg = nx_raw // ds
+        y_pc_cg = y_pc_raw.reshape(ny_cg, ds).mean(axis=1)
+
+        # Storage for all fields: field_name -> array of shape (n_avg, ny)
+        field_stacks_raw = {cfg["key"]: np.zeros((n_avg, ny_raw), dtype=np.float64) for cfg in FIELD_CONFIGS}
+        field_stacks_cg  = {cfg["key"]: np.zeros((n_avg, ny_cg), dtype=np.float64) for cfg in FIELD_CONFIGS}
 
         for idx, fn in enumerate(tqdm(avg_indices, desc=f"  [{name}] Snapshots", unit="frame")):
             f = sim_data.get_frame(fn)
-            fields = compute_physical_fields(f)
-            for key, arr2d in fields.items():
-                field_stacks[key][idx] = x_average_profile(f, arr2d)
+            fields_raw = compute_physical_fields(f)
+            fields_cg  = compute_coarse_grained_fields(f, ds=ds)
+
+            for key in FIELD_CONFIGS:
+                k = key["key"]
+                field_stacks_raw[k][idx] = x_average_profile(f, fields_raw[k])
+                field_stacks_cg[k][idx]  = np.mean(fields_cg[k], axis=1)
+
             del f
             if idx % 100 == 0:
                 gc.collect()
 
         # Compute mean and standard deviation over time
         sim_summary = {
-            "y_pc":  y_pc,
-            "label": label,
+            "y_pc_raw":  y_pc_raw,
+            "y_pc_cg":   y_pc_cg,
+            "label_raw": rf"HR (${ny_raw} \times {nx_raw}$)",
+            "label_cg":  rf"CG HR (${ny_cg} \times {nx_cg}$)",
+            "ny_raw":    ny_raw,
+            "nx_raw":    nx_raw,
+            "ny_cg":     ny_cg,
+            "nx_cg":     nx_cg,
         }
-        for key in field_stacks:
+        for key in FIELD_CONFIGS:
+            k = key["key"]
             with np.errstate(all="ignore"):
-                sim_summary[f"{key}_mean"] = np.nanmean(field_stacks[key], axis=0)
-                sim_summary[f"{key}_std"]  = np.nanstd(field_stacks[key],  axis=0)
+                sim_summary[f"{k}_raw_mean"] = np.nanmean(field_stacks_raw[k], axis=0)
+                sim_summary[f"{k}_raw_std"]  = np.nanstd(field_stacks_raw[k],  axis=0)
+                sim_summary[f"{k}_cg_mean"]  = np.nanmean(field_stacks_cg[k],  axis=0)
+                sim_summary[f"{k}_cg_std"]   = np.nanstd(field_stacks_cg[k],   axis=0)
 
         profile_results[name] = sim_summary
-        print(f"  Done {name} (ny={ny}).")
+        print(f"  Done {name} (ny_raw={ny_raw}, ny_cg={ny_cg}).")
 
     # ══════════════════════════════════════════════════════════════════════════
     # PLOTTING: CONSOLIDATED 8-PANEL COMPARISON FIGURE
     # ══════════════════════════════════════════════════════════════════════════
 
     print("\nPlotting consolidated 8-panel profile comparison figure …")
-    cmap = plt.get_cmap("tab10")
 
     fig, axes = plt.subplots(4, 2, figsize=(14, 18), sharex=True)
     axes_flat = axes.flatten()
@@ -344,38 +402,85 @@ def main():
         key    = cfg["key"]
         ylabel = cfg["ylabel"]
         title  = cfg["title"]
+        is_log = (cfg["yscale"] == "log")
 
         for idx, sim in enumerate(simulations):
-            name  = sim["name"]
-            res   = profile_results[name]
-            y_pc  = res["y_pc"]
-            m     = res[f"{key}_mean"]
-            s     = res[f"{key}_std"]
-            label = res["label"]
+            name      = sim["name"]
+            res       = profile_results[name]
+            y_pc_raw  = res["y_pc_raw"]
+            y_pc_cg   = res["y_pc_cg"]
+            m_raw     = res[f"{key}_raw_mean"]
+            s_raw     = res[f"{key}_raw_std"]
+            m_cg      = res[f"{key}_cg_mean"]
+            s_cg      = res[f"{key}_cg_std"]
 
-            color = cmap(idx % cmap.N)
-            ax.plot(y_pc, m, lw=2, color=color, label=label)
-            ax.fill_between(
-                y_pc,
-                m - s,
-                m + s,
-                color=color,
-                alpha=0.2,
-                linewidth=0,
-            )
+            label_raw = res["label_raw"]
+            label_cg  = res["label_cg"]
+
+            if key == "cooling":
+                int_raw = np.trapezoid(m_raw, y_pc_raw)
+                int_cg  = np.trapezoid(m_cg, y_pc_cg)
+                label_raw = rf"{label_raw} ($\Sigma_c = {int_raw:.2e}$)"
+                label_cg  = rf"{label_cg} ($\Sigma_c = {int_cg:.2e}$)"
+
+            # Raw HR line
+            ax.plot(y_pc_raw, m_raw, lw=2, ls="-", color="tab:blue", label=label_raw)
+            if is_log:
+                ax.fill_between(
+                    y_pc_raw,
+                    np.clip(m_raw - s_raw, 1e-30, None),
+                    m_raw + s_raw,
+                    color="tab:blue",
+                    alpha=0.2,
+                    linewidth=0,
+                )
+            else:
+                ax.fill_between(
+                    y_pc_raw,
+                    m_raw - s_raw,
+                    m_raw + s_raw,
+                    color="tab:blue",
+                    alpha=0.2,
+                    linewidth=0,
+                )
+
+            # Coarse-grained HR line
+            ax.plot(y_pc_cg, m_cg, lw=2, ls="-.", marker="^", markersize=4, color="tab:orange", label=label_cg)
+            if is_log:
+                ax.fill_between(
+                    y_pc_cg,
+                    np.clip(m_cg - s_cg, 1e-30, None),
+                    m_cg + s_cg,
+                    color="tab:orange",
+                    alpha=0.25,
+                    linewidth=0,
+                )
+            else:
+                ax.fill_between(
+                    y_pc_cg,
+                    m_cg - s_cg,
+                    m_cg + s_cg,
+                    color="tab:orange",
+                    alpha=0.25,
+                    linewidth=0,
+                )
 
         ax.set_ylabel(ylabel, fontsize=11)
         ax.set_title(title, fontsize=12, fontweight="bold")
-        ax.grid(True, alpha=0.3)
-        if cfg["yscale"] == "log":
+        ax.grid(True, which="both" if is_log else "major", ls="--", alpha=0.4)
+        if is_log:
             ax.set_yscale("log")
-        ax.legend(title="Resolution", fontsize=8, loc="best")
+            # Set a reasonable bottom limit to avoid blanking on non-positive values
+            all_vals = np.concatenate([m_raw[m_raw > 0], m_cg[m_cg > 0]])
+            if len(all_vals) > 0:
+                ax.set_ylim(bottom=max(all_vals.min() * 0.5, 1e-30))
+        ax.legend(title="Dataset", fontsize=8, loc="best")
 
-    axes[3, 0].set_xlabel("y [pc]", fontsize=12)
-    axes[3, 1].set_xlabel("y [pc]", fontsize=12)
+    axes[3, 0].set_xlabel(r"$y \ [\mathrm{pc}]$", fontsize=12)
+    axes[3, 1].set_xlabel(r"$y \ [\mathrm{pc}]$", fontsize=12)
 
     fig.suptitle(
-        "Mean Vertical Profiles vs y for HR MPI Simulations\n"
+        "Mean Vertical Profiles vs y for HR and CG HR\n"
         r"(Time-averaged over last 500 snapshots, showing mean $\pm\ 1\sigma$ over time)",
         fontsize=14,
         fontweight="bold",
@@ -400,39 +505,83 @@ def main():
         ylabel   = cfg["ylabel"]
         title    = cfg["title"]
         filename = cfg["filename"]
+        is_log   = (cfg["yscale"] == "log")
 
-        fig_single, ax_single = plt.subplots(figsize=(9, 6))
+        fig_single, ax_single = plt.subplots(figsize=(8, 5.5))
 
         for idx, sim in enumerate(simulations):
-            name  = sim["name"]
-            res   = profile_results[name]
-            y_pc  = res["y_pc"]
-            m     = res[f"{key}_mean"]
-            s     = res[f"{key}_std"]
-            label = res["label"]
+            name      = sim["name"]
+            res       = profile_results[name]
+            y_pc_raw  = res["y_pc_raw"]
+            y_pc_cg   = res["y_pc_cg"]
+            m_raw     = res[f"{key}_raw_mean"]
+            s_raw     = res[f"{key}_raw_std"]
+            m_cg      = res[f"{key}_cg_mean"]
+            s_cg      = res[f"{key}_cg_std"]
 
-            color = cmap(idx % cmap.N)
-            ax_single.plot(y_pc, m, lw=2, color=color, label=label)
-            ax_single.fill_between(
-                y_pc,
-                m - s,
-                m + s,
-                color=color,
-                alpha=0.2,
-                linewidth=0,
-            )
+            label_raw = res["label_raw"]
+            label_cg  = res["label_cg"]
 
-        ax_single.set_xlabel("y [pc]", fontsize=12)
+            if key == "cooling":
+                int_raw = np.trapezoid(m_raw, y_pc_raw)
+                int_cg  = np.trapezoid(m_cg, y_pc_cg)
+                label_raw = rf"{label_raw} ($\Sigma_c = {int_raw:.2e}$)"
+                label_cg  = rf"{label_cg} ($\Sigma_c = {int_cg:.2e}$)"
+
+            ax_single.plot(y_pc_raw, m_raw, lw=2, ls="-", color="tab:blue", label=label_raw)
+            if is_log:
+                ax_single.fill_between(
+                    y_pc_raw,
+                    np.clip(m_raw - s_raw, 1e-30, None),
+                    m_raw + s_raw,
+                    color="tab:blue",
+                    alpha=0.2,
+                    linewidth=0,
+                )
+            else:
+                ax_single.fill_between(
+                    y_pc_raw,
+                    m_raw - s_raw,
+                    m_raw + s_raw,
+                    color="tab:blue",
+                    alpha=0.2,
+                    linewidth=0,
+                )
+
+            ax_single.plot(y_pc_cg, m_cg, lw=2, ls="-.", marker="^", markersize=5, color="tab:orange", label=label_cg)
+            if is_log:
+                ax_single.fill_between(
+                    y_pc_cg,
+                    np.clip(m_cg - s_cg, 1e-30, None),
+                    m_cg + s_cg,
+                    color="tab:orange",
+                    alpha=0.25,
+                    linewidth=0,
+                )
+            else:
+                ax_single.fill_between(
+                    y_pc_cg,
+                    m_cg - s_cg,
+                    m_cg + s_cg,
+                    color="tab:orange",
+                    alpha=0.25,
+                    linewidth=0,
+                )
+
+        ax_single.set_xlabel(r"$y \ [\mathrm{pc}]$", fontsize=12)
         ax_single.set_ylabel(ylabel, fontsize=12)
         ax_single.set_title(
             f"{title}\n"
             r"(Time-averaged over last 500 snapshots, showing mean $\pm\ 1\sigma$ across time)",
             fontsize=13,
         )
-        ax_single.grid(True, alpha=0.3)
-        if cfg["yscale"] == "log":
+        ax_single.grid(True, which="both" if is_log else "major", ls="--", alpha=0.4)
+        if is_log:
             ax_single.set_yscale("log")
-        ax_single.legend(title="Resolution", fontsize=10, loc="best")
+            all_vals = np.concatenate([m_raw[m_raw > 0], m_cg[m_cg > 0]])
+            if len(all_vals) > 0:
+                ax_single.set_ylim(bottom=max(all_vals.min() * 0.5, 1e-30))
+        ax_single.legend(title="Dataset", fontsize=10, loc="best")
         fig_single.tight_layout()
 
         for ext in ("png", "pdf"):
@@ -447,3 +596,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

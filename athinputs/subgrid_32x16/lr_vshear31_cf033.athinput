@@ -1,0 +1,87 @@
+# Athena++ (Kokkos version) input file for hydro KH test - 32x16 LR (0 -> 5 Myr)
+
+<comment>
+problem   = Kelvin-Helmholtz instability
+reference = Lecoanet et al., Fielding et al.
+
+<job>
+basename = KH
+
+<mesh>
+nghost    = 3
+nx1       = 16          # Number of zones in X1-direction
+x1min     = -10.0       # minimum value of X1
+x1max     =  10.0       # maximum value of X1
+ix1_bc    = periodic    # inner-X1 boundary flag
+ox1_bc    = periodic    # outer-X1 boundary flag
+
+nx2       = 32          # Number of zones in X2-direction
+x2min     = -20.0       # minimum value of X2
+x2max     =  20.0       # maximum value of X2
+ix2_bc    = reflect     # inner-X2 boundary flag
+ox2_bc    = user        # outer-X2 boundary flag
+
+nx3       = 1           # Number of zones in X3-direction
+x3min     = -0.5        # minimum value of X3
+x3max     =  0.5        # maximum value of X3
+ix3_bc    = periodic    # inner-X3 boundary flag
+ox3_bc    = periodic    # outer-X3 boundary flag
+
+<meshblock>
+nx1       = 16          # Number of cells in each MeshBlock, X1-dir
+nx2       = 32          # Number of cells in each MeshBlock, X2-dir
+nx3       = 1           # Number of cells in each MeshBlock, X3-dir
+
+<time>
+evolution  = dynamic
+integrator = rk2
+cfl_number = 0.4
+nlim       = -1
+tlim       = 5.00       # 0 -> 5 Myr
+ndiag      = 100
+
+<hydro>
+eos         = ideal
+reconstruct = plm
+rsolver     = hllc
+nscalars    = 2
+gamma       = 1.666667
+ism_cooling = true
+hrate       = 0
+
+<problem>
+iprob     = 1
+amp       = 0.05
+sigma     = 1.0
+vx_hot    = 28.1818182
+vx_cold   = -2.8181818
+a_char    = 0.25
+rho_cold  = 0.1
+rho_hot   = 0.001
+press     = 14.02645
+cold_frac = 0.33
+user_srcs = false
+
+<units>
+length_cgs  = 3.08568e+18
+mass_cgs    = 4.91417e+31
+time_cgs    = 3.15576e+13
+mu          = 0.62
+
+<output1>
+file_type  = hst
+dt         = 0.01
+
+<output2>
+file_type  = bin
+variable   = hydro_w
+dt         = 0.01
+
+<output3>
+file_type  = bin
+variable   = hydro_u
+dt         = 0.01
+
+<output4>
+file_type  = rst
+dt         = 1.0

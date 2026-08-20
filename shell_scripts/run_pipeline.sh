@@ -49,7 +49,7 @@ set -euo pipefail
 PROJECT_ROOT="/home/sasi/Projects/SubgridCGMModel"
 
 # ---- Canonical HR output (training data source; not re-run here) ----
-HR_SIM_OUTPUT="${PROJECT_ROOT}/simulation_outputs/hr_build_1024"
+HR_SIM_OUTPUT="${PROJECT_ROOT}/simulation_outputs/hr_build_512"
 HR_BIN_DIR="${HR_SIM_OUTPUT}/bin"
 
 # ---- LR 5 Myr base simulation (Step 2) ----

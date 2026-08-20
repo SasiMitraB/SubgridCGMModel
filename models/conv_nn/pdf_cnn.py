@@ -82,18 +82,19 @@ HYPERPARAMS = {
     "layer_size2": 64,
     "layer_size3": 128,
     "layer_size4": 256,
-    "kernel_size": 9,
+    "kernel_size": 5,
     "num_epochs": 1000,
     "print_every": 50,
-    "batch_size": 64,
+    "batch_size": 256,
     "learning_rate": 1e-3,
     "weight_decay": 1e-5,
     "dropout_rate": 0.2,
     "alpha_gate": 50,
     "alpha_mean_temp": 10,
     "alpha_emiss": float(os.environ.get("PDF_CNN_ALPHA_EMISS", "10.0")),
-    "alpha_active_kl": float(os.environ.get("PDF_CNN_ALPHA_ACTIVE_KL", "1.0")),
-    "alpha_inactive_kl": float(os.environ.get("PDF_CNN_ALPHA_INACTIVE_KL", "0.1")),
+    "alpha_leak": float(os.environ.get("PDF_CNN_ALPHA_LEAK", "10.0")),
+    "alpha_active_kl": float(os.environ.get("PDF_CNN_ALPHA_ACTIVE_KL", "10.0")),
+    "alpha_inactive_kl": float(os.environ.get("PDF_CNN_ALPHA_INACTIVE_KL", "10.0")),
     "train_fraction": 0.50,
     "val_fraction": 0.25,
     "grad_clip_max_norm": 1.0,
@@ -1096,12 +1097,12 @@ class MeanTemperatureLoss(nn.Module):
         return F.mse_loss(log_mean_pred, log_T_coarse)
 
 
-def isobaric_emissivity_from_pdf(
+def emissivity_from_pdf(
     pdf,
-    rho,
-    T_coarse,
-    T_centers_tensor,
-    lambda_tensor,
+    rho=None,
+    T_coarse=None,
+    T_centers_tensor=None,
+    lambda_tensor=None,
     mu=0.62,
     unit_fix=1.975e27,
 ):
@@ -1110,7 +1111,7 @@ def isobaric_emissivity_from_pdf(
 
         Emissivity = n² × Σᵢ PDF(Tᵢ) × Λ(Tᵢ) × unit_fix
 
-    where n = rho_cg / mu is the coarse-cell number density (constant per cell).
+    where n = rho / mu is the coarse-cell number density (constant per cell).
     Λ(Tᵢ) should already be masked to the active cooling window before being
     passed as `lambda_tensor`.
 
@@ -1118,13 +1119,13 @@ def isobaric_emissivity_from_pdf(
     -----------
     pdf : torch.Tensor of shape (B, bins, H, W)
         Normalized temperature PDF.
-    rho : torch.Tensor of shape (B, 1, H, W)
-        Coarse-grained code density.
-    T_coarse : torch.Tensor of shape (B, 1, H, W)
-        Coarse-grained temperature (in K).  [kept for API compatibility; not used]
-    T_centers_tensor : torch.Tensor of shape (bins,)
-        Temperature bin centers (in K).    [kept for API compatibility; not used]
-    lambda_tensor : torch.Tensor of shape (bins,)
+    rho : torch.Tensor of shape (B, 1, H, W) or None
+        Coarse-grained code density. If None, defaults to mu (n = 1).
+    T_coarse : torch.Tensor of shape (B, 1, H, W), optional
+        Coarse-grained temperature (in K).  [kept for API compatibility]
+    T_centers_tensor : torch.Tensor of shape (bins,), optional
+        Temperature bin centers (in K).    [kept for API compatibility]
+    lambda_tensor : torch.Tensor of shape (bins,), optional
         Cooling curve Λ(T) in erg cm³/s, pre-masked to the active window.
     mu : float
         Mean molecular weight (default 0.62).
@@ -1136,35 +1137,53 @@ def isobaric_emissivity_from_pdf(
     emiss : torch.Tensor of shape (B, 1, H, W)
         Cell emissivity in code units.
     """
+    if lambda_tensor is None:
+        tc = (
+            T_centers_tensor
+            if T_centers_tensor is not None
+            else torch.tensor(T_centers, dtype=torch.float32)
+        )
+        lam_np = lambda_cool(
+            tc.cpu().numpy() if isinstance(tc, torch.Tensor) else tc, mask=True
+        )
+        lambda_tensor = torch.tensor(lam_np, dtype=torch.float32, device=pdf.device)
+
     # Σᵢ PDF(Tᵢ) Λ(Tᵢ)  →  (B, 1, H, W)
     lam = lambda_tensor.to(pdf.device).view(1, -1, 1, 1)
     lambda_sum = torch.sum(pdf * lam, dim=1, keepdim=True)
 
-    # n = rho_cg / mu  →  (B, 1, H, W)
-    n_coarse = rho / mu
+    # n = rho / mu  →  (B, 1, H, W)
+    if rho is not None:
+        n_coarse = rho / mu
+    else:
+        n_coarse = 1.0
 
     emiss = (n_coarse**2) * lambda_sum * unit_fix
     return emiss
 
 
-class IsobaricEmissivityLoss(nn.Module):
-    """
-    Isobaric Emissivity Matching Loss:
-    Enforces consistency between predicted and true cell-averaged radiative emissivity
-    under the isobaric subgrid assumption in log10 space:
-        E_cell = (rho / mu)^2 * T_coarse^2 * sum_i [ p_i * Lambda(T_i) / T_i^2 ] * unit_fix
+# Alias for backwards compatibility
+isobaric_emissivity_from_pdf = emissivity_from_pdf
 
-    Because (rho/mu)^2 * T_coarse^2 * unit_fix is shared between pred and true,
-    the log10 ratio simplifies to:
-        log10( sum_i [ p_pred,i * w_norm,i ] + eps ) - log10( sum_i [ p_true,i * w_norm,i ] + eps )
-    where w_norm,i = (Lambda(T_i) / T_i^2) / max_k(Lambda(T_k) / T_k^2) in [0, 1].
-    Normalizing w prevents float32 underflow / gradient explosion when emissivity is zero.
+
+class EmissivityLoss(nn.Module):
+    """
+    Emissivity Matching Loss:
+    Enforces consistency between predicted and true cell-averaged radiative cooling emissivity:
+        Emissivity = n² × Σᵢ PDF(Tᵢ) × Λ(Tᵢ) × unit_fix
+
+    where n = rho / mu.
+
+    In log10 space:
+        loss = MSE(log10(emiss_pred + eps), log10(emiss_true + eps))
     """
 
     def __init__(
         self,
         T_centers_input=None,
         lambda_tensor_input=None,
+        mu=0.62,
+        unit_fix=1.975e27,
         eps=1e-6,
     ):
         super().__init__()
@@ -1183,27 +1202,35 @@ class IsobaricEmissivityLoss(nn.Module):
         else:
             lam_t = torch.tensor(lambda_tensor_input, dtype=torch.float32)
 
-        # Weight = Λ(T)  (masked to active window).
-        # Normalize to [0, 1] to prevent float32 underflow / gradient explosion.
-        w = lam_t
-        w_max = w.max()
-        if w_max > 0:
-            w_norm = w / w_max
-        else:
-            w_norm = w
-
-        self.register_buffer("w_norm", w_norm.view(1, -1, 1, 1))
+        self.register_buffer("lambda_tensor", lam_t)
+        self.mu = mu
+        self.unit_fix = unit_fix
         self.eps = eps
 
-    def forward(self, pred_pdf, true_pdf):
-        w = self.w_norm.to(pred_pdf.device)
-        w_pred = torch.sum(pred_pdf * w, dim=1, keepdim=True)
-        w_true = torch.sum(true_pdf * w, dim=1, keepdim=True)
+    def forward(self, pred_pdf, true_pdf, rho=None):
+        emiss_pred = emissivity_from_pdf(
+            pdf=pred_pdf,
+            rho=rho,
+            lambda_tensor=self.lambda_tensor,
+            mu=self.mu,
+            unit_fix=self.unit_fix,
+        )
+        emiss_true = emissivity_from_pdf(
+            pdf=true_pdf,
+            rho=rho,
+            lambda_tensor=self.lambda_tensor,
+            mu=self.mu,
+            unit_fix=self.unit_fix,
+        )
 
-        log_pred = torch.log10(w_pred + self.eps)
-        log_true = torch.log10(w_true + self.eps)
+        log_pred = torch.log10(emiss_pred + self.eps)
+        log_true = torch.log10(emiss_true + self.eps)
 
         return F.mse_loss(log_pred, log_true)
+
+
+# Alias for backwards compatibility
+IsobaricEmissivityLoss = EmissivityLoss
 
 
 class ZonedSymmetricKLLoss(nn.Module):
@@ -1257,13 +1284,51 @@ class ZonedSymmetricKLLoss(nn.Module):
         return total, loss_active.detach(), loss_inactive.detach()
 
 
+class LeakageLoss(nn.Module):
+    """
+    Active window mass leakage loss:
+    Penalizes the log10 discrepancy between total predicted mass and total true mass
+    in the active cooling window [LOGT_ACTIVE_START, LOGT_ACTIVE_END]:
+        L_leak = mean( (log10(pred_active_mass + eps) - log10(true_active_mass + eps))^2 )
+    """
+
+    def __init__(
+        self,
+        active_bin_mask=None,
+        eps=1e-12,
+    ):
+        super().__init__()
+        if active_bin_mask is None:
+            logt = np.log10(T_centers)
+            mask_np = (logt >= LOGT_ACTIVE_START) & (logt <= LOGT_ACTIVE_END)
+            active_bin_mask = torch.tensor(mask_np, dtype=torch.float32)
+        elif not isinstance(active_bin_mask, torch.Tensor):
+            active_bin_mask = torch.tensor(active_bin_mask, dtype=torch.float32)
+
+        # (1, bins, 1, 1) so it broadcasts against (B, bins, nx, ny)
+        self.register_buffer("active_mask", active_bin_mask.view(1, -1, 1, 1).float())
+        self.eps = eps
+
+    def forward(self, pred_pdf, true_pdf):
+        mask = self.active_mask.to(pred_pdf.device)
+        pred_mass = torch.sum(pred_pdf * mask, dim=1)
+        true_mass = torch.sum(true_pdf * mask, dim=1)
+
+        leak_loss = (
+            torch.log10(pred_mass + self.eps) - torch.log10(true_mass + self.eps)
+        ).pow(2).mean()
+
+        return leak_loss
+
+
 class GatedPDFLoss(nn.Module):
     """
     Composite PDF loss with core terms:
       1. Zoned bidirectional KL divergence (active vs inactive temperature zones)
       2. Gate supervision loss (BCE against entropy-derived threshold)
       3. Mean temperature matching loss (<T>_pred vs T_coarse in log-space)
-      4. Isobaric emissivity matching loss (MSE on log10(emissivity))
+      4. Emissivity matching loss (MSE on log10(emissivity))
+      5. Active window mass leakage loss (MSE on log10(active mass))
     """
 
     def __init__(
@@ -1271,17 +1336,21 @@ class GatedPDFLoss(nn.Module):
         alpha_gate=50.0,
         alpha_mean_temp=10.0,
         alpha_emiss=10.0,
+        alpha_leak=10.0,
         alpha_active_kl=1.0,
         alpha_inactive_kl=0.1,
         entropy_threshold=0.05,
         logT_centers=None,
         T_centers=None,
         lambda_tensor=None,
+        mu=0.62,
+        unit_fix=1.975e27,
     ):
         super().__init__()
         self.alpha_gate = alpha_gate
         self.alpha_mean_temp = alpha_mean_temp
         self.alpha_emiss = alpha_emiss
+        self.alpha_leak = alpha_leak
         self.entropy_threshold = entropy_threshold
 
         self.activation = GatedThresholdedSoftmax()
@@ -1290,9 +1359,13 @@ class GatedPDFLoss(nn.Module):
             alpha_inactive=alpha_inactive_kl,
         )
         self.mean_temp_loss = MeanTemperatureLoss(logT_centers)
-        self.emiss_loss = IsobaricEmissivityLoss(
-            T_centers_input=T_centers, lambda_tensor_input=lambda_tensor
+        self.emiss_loss = EmissivityLoss(
+            T_centers_input=T_centers,
+            lambda_tensor_input=lambda_tensor,
+            mu=mu,
+            unit_fix=unit_fix,
         )
+        self.leak_loss = LeakageLoss()
 
     def forward(self, logits, gate, true_pdf, rho=None, T_coarse=None):
         pred_pdf = self.activation(logits, gate)
@@ -1314,10 +1387,17 @@ class GatedPDFLoss(nn.Module):
             else 0.0
         )
 
-        # 4. Isobaric emissivity matching loss
+        # 4. Emissivity matching loss
         emiss_loss = (
-            self.emiss_loss(pred_pdf, true_pdf)
+            self.emiss_loss(pred_pdf, true_pdf, rho=rho)
             if self.alpha_emiss > 0
+            else 0.0
+        )
+
+        # 5. Active window mass leakage loss
+        leak_loss = (
+            self.leak_loss(pred_pdf, true_pdf)
+            if self.alpha_leak > 0
             else 0.0
         )
 
@@ -1326,6 +1406,7 @@ class GatedPDFLoss(nn.Module):
             + self.alpha_gate * gate_loss
             + self.alpha_mean_temp * mean_temp_loss
             + self.alpha_emiss * emiss_loss
+            + self.alpha_leak * leak_loss
         )
 
         return total_loss
@@ -1344,9 +1425,9 @@ if __name__ == "__main__":
     parser.add_argument("--alpha_gate", type=float, default=HYPERPARAMS["alpha_gate"], help="Gate loss weight")
     parser.add_argument("--alpha_mean_temp", type=float, default=HYPERPARAMS.get("alpha_mean_temp", 10.0), help="Mean temperature loss weight")
     parser.add_argument("--alpha_emiss", type=float, default=HYPERPARAMS.get("alpha_emiss", 10.0), help="Emissivity loss weight")
+    parser.add_argument("--alpha_leak", type=float, default=HYPERPARAMS.get("alpha_leak", 10.0), help="Active window mass leakage loss weight")
     # Compatibility arguments
     parser.add_argument("--alpha_profile", type=float, default=None, help="Profile loss weight (alias)")
-    parser.add_argument("--alpha_leak", type=float, default=None, help="Leak loss weight (alias)")
     parser.add_argument("--alpha_active_pdf", type=float, default=None, help="Active PDF loss weight (alias)")
     parser.add_argument("--num_epochs", type=int, default=HYPERPARAMS["num_epochs"], help="Number of training epochs")
     parser.add_argument("--learning_rate", type=float, default=HYPERPARAMS["learning_rate"], help="Learning rate")
@@ -1361,6 +1442,7 @@ if __name__ == "__main__":
     HYPERPARAMS["alpha_gate"] = args.alpha_gate
     HYPERPARAMS["alpha_mean_temp"] = args.alpha_mean_temp
     HYPERPARAMS["alpha_emiss"] = args.alpha_emiss
+    HYPERPARAMS["alpha_leak"] = args.alpha_leak
     HYPERPARAMS["num_epochs"] = args.num_epochs
     HYPERPARAMS["learning_rate"] = args.learning_rate
     HYPERPARAMS["batch_size"] = args.batch_size
@@ -1386,6 +1468,7 @@ if __name__ == "__main__":
         f"alpha_gate={HYPERPARAMS['alpha_gate']}, "
         f"alpha_mean_temp={HYPERPARAMS['alpha_mean_temp']}, "
         f"alpha_emiss={HYPERPARAMS['alpha_emiss']}, "
+        f"alpha_leak={HYPERPARAMS['alpha_leak']}, "
         f"epochs={num_epochs}, lr={learning_rate}"
     )
     print(f"Saving model to: {MODEL_SAVE_DIR}")
@@ -1407,6 +1490,7 @@ if __name__ == "__main__":
         alpha_gate=HYPERPARAMS["alpha_gate"],
         alpha_mean_temp=HYPERPARAMS.get("alpha_mean_temp", 10.0),
         alpha_emiss=HYPERPARAMS.get("alpha_emiss", 10.0),
+        alpha_leak=HYPERPARAMS.get("alpha_leak", 10.0),
         alpha_active_kl=HYPERPARAMS.get("alpha_active_kl", 1.0),
         alpha_inactive_kl=HYPERPARAMS.get("alpha_inactive_kl", 0.1),
     )

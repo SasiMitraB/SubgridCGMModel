@@ -180,6 +180,15 @@ void constant_bcs (Mesh *pm) {
     int &nfluid = pmbp->phydro->nhydro;
     int &nscalars = pmbp->phydro->nscalars;
 
+    // ---- device copies of global variables (needed for GPU kernels) ----
+    const Real pressure_d       = pressure;
+    const Real density_hot_d    = density_hot;
+    const Real density_cold_d   = density_cold;
+    const Real velocityx_hot_d  = velocityx_hot;
+    const Real velocityx_cold_d = velocityx_cold;
+    const Real scalar_hot_d     = scalar_hot;
+    const Real scalar_cold_d    = scalar_cold;
+
     // ConsToPrim over all X2 ghost zones *and* at the innermost/outermost X2-active zones
     // of Meshblocks, even if Meshblock face is not at the edge of computational domain
     if (pm->pmb_pack->phydro != nullptr) {
@@ -191,29 +200,29 @@ void constant_bcs (Mesh *pm) {
       KOKKOS_LAMBDA(int m, int k, int i) {
         if (mb_bcs.d_view(m,BoundaryFace::inner_x2) == BoundaryFlag::user) {
         for (int j=0; j<ng; ++j) {
-          w0_(m,IDN,k,js-j-1,i) = density_cold;
-          w0_(m,IEN,k,js-j-1,i) = pressure/gm1;
-          w0_(m,IVX,k,js-j-1,i) = velocityx_cold;
+          w0_(m,IDN,k,js-j-1,i) = density_cold_d;
+          w0_(m,IEN,k,js-j-1,i) = pressure_d/gm1;
+          w0_(m,IVX,k,js-j-1,i) = velocityx_cold_d;
           w0_(m,IVY,k,js-j-1,i) = w0_(m,IVY,k,js,i); //outflow
           //w0_(m,IVY,k,js-j-1,i) = -w0_(m,IVY,k,js,i)*w0_(m,IDN,k,js,i)/density_cold; //reflective, better mass conservation
           //w0_(m,IVY,k,js-j-1,i) = -w0_(m,IVY,k,js,i);
           w0_(m,IVZ,k,js-j-1,i) = w0_(m,IVZ,k,js,i);
           for (int n=nfluid; n<(nfluid+nscalars); ++n) {
-            w0_(m,n,k,js-j-1,i) = scalar_cold;
+            w0_(m,n,k,js-j-1,i) = scalar_cold_d;
           }
         }
       }
       if (mb_bcs.d_view(m,BoundaryFace::outer_x2)==BoundaryFlag::user) {
         for (int j=0; j<ng; ++j) {
-          w0_(m,IDN,k,je+j+1,i) = density_hot;
-          w0_(m,IEN,k,je+j+1,i) = pressure/gm1;
-          w0_(m,IVX,k,je+j+1,i) = velocityx_hot;
+          w0_(m,IDN,k,je+j+1,i) = density_hot_d;
+          w0_(m,IEN,k,je+j+1,i) = pressure_d/gm1;
+          w0_(m,IVX,k,je+j+1,i) = velocityx_hot_d;
           w0_(m,IVY,k,je+j+1,i) = w0_(m,IVY,k,je,i); //outflow
           //w0_(m,IVY,k,je+j+1,i) = -w0_(m,IVY,k,je,i)*w0_(m,IDN,k,je,i)/density_hot; //reflective, better mass conservation
           //w0_(m,IVY,k,je+j+1,i) = -w0_(m,IVY,k,je,i);
           w0_(m,IVZ,k,je+j+1,i) = w0_(m,IVZ,k,je,i);
           for (int n=nfluid; n<(nfluid+nscalars); ++n) {
-            w0_(m,n,k,je+j+1,i) = scalar_hot;
+            w0_(m,n,k,je+j+1,i) = scalar_hot_d;
           }
         }
       }

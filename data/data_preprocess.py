@@ -104,12 +104,13 @@ class simulation_data():
         cwd = os.getcwd()
         os.chdir(filepath)
 
-        # Count only the hydro_w files so we know exactly how many snapshots
-        # exist, regardless of whether they start at 00000 or 00501 etc.
-        w_files = [f for f in os.listdir(filepath) if f.startswith('KH.hydro_w') and f.endswith('.bin')]
-        indices = sorted([int(f.split('.')[-2]) for f in w_files])
-        valid_indices = [idx for idx in indices if idx >= start]
-        num_load = len(valid_indices)
+        # Find all hydro_w binary files regardless of prefix (e.g. KH.hydro_w or vshear_*.hydro_w)
+        w_files = sorted(
+            [f for f in os.listdir(filepath) if ".hydro_w." in f and f.endswith(".bin")],
+            key=lambda f: int(f.split(".")[-2]),
+        )
+        valid_files = [f for f in w_files if int(f.split(".")[-2]) >= start]
+        num_load = len(valid_files)
 
         self.rho = np.zeros((num_load, self.resolution[0], self.resolution[1]))
         self.temp = np.zeros_like(self.rho)
@@ -120,8 +121,8 @@ class simulation_data():
         self.ps = np.zeros_like(self.rho)
         self.frho = np.zeros_like(self.rho)
 
-        for idx, i in enumerate(tqdm(valid_indices, desc="Loading data")):
-            file_data = bin_convert.read_binary(f"KH.hydro_w.{i:05d}.bin")
+        for idx, fname in enumerate(tqdm(valid_files, desc="Loading data")):
+            file_data = bin_convert.read_binary(fname)
             self.rho[idx] = bin_convert.make_2D_array(file_data, "dens")
             self.ux[idx] = bin_convert.make_2D_array(file_data, "velx")
             self.uy[idx] = bin_convert.make_2D_array(file_data, "vely")
@@ -143,11 +144,13 @@ class simulation_data():
         cwd = os.getcwd()
         os.chdir(filepath)
 
-        # Count only hydro_u files
-        u_files = [f for f in os.listdir(filepath) if f.startswith('KH.hydro_u') and f.endswith('.bin')]
-        indices = sorted([int(f.split('.')[-2]) for f in u_files])
-        valid_indices = [idx for idx in indices if idx >= start]
-        num_load = len(valid_indices)
+        # Find all hydro_u binary files regardless of prefix
+        u_files = sorted(
+            [f for f in os.listdir(filepath) if ".hydro_u." in f and f.endswith(".bin")],
+            key=lambda f: int(f.split(".")[-2]),
+        )
+        valid_files = [f for f in u_files if int(f.split(".")[-2]) >= start]
+        num_load = len(valid_files)
 
         self.cons_rho = np.zeros((num_load, self.resolution[0], self.resolution[1]))
         self.cons_momx = np.zeros_like(self.cons_rho)
@@ -155,8 +158,8 @@ class simulation_data():
         self.cons_ener = np.zeros_like(self.cons_rho)
         self.cons_ps = np.zeros_like(self.cons_rho)
 
-        for idx, i in enumerate(tqdm(valid_indices, desc="Loading cons data")):
-            file_data = bin_convert.read_binary(f"KH.hydro_u.{i:05d}.bin")
+        for idx, fname in enumerate(tqdm(valid_files, desc="Loading cons data")):
+            file_data = bin_convert.read_binary(fname)
             self.cons_rho[idx] = bin_convert.make_2D_array(file_data, "dens")
             self.cons_momx[idx] = bin_convert.make_2D_array(file_data, "mom1")
             self.cons_momy[idx] = bin_convert.make_2D_array(file_data, "mom2")

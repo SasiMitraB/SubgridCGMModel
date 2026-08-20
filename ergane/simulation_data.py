@@ -202,14 +202,17 @@ class Frame:
     def temperature(self) -> Optional[np.ndarray]:
         """
         Compute the temperature field in Kelvin.
-        T = (P / rho) * (mu * m_H / k_B).
-        Only supported when both pressure and density are available.
+        T = (P / rho) * (mu * m_H / k_B) [CGS]
+        When in code units, P_unit = 1.59916e-14 dyne/cm^2 converts P to CGS.
         """
         if self.density is None or self.pressure is None:
             return None
         mu = getattr(self.units, "mu", 0.62)
         m_H = 1.6726e-24
         k_B = 1.3807e-16
+        if getattr(self.units, "system", "code") == "code":
+            P_unit = 1.59916e-14
+            return (self.pressure * P_unit / (self.density + 1e-30)) * (mu / k_B)
         return (self.pressure / (self.density + 1e-30)) * (mu * m_H / k_B)
 
     def __repr__(self) -> str:
