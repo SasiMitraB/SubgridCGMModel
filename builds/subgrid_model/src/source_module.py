@@ -338,10 +338,43 @@ def source_func(rho, pres, ux, uy, ps, fmcl, bdt=None):
         unit_fix=1.975e27,
     )
     cool_rate = emiss.squeeze().cpu().numpy()  # (H, W)
+    # ------------------------------------------------------------------
+    # 4b. Temperature floor: clip the sink so applying
+    #     source[3] = -cool_rate for one timestep cannot push the gas
+    #     below T_TARGET (default 1e4 K; override via COOL_TFLOOR env var).
+    #
+    #     `pres` is code-unit pressure (subgrid.cpp passes w0(IEN)*gm1),
+    #     so E_int = pres / (gamma - 1) in code units.
+    #     The source returned is dE_int/dt, so:
+    #         E_new = E_old - cool_rate * bdt
+    #     We require E_new >= E_floor, with
+    #         p_floor = rho * k_B * T_TARGET / (mu * P_unit)   (code units)
+    #         E_floor = p_floor / (gamma - 1)
+    #     =>  cool_rate <= (E_old - E_floor) / bdt
+    #     Cells already at/below the floor get cool_max = 0 (no further
+    #     cooling). Heating (cool_rate < 0) is left untouched.
+    # ------------------------------------------------------------------
+    T_TARGET = float(os.environ.get("COOL_TFLOOR", "1.0e4"))  # K
+    if bdt is not None and float(bdt) > 0.0 and T_TARGET > 0.0:
+        # Code-unit pressure corresponding to T_TARGET (same layout as rho_arr/pres_arr)
+        p_floor = (rho_arr * kb * T_TARGET) / (mu * P_unit)
 
+        e_curr  = pres_arr  / (gamma - 1.0)
+        e_floor = p_floor   / (gamma - 1.0)
+
+        # Max permissible cooling rate (per unit time) for this step.
+        cool_max = np.maximum(e_curr - e_floor, 0.0) / float(bdt)  # (Ni, Nj) = (nx1, nx2)
+
+        # cool_rate is in (H, W) = (rows, cols) = (nx2, nx1) layout;
+        # transpose cool_max to match before clipping.
+        cool_max_py = np.ascontiguousarray(cool_max.T)              # (H, W)
+
+        # Clip the sink. np.minimum preserves negative (heating) values.
+        cool_rate = np.minimum(cool_rate, cool_max_py)
     # ------------------------------------------------------------------
     # 5. Build source term array
     # ------------------------------------------------------------------
+    
     source_term = np.zeros((5, H, W), dtype=np.float64)
     source_term[3] = -cool_rate  # energy sink
 

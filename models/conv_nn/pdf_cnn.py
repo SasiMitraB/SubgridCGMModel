@@ -89,12 +89,37 @@ HYPERPARAMS = {
     "learning_rate": 1e-3,
     "weight_decay": 1e-5,
     "dropout_rate": 0.2,
-    "alpha_gate": 50,
+    "alpha_gate": float(os.environ.get("PDF_CNN_ALPHA_GATE", "0.0")),
     "alpha_mean_temp": 10,
     "alpha_emiss": float(os.environ.get("PDF_CNN_ALPHA_EMISS", "10.0")),
     "alpha_leak": float(os.environ.get("PDF_CNN_ALPHA_LEAK", "10.0")),
-    "alpha_active_kl": float(os.environ.get("PDF_CNN_ALPHA_ACTIVE_KL", "10.0")),
-    "alpha_inactive_kl": float(os.environ.get("PDF_CNN_ALPHA_INACTIVE_KL", "10.0")),
+    "alpha_active_wasserstein": float(
+        os.environ.get(
+            "PDF_CNN_ALPHA_ACTIVE_WASSERSTEIN",
+            os.environ.get("PDF_CNN_ALPHA_ACTIVE_KL", "100.0"),
+        )
+    ),
+    "alpha_inactive_wasserstein": float(
+        os.environ.get(
+            "PDF_CNN_ALPHA_INACTIVE_WASSERSTEIN",
+            os.environ.get("PDF_CNN_ALPHA_INACTIVE_KL", "100.0"),
+        )
+    ),
+    "alpha_active_kl": float(
+        os.environ.get(
+            "PDF_CNN_ALPHA_ACTIVE_WASSERSTEIN",
+            os.environ.get("PDF_CNN_ALPHA_ACTIVE_KL", "100.0"),
+        )
+    ),
+    "alpha_inactive_kl": float(
+        os.environ.get(
+            "PDF_CNN_ALPHA_INACTIVE_WASSERSTEIN",
+            os.environ.get("PDF_CNN_ALPHA_INACTIVE_KL", "10.0"),
+        )
+    ),
+    "gate_epochs": int(os.environ.get("PDF_CNN_GATE_EPOCHS", "200")),
+    "gate_learning_rate": float(os.environ.get("PDF_CNN_GATE_LR", "1e-3")),
+    "freeze_gate": True,
     "train_fraction": 0.50,
     "val_fraction": 0.25,
     "grad_clip_max_norm": 1.0,
@@ -545,10 +570,11 @@ def snapshot_pred_16x8(
     fine_resolution: tuple = (512, 256),
     downsample: int = 32,
     model_save_dir: str = None,
-) -> np.ndarray:
+    return_gate: bool = False,
+):
     """
-    Predict pixel temperature PDFs for a snapshot whose fields are ALREADY
-    coarse-grained to 16×8. No `simulation_data.coarse_grain` is performed.
+    Predict pixel temperature PDFs (and optionally gate values) for a snapshot
+    whose fields are ALREADY coarse-grained to 16×8. No `simulation_data.coarse_grain` is performed.
 
     Parameters
     ----------
@@ -562,12 +588,16 @@ def snapshot_pred_16x8(
     model_save_dir : str, optional
         Directory where model weights and normalization files are saved.
         Defaults to os.environ["MODEL_SAVES_DIR"] or module default.
+    return_gate : bool, default False
+        If True, returns tuple (pdf, gate) where gate has shape (16, 8).
 
     Returns
     -------
     pdf : np.ndarray, shape (out_channels, 16, 8)  ≡ (40, 16, 8)
         Predicted temperature PDF at each coarse cell. Axis 0 indexes the
         40 temperature bins defined by `T_edges`.
+    gate : np.ndarray, shape (16, 8) [only if return_gate is True]
+        Predicted gate value per coarse cell ∈ (0, 1).
     """
 
     # ---- 1. Shape check -------------------------------------------------
@@ -627,11 +657,15 @@ def snapshot_pred_16x8(
     cnn_model.load_state_dict(state_dict)
     cnn_model.eval()
 
-    # ---- 5. Predict PDF -------------------------------------------------
+    # ---- 5. Predict PDF (and Gate) --------------------------------------
     with torch.no_grad():
-        pdf = cnn_model.predict_pdf(input_tensor)  # (1, 40, 16, 8)
+        logits, gate = cnn_model.forward(input_tensor)
+        pdf = cnn_model.pdf_activation(logits, gate)
         pdf = pdf[0].cpu().numpy()  # (40, 16, 8)
+        gate = gate[0, 0].cpu().numpy()  # (16, 8)
 
+    if return_gate:
+        return pdf, gate
     return pdf
 
 
@@ -1036,6 +1070,28 @@ class ConvNN(nn.Module):
         )
 
         self.pdf_activation = GatedThresholdedSoftmax()
+        self._gate_frozen = False
+
+    def train(self, mode=True):
+        """Override train to ensure gate_branch remains in eval mode when frozen."""
+        super().train(mode)
+        if getattr(self, "_gate_frozen", False):
+            self.gate_branch.eval()
+        return self
+
+    def freeze_gate_branch(self):
+        """Freeze all parameters in the gate branch and set it to eval mode."""
+        self._gate_frozen = True
+        for param in self.gate_branch.parameters():
+            param.requires_grad = False
+        self.gate_branch.eval()
+
+    def unfreeze_gate_branch(self):
+        """Unfreeze all parameters in the gate branch and set it to train mode."""
+        self._gate_frozen = False
+        for param in self.gate_branch.parameters():
+            param.requires_grad = True
+        self.gate_branch.train()
 
     def forward(self, x):
         # Append 8 mixing-layer physics channels
@@ -1233,15 +1289,21 @@ class EmissivityLoss(nn.Module):
 IsobaricEmissivityLoss = EmissivityLoss
 
 
-class ZonedSymmetricKLLoss(nn.Module):
+class ZonedWassersteinLoss(nn.Module):
     """
-    Splits the bidirectional (Jeffreys) KL between predicted and true PDFs
+    Splits the 1D Wasserstein-1 (Earth Mover's) distance between predicted and true PDFs
     into two pieces along the temperature-bin axis:
 
-      D_active   : bins inside [LOGT_ACTIVE_START, LOGT_ACTIVE_END]
-      D_inactive : all remaining bins
+      W1_active   : bins inside [LOGT_ACTIVE_START, LOGT_ACTIVE_END]
+      W1_inactive : all remaining bins
 
-    total = alpha_active * mean(D_active) + alpha_inactive * mean(D_inactive)
+    For discrete 1D distributions, W1 is the integral (sum) of the absolute difference
+    between cumulative distribution functions (CDFs):
+      CDF_pred = cumsum(pred_pdf, dim=1)
+      CDF_true = cumsum(true_pdf, dim=1)
+      wass_diff = |CDF_pred - CDF_true|
+
+    total = alpha_active * mean(W1_active) + alpha_inactive * mean(W1_inactive)
     """
 
     def __init__(
@@ -1249,7 +1311,6 @@ class ZonedSymmetricKLLoss(nn.Module):
         active_bin_mask=None,
         alpha_active=1.0,
         alpha_inactive=0.1,
-        eps=1e-12,
     ):
         super().__init__()
         if active_bin_mask is None:
@@ -1263,25 +1324,24 @@ class ZonedSymmetricKLLoss(nn.Module):
         self.register_buffer("active_mask", active_bin_mask.view(1, -1, 1, 1).float())
         self.alpha_active = alpha_active
         self.alpha_inactive = alpha_inactive
-        self.eps = eps
 
     def forward(self, pred_pdf, true_pdf):
         mask = self.active_mask.to(pred_pdf.device)
 
-        kl_fwd = true_pdf * (
-            torch.log(true_pdf + self.eps) - torch.log(pred_pdf + self.eps)
-        )
-        kl_rev = pred_pdf * (
-            torch.log(pred_pdf + self.eps) - torch.log(true_pdf + self.eps)
-        )
-        kl_map = kl_fwd + kl_rev  # (B, bins, nx, ny) — per-bin symmetric KL
+        cdf_pred = torch.cumsum(pred_pdf, dim=1)
+        cdf_true = torch.cumsum(true_pdf, dim=1)
+        wass_diff = torch.abs(cdf_pred - cdf_true)  # (B, bins, nx, ny)
 
-        kl_active = torch.sum(kl_map * mask, dim=1)  # (B, nx, ny)
-        kl_inactive = torch.sum(kl_map * (1.0 - mask), dim=1)  # (B, nx, ny)
+        wass_active = torch.sum(wass_diff * mask, dim=1)  # (B, nx, ny)
+        wass_inactive = torch.sum(wass_diff * (1.0 - mask), dim=1)  # (B, nx, ny)
 
-        loss_active, loss_inactive = torch.mean(kl_active), torch.mean(kl_inactive)
+        loss_active, loss_inactive = torch.mean(wass_active), torch.mean(wass_inactive)
         total = self.alpha_active * loss_active + self.alpha_inactive * loss_inactive
         return total, loss_active.detach(), loss_inactive.detach()
+
+
+# Alias for backwards compatibility
+ZonedSymmetricKLLoss = ZonedWassersteinLoss
 
 
 class LeakageLoss(nn.Module):
@@ -1324,8 +1384,8 @@ class LeakageLoss(nn.Module):
 class GatedPDFLoss(nn.Module):
     """
     Composite PDF loss with core terms:
-      1. Zoned bidirectional KL divergence (active vs inactive temperature zones)
-      2. Gate supervision loss (BCE against entropy-derived threshold)
+      1. Zoned Wasserstein-1 distance (active vs inactive temperature zones)
+      2. Gate supervision loss (BCE against active-window PDF mass)
       3. Mean temperature matching loss (<T>_pred vs T_coarse in log-space)
       4. Emissivity matching loss (MSE on log10(emissivity))
       5. Active window mass leakage loss (MSE on log10(active mass))
@@ -1337,14 +1397,17 @@ class GatedPDFLoss(nn.Module):
         alpha_mean_temp=10.0,
         alpha_emiss=10.0,
         alpha_leak=10.0,
+        alpha_active_wasserstein=None,
+        alpha_inactive_wasserstein=None,
         alpha_active_kl=1.0,
         alpha_inactive_kl=0.1,
-        entropy_threshold=0.05,
+        entropy_threshold=0.05,  # kept for backwards compatibility
         logT_centers=None,
         T_centers=None,
         lambda_tensor=None,
         mu=0.62,
         unit_fix=1.975e27,
+        active_bin_mask=None,  # NEW: accept an external mask
     ):
         super().__init__()
         self.alpha_gate = alpha_gate
@@ -1353,11 +1416,24 @@ class GatedPDFLoss(nn.Module):
         self.alpha_leak = alpha_leak
         self.entropy_threshold = entropy_threshold
 
-        self.activation = GatedThresholdedSoftmax()
-        self.zoned_kl = ZonedSymmetricKLLoss(
-            alpha_active=alpha_active_kl,
-            alpha_inactive=alpha_inactive_kl,
+        alpha_act = (
+            alpha_active_wasserstein
+            if alpha_active_wasserstein is not None
+            else alpha_active_kl
         )
+        alpha_inact = (
+            alpha_inactive_wasserstein
+            if alpha_inactive_wasserstein is not None
+            else alpha_inactive_kl
+        )
+
+        self.activation = GatedThresholdedSoftmax()
+        self.zoned_wasserstein = ZonedWassersteinLoss(
+            alpha_active=alpha_act,
+            alpha_inactive=alpha_inact,
+            active_bin_mask=active_bin_mask,
+        )
+        self.zoned_kl = self.zoned_wasserstein  # backwards compatibility alias
         self.mean_temp_loss = MeanTemperatureLoss(logT_centers)
         self.emiss_loss = EmissivityLoss(
             T_centers_input=T_centers,
@@ -1367,47 +1443,84 @@ class GatedPDFLoss(nn.Module):
         )
         self.leak_loss = LeakageLoss()
 
-    def forward(self, logits, gate, true_pdf, rho=None, T_coarse=None):
+        # --- NEW: Initialize the active cooling window mask ---
+        if active_bin_mask is None:
+            tc = T_centers if T_centers is not None else globals().get("T_centers")
+            if isinstance(tc, torch.Tensor):
+                tc = tc.cpu().numpy()
+            logt = np.log10(tc)
+            mask_np = (logt >= LOGT_ACTIVE_START) & (logt <= LOGT_ACTIVE_END)
+            active_bin_mask = torch.tensor(mask_np, dtype=torch.float32)
+        elif not isinstance(active_bin_mask, torch.Tensor):
+            active_bin_mask = torch.tensor(active_bin_mask, dtype=torch.float32)
+
+        # (1, bins, 1, 1) so it broadcasts against (B, bins, nx, ny)
+        self.register_buffer("active_mask", active_bin_mask.view(1, -1, 1, 1).float())
+
+    def forward(self, logits, gate, true_pdf, rho=None, T_coarse=None, return_components=False):
         pred_pdf = self.activation(logits, gate)
 
-        # 1. Zoned symmetric KL (replaces the old flat kl_loss)
-        kl_loss, kl_active, kl_inactive = self.zoned_kl(pred_pdf, true_pdf)
+        # 1. Zoned Wasserstein-1 distance (replaces KL divergence)
+        wass_loss, wass_active, wass_inactive = self.zoned_wasserstein(pred_pdf, true_pdf)
 
-        # 2. Gate supervision loss (safely clamped to avoid BCE assertion errors)
-        entropy = -(true_pdf * torch.log(true_pdf + 1e-12)).sum(dim=1, keepdim=True)
-        entropy_norm = entropy / np.log(true_pdf.shape[1])
-        gate_target = (entropy_norm > self.entropy_threshold).float()
-        gate_clamped = torch.clamp(gate, min=1e-7, max=1.0 - 1e-7)
-        gate_loss = F.binary_cross_entropy(gate_clamped, gate_target)
+        # 2. Gate supervision loss based on active cooling window mass (only if alpha_gate > 0)
+        if self.alpha_gate > 0:
+            mask = self.active_mask.to(true_pdf.device)
+            active_mass = torch.sum(true_pdf * mask, dim=1, keepdim=True)  # (B, 1, nx, ny)
+            gate_target = (active_mass > 1e-8).float()
+            gate_clamped = torch.clamp(gate, min=1e-7, max=1.0 - 1e-7)
+            gate_loss = F.binary_cross_entropy(gate_clamped, gate_target)
+        else:
+            gate_loss = torch.tensor(0.0, device=true_pdf.device)
 
         # 3. Mean temperature matching loss
         mean_temp_loss = (
             self.mean_temp_loss(pred_pdf, T_coarse)
             if T_coarse is not None and self.alpha_mean_temp > 0
-            else 0.0
+            else torch.tensor(0.0, device=true_pdf.device)
         )
 
         # 4. Emissivity matching loss
         emiss_loss = (
             self.emiss_loss(pred_pdf, true_pdf, rho=rho)
             if self.alpha_emiss > 0
-            else 0.0
+            else torch.tensor(0.0, device=true_pdf.device)
         )
 
         # 5. Active window mass leakage loss
         leak_loss = (
             self.leak_loss(pred_pdf, true_pdf)
             if self.alpha_leak > 0
-            else 0.0
+            else torch.tensor(0.0, device=true_pdf.device)
         )
 
         total_loss = (
-            kl_loss
-            + self.alpha_gate * gate_loss
+            wass_loss
+            + (self.alpha_gate * gate_loss if self.alpha_gate > 0 else 0.0)
             + self.alpha_mean_temp * mean_temp_loss
             + self.alpha_emiss * emiss_loss
             + self.alpha_leak * leak_loss
         )
+
+        if return_components:
+            def _to_float(val):
+                return val.item() if isinstance(val, torch.Tensor) else float(val)
+
+            components = {
+                "total": _to_float(total_loss),
+                "wasserstein_total": _to_float(wass_loss),
+                "wasserstein_active": _to_float(wass_active),
+                "wasserstein_inactive": _to_float(wass_inactive),
+                # Aliases for backwards compatibility with legacy readers
+                "kl_total": _to_float(wass_loss),
+                "kl_active": _to_float(wass_active),
+                "kl_inactive": _to_float(wass_inactive),
+                "gate": _to_float(gate_loss),
+                "mean_temp": _to_float(mean_temp_loss),
+                "emiss": _to_float(emiss_loss),
+                "leak": _to_float(leak_loss),
+            }
+            return total_loss, components
 
         return total_loss
 
@@ -1416,17 +1529,362 @@ class GatedPDFLoss(nn.Module):
 GatedPDFEmissivityLoss = GatedPDFLoss
 
 
+def plot_gate_training(gate_history, save_path=None):
+    """Plot BCE Loss and Binary Accuracy for the standalone Gate training stage."""
+    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(14, 5))
+
+    epochs = gate_history["epochs"]
+    # 1. BCE Loss
+    ax1.plot(epochs, gate_history["train_loss"], label="Train BCE Loss", color="tab:blue", lw=1.5)
+    ax1.plot(epochs, gate_history["val_loss"], label="Val BCE Loss", color="tab:orange", lw=1.5)
+    ax1.set_xlabel("Epochs")
+    ax1.set_ylabel("BCE Loss")
+    ax1.set_title("Gate Pretraining: BCE Loss")
+    ax1.grid(True, alpha=0.3)
+    ax1.set_yscale("log")
+    ax1.legend(frameon=True)
+
+    # 2. Binary Accuracy
+    ax2.plot(epochs, [acc * 100 for acc in gate_history["train_acc"]], label="Train Accuracy (%)", color="tab:green", lw=1.5)
+    ax2.plot(epochs, [acc * 100 for acc in gate_history["val_acc"]], label="Val Accuracy (%)", color="tab:red", lw=1.5)
+    ax2.set_xlabel("Epochs")
+    ax2.set_ylabel("Accuracy (%)")
+    ax2.set_title("Gate Pretraining: Classification Accuracy")
+    ax2.grid(True, alpha=0.3)
+    ax2.legend(frameon=True)
+
+    plt.suptitle("Stage 1: MixingLayerGate Pretraining Progress", fontsize=14, y=0.98)
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
+        print(f"Saved gate training plot to: {save_path}")
+
+    plt.close(fig)
+
+
+def train_gate_branch(
+    cnn_model,
+    train_loader,
+    val_loader,
+    active_mask,
+    device,
+    epochs=200,
+    lr=1e-3,
+    weight_decay=1e-5,
+    grad_clip_max_norm=1.0,
+    save_path=None,
+):
+    """
+    Stage 1: Pre-train the MixingLayerGate branch independently on the binary target:
+        gate_target = (active_mass > 1e-8).float()
+    """
+    print(f"\n{'='*60}")
+    print(f"STAGE 1: Pretraining Gate Branch ({epochs} epochs, lr={lr})")
+    print(f"{'='*60}")
+
+    cnn_model.unfreeze_gate_branch()
+    # Freeze encoder/decoder during gate pretraining
+    for p in cnn_model.encoder.parameters():
+        p.requires_grad = False
+    for p in cnn_model.decoder.parameters():
+        p.requires_grad = False
+
+    optimizer = torch.optim.AdamW(
+        cnn_model.gate_branch.parameters(), lr=lr, weight_decay=weight_decay
+    )
+    scheduler = torch.optim.lr_scheduler.OneCycleLR(
+        optimizer,
+        max_lr=lr,
+        steps_per_epoch=max(1, len(train_loader)),
+        epochs=epochs,
+        pct_start=0.15,
+    )
+
+    epochs_arr = []
+    train_bce_arr = []
+    val_bce_arr = []
+    train_acc_arr = []
+    val_acc_arr = []
+
+    mask = active_mask.to(device)
+    best_val_loss = float("inf")
+    best_gate_state = None
+
+    for epoch in tqdm(range(epochs), desc="Gate Pretraining"):
+        if hasattr(train_loader.dataset, "resample"):
+            train_loader.dataset.resample()
+        if hasattr(val_loader.dataset, "resample"):
+            val_loader.dataset.resample()
+            if hasattr(train_loader.dataset, "input_mean") and hasattr(val_loader.dataset, "set_norm_stats"):
+                val_loader.dataset.set_norm_stats(train_loader.dataset.input_mean, train_loader.dataset.input_std)
+
+        cnn_model.gate_branch.train()
+        for inputs, labels, rho, temp in train_loader:
+            inputs = inputs.to(device)
+            labels = labels.to(device)
+
+            # Data augmentations
+            if torch.rand(1).item() > 0.5:
+                inputs = torch.flip(inputs, [3])
+                labels = torch.flip(labels, [3])
+                inputs = inputs.clone()
+                inputs[:, 2] = -inputs[:, 2]  # negate ux
+            if torch.rand(1).item() > 0.5:
+                inputs = torch.flip(inputs, [2])
+                labels = torch.flip(labels, [2])
+                inputs = inputs.clone()
+                inputs[:, 3] = -inputs[:, 3]  # negate uy
+
+            # Target: active cooling window mass > 1e-8
+            active_mass = torch.sum(labels * mask, dim=1, keepdim=True)
+            gate_target = (active_mass > 1e-8).float()
+
+            with torch.no_grad():
+                x_enriched = cnn_model.mixing(inputs)
+                mixing_feats = x_enriched[:, -cnn_model._N_MIXING :, :, :]
+
+            gate = cnn_model.gate_branch(mixing_feats)
+            gate_clamped = torch.clamp(gate, min=1e-7, max=1.0 - 1e-7)
+            loss = F.binary_cross_entropy(gate_clamped, gate_target)
+
+            optimizer.zero_grad()
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(
+                cnn_model.gate_branch.parameters(), max_norm=grad_clip_max_norm
+            )
+            optimizer.step()
+            scheduler.step()
+
+        # Evaluate epoch
+        cnn_model.gate_branch.eval()
+        with torch.no_grad():
+            tr_loss, tr_correct, tr_total = 0.0, 0, 0
+            for inputs, labels, _, _ in train_loader:
+                inputs = inputs.to(device)
+                labels = labels.to(device)
+                active_mass = torch.sum(labels * mask, dim=1, keepdim=True)
+                gate_target = (active_mass > 1e-8).float()
+
+                x_enriched = cnn_model.mixing(inputs)
+                mixing_feats = x_enriched[:, -cnn_model._N_MIXING :, :, :]
+                gate = cnn_model.gate_branch(mixing_feats)
+                gate_clamped = torch.clamp(gate, min=1e-7, max=1.0 - 1e-7)
+
+                tr_loss += F.binary_cross_entropy(gate_clamped, gate_target).item()
+                pred_binary = (gate > 0.5).float()
+                tr_correct += (pred_binary == gate_target).sum().item()
+                tr_total += gate_target.numel()
+
+            val_loss, val_correct, val_total = 0.0, 0, 0
+            for inputs, labels, _, _ in val_loader:
+                inputs = inputs.to(device)
+                labels = labels.to(device)
+                active_mass = torch.sum(labels * mask, dim=1, keepdim=True)
+                gate_target = (active_mass > 1e-8).float()
+
+                x_enriched = cnn_model.mixing(inputs)
+                mixing_feats = x_enriched[:, -cnn_model._N_MIXING :, :, :]
+                gate = cnn_model.gate_branch(mixing_feats)
+                gate_clamped = torch.clamp(gate, min=1e-7, max=1.0 - 1e-7)
+
+                val_loss += F.binary_cross_entropy(gate_clamped, gate_target).item()
+                pred_binary = (gate > 0.5).float()
+                val_correct += (pred_binary == gate_target).sum().item()
+                val_total += gate_target.numel()
+
+            epoch_tr_loss = tr_loss / max(1, len(train_loader))
+            epoch_val_loss = val_loss / max(1, len(val_loader))
+            epoch_tr_acc = tr_correct / max(1, tr_total)
+            epoch_val_acc = val_correct / max(1, val_total)
+
+            epochs_arr.append(epoch + 1)
+            train_bce_arr.append(epoch_tr_loss)
+            val_bce_arr.append(epoch_val_loss)
+            train_acc_arr.append(epoch_tr_acc)
+            val_acc_arr.append(epoch_val_acc)
+
+            if epoch_val_loss < best_val_loss:
+                best_val_loss = epoch_val_loss
+                best_val_acc = epoch_val_acc
+                best_gate_state = {k: v.cpu().clone() for k, v in cnn_model.gate_branch.state_dict().items()}
+
+    # Restore best gate weights
+    if best_gate_state is not None:
+        cnn_model.gate_branch.load_state_dict(best_gate_state)
+        print(f"Restored best gate branch weights (Val BCE: {best_val_loss:.6f}, Val Acc: {best_val_acc*100:.2f}%)")
+
+    if save_path:
+        torch.save(cnn_model.gate_branch.state_dict(), save_path)
+        print(f"Saved pretrained gate branch weights to: {save_path}")
+
+    # Unfreeze encoder/decoder for Stage 2
+    for p in cnn_model.encoder.parameters():
+        p.requires_grad = True
+    for p in cnn_model.decoder.parameters():
+        p.requires_grad = True
+
+    return {
+        "epochs": epochs_arr,
+        "train_loss": train_bce_arr,
+        "val_loss": val_bce_arr,
+        "train_acc": train_acc_arr,
+        "val_acc": val_acc_arr,
+    }
+
+
+def plot_loss_breakdown(
+    epochs_array,
+    train_history,
+    val_history,
+    test_history=None,
+    save_path=None,
+    hyperparams=None,
+):
+    """
+    Plot total loss and all individual loss terms across training epochs.
+    Creates a 2x3 grid:
+      1. Total Loss
+      2. Zoned Wasserstein Loss (Total, Active, Inactive)
+      3. Gate Supervision Loss (BCE)
+      4. Mean Temperature Loss (MSE log10 T)
+      5. Emissivity Loss (MSE log10 Emissivity)
+      6. Active Window Mass Leakage Loss
+    """
+    fig, axes = plt.subplots(2, 3, figsize=(18, 10), sharex=True)
+    axes = axes.flatten()
+
+    def _safe_set_yscale_log(axis, *arrays):
+        has_positive = any(any(v > 1e-12 for v in a if isinstance(v, (int, float))) for a in arrays if len(a) > 0)
+        if has_positive:
+            axis.set_yscale("log")
+
+    # 1. Total Loss
+    ax = axes[0]
+    ax.plot(epochs_array, train_history["total"], label="Train Total", color="tab:blue", lw=1.5)
+    ax.plot(epochs_array, val_history["total"], label="Val Total", color="tab:orange", lw=1.5)
+    if test_history and "total" in test_history:
+        ax.axhline(test_history["total"], color="tab:red", linestyle="--", alpha=0.8, label=f"Test: {test_history['total']:.4f}")
+    ax.set_ylabel("Total Loss")
+    ax.set_title("Total Loss")
+    ax.legend(frameon=True)
+    ax.grid(True, alpha=0.3)
+    _safe_set_yscale_log(ax, train_history["total"], val_history["total"])
+
+    # 2. Zoned Wasserstein Loss
+    ax = axes[1]
+    w_train_tot = train_history.get("wasserstein_total", train_history.get("kl_total", []))
+    w_val_tot = val_history.get("wasserstein_total", val_history.get("kl_total", []))
+    w_train_act = train_history.get("wasserstein_active", train_history.get("kl_active", []))
+    w_val_act = val_history.get("wasserstein_active", val_history.get("kl_active", []))
+    w_train_inact = train_history.get("wasserstein_inactive", train_history.get("kl_inactive", []))
+    w_val_inact = val_history.get("wasserstein_inactive", val_history.get("kl_inactive", []))
+
+    ax.plot(epochs_array, w_train_tot, label="Train W1 Total", color="tab:blue", lw=1.5)
+    ax.plot(epochs_array, w_val_tot, label="Val W1 Total", color="tab:orange", lw=1.5)
+    ax.plot(epochs_array, w_train_act, label="Train Active W1", color="tab:green", lw=1.0, linestyle=":")
+    ax.plot(epochs_array, w_val_act, label="Val Active W1", color="tab:olive", lw=1.0, linestyle=":")
+    ax.plot(epochs_array, w_train_inact, label="Train Inactive W1", color="tab:purple", lw=1.0, linestyle="--")
+    ax.plot(epochs_array, w_val_inact, label="Val Inactive W1", color="tab:pink", lw=1.0, linestyle="--")
+    ax.set_ylabel("Wasserstein-1 Loss")
+    alpha_act = (
+        hyperparams.get("alpha_active_wasserstein", hyperparams.get("alpha_active_kl", 1.0))
+        if hyperparams
+        else 1.0
+    )
+    alpha_inact = (
+        hyperparams.get("alpha_inactive_wasserstein", hyperparams.get("alpha_inactive_kl", 0.1))
+        if hyperparams
+        else 0.1
+    )
+    ax.set_title(f"Zoned Wasserstein Loss (α_act={alpha_act}, α_inact={alpha_inact})")
+    ax.legend(frameon=True, fontsize=8)
+    ax.grid(True, alpha=0.3)
+    _safe_set_yscale_log(ax, w_train_tot, w_val_tot)
+
+    # 3. Gate Supervision Loss
+    ax = axes[2]
+    ax.plot(epochs_array, train_history["gate"], label="Train Gate BCE", color="tab:blue", lw=1.5)
+    ax.plot(epochs_array, val_history["gate"], label="Val Gate BCE", color="tab:orange", lw=1.5)
+    if test_history and "gate" in test_history:
+        ax.axhline(test_history["gate"], color="tab:red", linestyle="--", alpha=0.8, label=f"Test: {test_history['gate']:.4f}")
+    ax.set_ylabel("BCE Loss")
+    alpha_gate = hyperparams.get("alpha_gate", 0.0) if hyperparams else 0.0
+    ax.set_title(f"Gate Supervision Loss (α_gate={alpha_gate})")
+    ax.legend(frameon=True)
+    ax.grid(True, alpha=0.3)
+    _safe_set_yscale_log(ax, train_history["gate"], val_history["gate"])
+
+    # 4. Mean Temperature Loss
+    ax = axes[3]
+    ax.plot(epochs_array, train_history["mean_temp"], label="Train Mean Temp", color="tab:blue", lw=1.5)
+    ax.plot(epochs_array, val_history["mean_temp"], label="Val Mean Temp", color="tab:orange", lw=1.5)
+    if test_history and "mean_temp" in test_history:
+        ax.axhline(test_history["mean_temp"], color="tab:red", linestyle="--", alpha=0.8, label=f"Test: {test_history['mean_temp']:.4f}")
+    ax.set_xlabel("Epochs")
+    ax.set_ylabel("MSE (log10 T)")
+    alpha_temp = hyperparams.get("alpha_mean_temp", 10.0) if hyperparams else 10.0
+    ax.set_title(f"Mean Temperature Matching (α_temp={alpha_temp})")
+    ax.legend(frameon=True)
+    ax.grid(True, alpha=0.3)
+    _safe_set_yscale_log(ax, train_history["mean_temp"], val_history["mean_temp"])
+
+    # 5. Emissivity Loss
+    ax = axes[4]
+    ax.plot(epochs_array, train_history["emiss"], label="Train Emissivity", color="tab:blue", lw=1.5)
+    ax.plot(epochs_array, val_history["emiss"], label="Val Emissivity", color="tab:orange", lw=1.5)
+    if test_history and "emiss" in test_history:
+        ax.axhline(test_history["emiss"], color="tab:red", linestyle="--", alpha=0.8, label=f"Test: {test_history['emiss']:.4f}")
+    ax.set_xlabel("Epochs")
+    ax.set_ylabel("MSE (log10 Emissivity)")
+    alpha_emiss = hyperparams.get("alpha_emiss", 10.0) if hyperparams else 10.0
+    ax.set_title(f"Emissivity Matching Loss (α_emiss={alpha_emiss})")
+    ax.legend(frameon=True)
+    ax.grid(True, alpha=0.3)
+    _safe_set_yscale_log(ax, train_history["emiss"], val_history["emiss"])
+
+    # 6. Active Window Mass Leakage Loss
+    ax = axes[5]
+    ax.plot(epochs_array, train_history["leak"], label="Train Leakage", color="tab:blue", lw=1.5)
+    ax.plot(epochs_array, val_history["leak"], label="Val Leakage", color="tab:orange", lw=1.5)
+    if test_history and "leak" in test_history:
+        ax.axhline(test_history["leak"], color="tab:red", linestyle="--", alpha=0.8, label=f"Test: {test_history['leak']:.4f}")
+    ax.set_xlabel("Epochs")
+    ax.set_ylabel("MSE (log10 Active Mass)")
+    alpha_leak = hyperparams.get("alpha_leak", 10.0) if hyperparams else 10.0
+    ax.set_title(f"Active Window Leakage Loss (α_leak={alpha_leak})")
+    ax.legend(frameon=True)
+    ax.grid(True, alpha=0.3)
+    _safe_set_yscale_log(ax, train_history["leak"], val_history["leak"])
+
+    plt.suptitle("Training & Validation Loss Terms Breakdown", fontsize=16, y=0.995)
+    plt.tight_layout()
+
+    if save_path:
+        plt.savefig(save_path, dpi=300, bbox_inches="tight")
+        print(f"Saved loss components plot to: {save_path}")
+
+    plt.close(fig)
+
+
 if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="Train PDF CNN with configurable hyperparameters")
-    parser.add_argument("--alpha_active_kl", type=float, default=HYPERPARAMS.get("alpha_active_kl", 1.0), help="Active zone KL loss weight")
-    parser.add_argument("--alpha_inactive_kl", type=float, default=HYPERPARAMS.get("alpha_inactive_kl", 0.1), help="Inactive zone KL loss weight")
+    parser.add_argument("--alpha_active_wasserstein", "--alpha_active_kl", type=float, default=HYPERPARAMS.get("alpha_active_wasserstein", 100.0), help="Active zone Wasserstein loss weight")
+    parser.add_argument("--alpha_inactive_wasserstein", "--alpha_inactive_kl", type=float, default=HYPERPARAMS.get("alpha_inactive_wasserstein", 10.0), help="Inactive zone Wasserstein loss weight")
     parser.add_argument("--alpha_gate", type=float, default=HYPERPARAMS["alpha_gate"], help="Gate loss weight")
     parser.add_argument("--alpha_mean_temp", type=float, default=HYPERPARAMS.get("alpha_mean_temp", 10.0), help="Mean temperature loss weight")
     parser.add_argument("--alpha_emiss", type=float, default=HYPERPARAMS.get("alpha_emiss", 10.0), help="Emissivity loss weight")
     parser.add_argument("--alpha_leak", type=float, default=HYPERPARAMS.get("alpha_leak", 10.0), help="Active window mass leakage loss weight")
-    # Compatibility arguments
+    # Gate pretraining arguments
+    parser.add_argument("--gate_epochs", type=int, default=HYPERPARAMS["gate_epochs"], help="Epochs for gate pretraining (Stage 1)")
+    parser.add_argument("--gate_learning_rate", type=float, default=HYPERPARAMS["gate_learning_rate"], help="Learning rate for gate pretraining")
+    parser.add_argument("--skip_gate_training", action="store_true", help="Skip Stage 1 gate pretraining")
+    parser.add_argument("--gate_weights_path", type=str, default=None, help="Path to pre-trained gate weights")
+    parser.add_argument("--freeze_gate", action="store_true", default=True, help="Freeze gate branch during Stage 2 PDF training")
+    parser.add_argument("--no_freeze_gate", action="store_false", dest="freeze_gate", help="Do not freeze gate branch during Stage 2")
+    # Main training arguments
     parser.add_argument("--alpha_profile", type=float, default=None, help="Profile loss weight (alias)")
     parser.add_argument("--alpha_active_pdf", type=float, default=None, help="Active PDF loss weight (alias)")
     parser.add_argument("--num_epochs", type=int, default=HYPERPARAMS["num_epochs"], help="Number of training epochs")
@@ -1437,12 +1895,17 @@ if __name__ == "__main__":
 
     args, _ = parser.parse_known_args()
 
-    HYPERPARAMS["alpha_active_kl"] = args.alpha_active_kl
-    HYPERPARAMS["alpha_inactive_kl"] = args.alpha_inactive_kl
+    HYPERPARAMS["alpha_active_wasserstein"] = args.alpha_active_wasserstein
+    HYPERPARAMS["alpha_inactive_wasserstein"] = args.alpha_inactive_wasserstein
+    HYPERPARAMS["alpha_active_kl"] = args.alpha_active_wasserstein
+    HYPERPARAMS["alpha_inactive_kl"] = args.alpha_inactive_wasserstein
     HYPERPARAMS["alpha_gate"] = args.alpha_gate
     HYPERPARAMS["alpha_mean_temp"] = args.alpha_mean_temp
     HYPERPARAMS["alpha_emiss"] = args.alpha_emiss
     HYPERPARAMS["alpha_leak"] = args.alpha_leak
+    HYPERPARAMS["gate_epochs"] = args.gate_epochs
+    HYPERPARAMS["gate_learning_rate"] = args.gate_learning_rate
+    HYPERPARAMS["freeze_gate"] = args.freeze_gate
     HYPERPARAMS["num_epochs"] = args.num_epochs
     HYPERPARAMS["learning_rate"] = args.learning_rate
     HYPERPARAMS["batch_size"] = args.batch_size
@@ -1463,17 +1926,17 @@ if __name__ == "__main__":
 
     print("Training all fluxes model")
     print(
-        f"Hyperparameters: alpha_active_kl={HYPERPARAMS['alpha_active_kl']}, "
-        f"alpha_inactive_kl={HYPERPARAMS['alpha_inactive_kl']}, "
+        f"Hyperparameters: alpha_active_wasserstein={HYPERPARAMS['alpha_active_wasserstein']}, "
+        f"alpha_inactive_wasserstein={HYPERPARAMS['alpha_inactive_wasserstein']}, "
         f"alpha_gate={HYPERPARAMS['alpha_gate']}, "
         f"alpha_mean_temp={HYPERPARAMS['alpha_mean_temp']}, "
         f"alpha_emiss={HYPERPARAMS['alpha_emiss']}, "
         f"alpha_leak={HYPERPARAMS['alpha_leak']}, "
+        f"gate_epochs={HYPERPARAMS['gate_epochs']}, "
+        f"freeze_gate={HYPERPARAMS['freeze_gate']}, "
         f"epochs={num_epochs}, lr={learning_rate}"
     )
     print(f"Saving model to: {MODEL_SAVE_DIR}")
-
-    # torch.cuda.empty_cache()
 
     # Initialize model
     cnn_model = ConvNN(
@@ -1486,21 +1949,17 @@ if __name__ == "__main__":
         kernel_size,
     ).to(device)
 
+    alpha_gate_stage2 = 0.0 if HYPERPARAMS["freeze_gate"] else HYPERPARAMS["alpha_gate"]
+
     criterion = GatedPDFLoss(
-        alpha_gate=HYPERPARAMS["alpha_gate"],
+        alpha_gate=alpha_gate_stage2,
         alpha_mean_temp=HYPERPARAMS.get("alpha_mean_temp", 10.0),
         alpha_emiss=HYPERPARAMS.get("alpha_emiss", 10.0),
         alpha_leak=HYPERPARAMS.get("alpha_leak", 10.0),
-        alpha_active_kl=HYPERPARAMS.get("alpha_active_kl", 1.0),
-        alpha_inactive_kl=HYPERPARAMS.get("alpha_inactive_kl", 0.1),
+        alpha_active_wasserstein=HYPERPARAMS.get("alpha_active_wasserstein", 100.0),
+        alpha_inactive_wasserstein=HYPERPARAMS.get("alpha_inactive_wasserstein", 10.0),
     )
-    # criterion = nn.KLDivLoss(reduction="batchmean")
-    # criterion = KLWithLeakageLoss()
-    # criterion = WassersteinLoss()
 
-    optimizer = torch.optim.AdamW(
-        cnn_model.parameters(), lr=learning_rate, weight_decay=weight_decay
-    )
     # Load dataset
     cnn_data = nn_data(resolution, downsample)
     input_tensor, output_tensor = cnn_data
@@ -1551,6 +2010,43 @@ if __name__ == "__main__":
     validation_loader = DataLoader(val_dataset, batch_size=batch_size)
     test_loader = DataLoader(test_dataset, batch_size=batch_size)
 
+    # ── STAGE 1: GATE PRETRAINING ─────────────────────────────────────
+    gate_save_path = os.path.join(MODEL_SAVE_DIR, f"cnn_{resolution}_{downsample}_gate.pth")
+    gate_plot_path = os.path.join(LOSS_PLOT_DIR, f"cnn_{resolution}_{downsample}_gate_loss.jpg")
+
+    if args.gate_weights_path and os.path.exists(args.gate_weights_path):
+        print(f"\nLoading pretrained gate weights from: {args.gate_weights_path}")
+        cnn_model.gate_branch.load_state_dict(torch.load(args.gate_weights_path, map_location=device))
+    elif not args.skip_gate_training and HYPERPARAMS["gate_epochs"] > 0:
+        gate_history = train_gate_branch(
+            cnn_model=cnn_model,
+            train_loader=train_loader,
+            val_loader=validation_loader,
+            active_mask=criterion.active_mask,
+            device=device,
+            epochs=HYPERPARAMS["gate_epochs"],
+            lr=HYPERPARAMS["gate_learning_rate"],
+            weight_decay=weight_decay,
+            grad_clip_max_norm=HYPERPARAMS["grad_clip_max_norm"],
+            save_path=gate_save_path,
+        )
+        plot_gate_training(gate_history, save_path=gate_plot_path)
+    else:
+        print("\nSkipping Stage 1 gate pretraining.")
+
+    # ── STAGE 2: FREEZE GATE AND TRAIN MAIN PDF CNN ──────────────────
+    if HYPERPARAMS["freeze_gate"]:
+        print("\nFreezing gate branch parameters for Stage 2 training.")
+        cnn_model.freeze_gate_branch()
+    else:
+        print("\nGate branch remains trainable for Stage 2.")
+        cnn_model.unfreeze_gate_branch()
+
+    trainable_params = [p for p in cnn_model.parameters() if p.requires_grad]
+    optimizer = torch.optim.AdamW(
+        trainable_params, lr=learning_rate, weight_decay=weight_decay
+    )
+
     scheduler = torch.optim.lr_scheduler.OneCycleLR(
         optimizer,
         max_lr=HYPERPARAMS["learning_rate"],
@@ -1560,8 +2056,36 @@ if __name__ == "__main__":
     )
 
     epochs_array = []
-    train_loss_arr = []
-    val_loss_arr = []
+    train_history = {
+        "total": [],
+        "wasserstein_total": [],
+        "wasserstein_active": [],
+        "wasserstein_inactive": [],
+        "kl_total": [],
+        "kl_active": [],
+        "kl_inactive": [],
+        "gate": [],
+        "mean_temp": [],
+        "emiss": [],
+        "leak": [],
+    }
+    val_history = {
+        "total": [],
+        "wasserstein_total": [],
+        "wasserstein_active": [],
+        "wasserstein_inactive": [],
+        "kl_total": [],
+        "kl_active": [],
+        "kl_inactive": [],
+        "gate": [],
+        "mean_temp": [],
+        "emiss": [],
+        "leak": [],
+    }
+
+    print(f"\n{'='*60}")
+    print(f"STAGE 2: Training Main PDF CNN ({num_epochs} epochs, lr={learning_rate})")
+    print(f"{'='*60}")
 
     # Training loop
     for epoch in tqdm(range(num_epochs), desc='Training Loop'):
@@ -1600,7 +2124,7 @@ if __name__ == "__main__":
             optimizer.zero_grad()
             loss.backward()
             torch.nn.utils.clip_grad_norm_(
-                cnn_model.parameters(), max_norm=HYPERPARAMS["grad_clip_max_norm"]
+                trainable_params, max_norm=HYPERPARAMS["grad_clip_max_norm"]
             )
             optimizer.step()
             scheduler.step()
@@ -1608,37 +2132,38 @@ if __name__ == "__main__":
         cnn_model.eval()
 
         with torch.no_grad():
-            train_loss_total = 0
-            val_loss_total = 0
-
-            # Train evaluation
+            train_totals = {k: 0.0 for k in train_history}
             for x_batch, y_batch, rho_batch, temp_batch in train_loader:
                 logits_b, gate_b = cnn_model(x_batch)
+                _, comp = criterion(
+                    logits_b, gate_b, y_batch, rho_batch, temp_batch, return_components=True
+                )
+                for k, v in comp.items():
+                    train_totals[k] += v
 
-                train_loss_total += criterion(
-                    logits_b, gate_b, y_batch, rho_batch, temp_batch
-                ).item()
+            n_train_batches = max(1, len(train_loader))
+            for k in train_history:
+                train_history[k].append(train_totals[k] / n_train_batches)
 
-            train_loss = train_loss_total / len(train_loader)
-
-            # Validation evaluation
+            val_totals = {k: 0.0 for k in val_history}
             for x_batch, y_batch, rho_batch, temp_batch in validation_loader:
                 logits_b, gate_b = cnn_model(x_batch)
+                _, comp = criterion(
+                    logits_b, gate_b, y_batch, rho_batch, temp_batch, return_components=True
+                )
+                for k, v in comp.items():
+                    val_totals[k] += v
 
-                val_loss_total += criterion(logits_b, gate_b, y_batch, rho_batch, temp_batch).item()
+            n_val_batches = max(1, len(validation_loader))
+            for k in val_history:
+                val_history[k].append(val_totals[k] / n_val_batches)
 
-            val_loss = val_loss_total / len(validation_loader)
-
-        # if (epoch + 1) % print_every == 0:
-        #     print(
-        #         f"Epoch [{epoch + 1}/{num_epochs}] "
-        #         f"Train Loss: {train_loss:.6f} | "
-        #         f"Val Loss: {val_loss:.6f}"
-        #     )
+            train_loss = train_history["total"][-1]
+            val_loss = val_history["total"][-1]
 
         epochs_array.append(epoch + 1)
-        train_loss_arr.append(train_loss)
-        val_loss_arr.append(val_loss)
+        train_loss_arr = train_history["total"]
+        val_loss_arr = val_history["total"]
 
         # Early stopping
         window_size = 200
@@ -1660,16 +2185,23 @@ if __name__ == "__main__":
     cnn_model.eval()
 
     with torch.no_grad():
-        test_loss_total = 0
-
+        test_totals = {k: 0.0 for k in train_history}
         for x_batch, y_batch, rho_batch, temp_batch in test_loader:
             logits_b, gate_b = cnn_model(x_batch)
+            _, comp = criterion(
+                logits_b, gate_b, y_batch, rho_batch, temp_batch, return_components=True
+            )
+            for k, v in comp.items():
+                test_totals[k] += v
 
-            test_loss_total += criterion(logits_b, gate_b, y_batch, rho_batch, temp_batch).item()
+        n_test_batches = max(1, len(test_loader))
+        test_history = {k: test_totals[k] / n_test_batches for k in train_history}
+        test_loss = test_history["total"]
 
-        test_loss = test_loss_total / len(test_loader)
-
-    print(f"Test Loss: {test_loss:.6f}")
+    print(f"Test Total Loss: {test_loss:.6f}")
+    for k, v in test_history.items():
+        if k != "total":
+            print(f"  Test {k}: {v:.6f}")
 
     # Save model
     torch.save(
@@ -1677,29 +2209,65 @@ if __name__ == "__main__":
         os.path.join(MODEL_SAVE_DIR, f"cnn_{resolution}_{downsample}.pth"),
     )
 
-    # Plot loss
+    # Save loss history data (.npz)
+    history_save_path = os.path.join(
+        LOSS_PLOT_DIR, f"cnn_{resolution}_{downsample}_loss_history.npz"
+    )
+    np.savez(
+        history_save_path,
+        epochs=np.array(epochs_array),
+        train_total=np.array(train_history["total"]),
+        val_total=np.array(val_history["total"]),
+        train_wasserstein_total=np.array(train_history["wasserstein_total"]),
+        val_wasserstein_total=np.array(val_history["wasserstein_total"]),
+        train_wasserstein_active=np.array(train_history["wasserstein_active"]),
+        val_wasserstein_active=np.array(val_history["wasserstein_active"]),
+        train_wasserstein_inactive=np.array(train_history["wasserstein_inactive"]),
+        val_wasserstein_inactive=np.array(val_history["wasserstein_inactive"]),
+        # Aliases for backward compatibility
+        train_kl_total=np.array(train_history["kl_total"]),
+        val_kl_total=np.array(val_history["kl_total"]),
+        train_kl_active=np.array(train_history["kl_active"]),
+        val_kl_active=np.array(val_history["kl_active"]),
+        train_kl_inactive=np.array(train_history["kl_inactive"]),
+        val_kl_inactive=np.array(val_history["kl_inactive"]),
+        train_gate=np.array(train_history["gate"]),
+        val_gate=np.array(val_history["gate"]),
+        train_mean_temp=np.array(train_history["mean_temp"]),
+        val_mean_temp=np.array(val_history["mean_temp"]),
+        train_emiss=np.array(train_history["emiss"]),
+        val_emiss=np.array(val_history["emiss"]),
+        train_leak=np.array(train_history["leak"]),
+        val_leak=np.array(val_history["leak"]),
+    )
+    print(f"Saved loss history arrays to: {history_save_path}")
+
+    # 1. Plot overall total loss
     plt.figure(figsize=(10, 5))
-
-    plt.plot(epochs_array, train_loss_arr, label="Train Loss")
-    plt.plot(epochs_array, val_loss_arr, label="Validation Loss")
-
-    plt.axhline(train_loss_arr[-1], linestyle="--")
-    plt.axhline(val_loss_arr[-1], linestyle="--")
-    plt.axhline(test_loss, linestyle="--", color="red")
-
+    plt.plot(epochs_array, train_history["total"], label="Train Loss")
+    plt.plot(epochs_array, val_history["total"], label="Validation Loss")
+    plt.axhline(train_history["total"][-1], linestyle="--", label=f"Final Train: {train_history['total'][-1]:.4f}")
+    plt.axhline(val_history["total"][-1], linestyle="--", label=f"Final Val: {val_history['total'][-1]:.4f}")
+    plt.axhline(test_loss, linestyle="--", color="red", label=f"Test: {test_loss:.4f}")
     plt.xlabel("Epochs")
-    # plt.ylabel("KL Divergence")
-    # plt.ylabel("Wasserstein Loss")
-    # plt.ylabel("KL Divergence")
     plt.ylabel("PDF Loss")
     plt.title("Training Loss")
-
     plt.legend()
-
     plt.tight_layout()
-
-    plt.savefig(
-        os.path.join(LOSS_PLOT_DIR, f"cnn_{resolution}_{downsample}_loss.jpg"), dpi=500
-    )
-
+    loss_plot_file = os.path.join(LOSS_PLOT_DIR, f"cnn_{resolution}_{downsample}_loss.jpg")
+    plt.savefig(loss_plot_file, dpi=500)
     plt.close()
+    print(f"Saved total loss plot to: {loss_plot_file}")
+
+    # 2. Plot detailed breakdown of all loss components
+    components_plot_file = os.path.join(
+        LOSS_PLOT_DIR, f"cnn_{resolution}_{downsample}_loss_components.jpg"
+    )
+    plot_loss_breakdown(
+        epochs_array=epochs_array,
+        train_history=train_history,
+        val_history=val_history,
+        test_history=test_history,
+        save_path=components_plot_file,
+        hyperparams=HYPERPARAMS,
+    )

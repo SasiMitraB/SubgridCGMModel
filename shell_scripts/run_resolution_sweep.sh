@@ -1,37 +1,53 @@
 #!/usr/bin/env bash
 # =============================================================================
-# run_resolution_sweep.sh — hr_build_mpi resolution sweep
+# run_resolution_sweep.sh — hr_build_gpu resolution sweep
 # Location: shell_scripts/run_resolution_sweep.sh
 #
-# Runs the KH radiative simulation at three resolutions using the MPI-enabled
+# Runs the KH radiative simulation at multiple resolutions using the GPU-enabled
 # Athena build:
 #   128 ×  256
 #   256 ×  512
 #   512 × 1024
+#   1024 × 2048
 #
 # For each resolution an athinput is generated from the 128 reference file
-# with nx1/nx2 and meshblock sizes patched inline, then mpirun is invoked.
+# with nx1/nx2 and meshblock sizes patched inline, then Athena is executed
+# on the selected GPU device.
 #
 # Output directories:
-#   <PROJECT_ROOT>/simulation_outputs/hr_mpi_128x256/
-#   <PROJECT_ROOT>/simulation_outputs/hr_mpi_256x512/
-#   <PROJECT_ROOT>/simulation_outputs/hr_mpi_512x1024/
+#   <PROJECT_ROOT>/simulation_outputs/hr_gpu_128x256/
+#   <PROJECT_ROOT>/simulation_outputs/hr_gpu_256x512/
+#   <PROJECT_ROOT>/simulation_outputs/hr_gpu_512x1024/
+#   <PROJECT_ROOT>/simulation_outputs/hr_gpu_1024x2048/
 #
 # Logs for each run land in the same output directory as <tag>.log.
 #
 # Environment overrides:
-#   MPI_NP   — number of MPI ranks (default: 24)
-#              Meshblocks are tiled 4×8 = 32 total across 24 ranks.
-#              Athena distributes round-robin: 8 ranks get 2 MBs, 16 get 1 MB.
+#   CUDA_VISIBLE_DEVICES — GPU device ID to use (default: 0)
 # =============================================================================
 
 set -euo pipefail
 
 # ---------------------------------------------------------------------------
+# CUDA Environment
+# ---------------------------------------------------------------------------
+for cuda_dir in /usr/local/cuda-12.8 /usr/local/cuda-12.6 /usr/local/cuda-12.4 /usr/local/cuda-12 /usr/local/cuda; do
+    if [ -d "$cuda_dir/bin" ]; then
+        export CUDA_ROOT="$cuda_dir"
+        export CUDA_HOME="$cuda_dir"
+        export PATH="$cuda_dir/bin:$PATH"
+        export LD_LIBRARY_PATH="$cuda_dir/lib64:${LD_LIBRARY_PATH:-}"
+        break
+    fi
+done
+
+export CUDA_VISIBLE_DEVICES="${CUDA_VISIBLE_DEVICES:-0}"
+
+# ---------------------------------------------------------------------------
 # Paths
 # ---------------------------------------------------------------------------
-PROJECT_ROOT="/home/sasi/Projects/SubgridCGMModel"
-BUILD_SRC="${PROJECT_ROOT}/builds/hr_build_mpi/src"
+PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+BUILD_SRC="${PROJECT_ROOT}/builds/hr_build_gpu/src"
 ATHENA="${BUILD_SRC}/athena"
 
 # Reference athinput (128×256 baseline kept in hr_build/src)
@@ -39,14 +55,11 @@ REF_ATHINPUT="${PROJECT_ROOT}/builds/hr_build/src/kh_radiative_128.athinput"
 
 SIM_OUTPUTS="${PROJECT_ROOT}/simulation_outputs"
 
-# Number of MPI ranks — override via: MPI_NP=8 ./run_resolution_sweep.sh
-MPI_NP="${MPI_NP:-16}"
-
 # ---------------------------------------------------------------------------
 # Sanity checks
 # ---------------------------------------------------------------------------
 if [[ ! -x "${ATHENA}" ]]; then
-    echo "ERROR: Athena executable not found or not executable: ${ATHENA}" >&2
+    echo "ERROR: Athena GPU executable not found or not executable: ${ATHENA}" >&2
     exit 1
 fi
 
@@ -61,8 +74,6 @@ fi
 # Usage: make_athinput <nx1> <nx2> <mb_nx1> <mb_nx2> <output_path>
 #
 # Meshblock decomposition: 4 tiles in X1, 8 tiles in X2 = 32 total meshblocks.
-# With MPI_NP=24 ranks, 8 ranks own 2 MBs and 16 ranks own 1 MB (round-robin).
-# This is the cleanest scheme for power-of-2 grids on 24 cores.
 #   mb_nx1 = nx1 / 4
 #   mb_nx2 = nx2 / 8
 # ---------------------------------------------------------------------------
@@ -120,17 +131,17 @@ run_sim() {
     local mb_nx1="$4"
     local mb_nx2="$5"
 
-    local out_dir="${SIM_OUTPUTS}/hr_mpi_${tag}"
+    local out_dir="${SIM_OUTPUTS}/hr_gpu_${tag}"
     local athinput="${out_dir}/kh_radiative_${tag}.athinput"
     local log_file="${out_dir}/${tag}.log"
 
     echo ""
     echo "============================================================"
     echo " Starting resolution: ${tag}  (nx1=${nx1}, nx2=${nx2})"
-    echo " MPI ranks : ${MPI_NP}"
-    echo " Meshblock : ${mb_nx1} x ${mb_nx2}"
-    echo " Output dir: ${out_dir}"
-    echo " Log file  : ${log_file}"
+    echo " CUDA Device : GPU ${CUDA_VISIBLE_DEVICES}"
+    echo " Meshblock   : ${mb_nx1} x ${mb_nx2}"
+    echo " Output dir  : ${out_dir}"
+    echo " Log file    : ${log_file}"
     echo "============================================================"
 
     mkdir -p "${out_dir}"
@@ -142,11 +153,11 @@ run_sim() {
     echo "  Resolved mesh settings:"
     grep -E '^\s*nx[123]\s*=' "${athinput}" | sed 's/^/    /'
 
-    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Launching mpirun for ${tag} ..."
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] Launching Athena on GPU ${CUDA_VISIBLE_DEVICES} for ${tag} ..."
 
     cd "${BUILD_SRC}"
 
-    mpirun -np "${MPI_NP}" "${ATHENA}" \
+    "${ATHENA}" \
         -i "${athinput}" \
         -d "${out_dir}" \
         2>&1 | tee "${log_file}"
@@ -157,36 +168,79 @@ run_sim() {
 # ---------------------------------------------------------------------------
 # Resolution sweep
 #
-# Meshblock decomposition: 4×8 = 32 total meshblocks across MPI_NP=24 ranks.
+# Runs across 7 resolutions:
+#   16  ×   8  (nx1=8,    nx2=16)
+#   32  ×  16  (nx1=16,   nx2=32)
+#   64  ×  32  (nx1=32,   nx2=64)
+#  128  ×  64  (nx1=64,   nx2=128)
+#  256  × 128  (nx1=128,  nx2=256)
+#  512  × 256  (nx1=256,  nx2=512)
+# 1024  × 512  (nx1=512,  nx2=1024)
+#
+# Meshblock decomposition: 4×8 = 32 total meshblocks.
 #   mb_nx1 = nx1 / 4   (4 tiles in X1)
 #   mb_nx2 = nx2 / 8   (8 tiles in X2)
-#
-# All power-of-2 grid sizes divide evenly:
-#   128/4=32, 256/4=64, 512/4=128, 1024/4=256  (mb_nx1 values)
-#   256/8=32, 512/8=64, 1024/8=128, 2048/8=256 (mb_nx2 values)
-#
-# 32 MBs across 24 ranks: 8 ranks get 2 MBs, 16 ranks get 1 MB (Athena
-# distributes via round-robin and handles this natively).
 # ---------------------------------------------------------------------------
 
-# --- 128 x 256 ---  mb: 32×32  (4×8=32 MBs)
-run_sim "128x256"   128  256   $((128 / 4)) $((256  / 8))
+# --- 16 x 8 (nx1=8, nx2=16) ---  mb: 4x4  (2x4=8 MBs, mb_nx >= 4)
+run_sim "8x16"        8    16   4              4
 
-# --- 256 x 512 ---  mb: 64×64  (4×8=32 MBs)
-# run_sim "256x512"   256  512   $((256 / 4)) $((512  / 8))
+# --- 32 x 16 (nx1=16, nx2=32) ---  mb: 4x4  (4x8=32 MBs)
+run_sim "16x32"      16    32   $((16 / 4))    $((32 / 8))
 
-# --- 512 x 1024 ---  mb: 128×128  (4×8=32 MBs)
-#run_sim "512x1024"  512 1024  $((512 / 4)) $((1024 / 8))
+# --- 64 x 32 (nx1=32, nx2=64) ---  mb: 8x8  (4x8=32 MBs)
+run_sim "32x64"      32    64   $((32 / 4))    $((64 / 8))
 
-# --- 1024x2048 ---  mb: 256×256  (4×8=32 MBs)
-# run_sim "1024x2048"  1024 2048  $((1024 / 4)) $((2048 / 8))
+# --- 128 x 64 (nx1=64, nx2=128) ---  mb: 16x16  (4x8=32 MBs)
+run_sim "64x128"     64   128   $((64 / 4))    $((128 / 8))
+
+# --- 256 x 128 (nx1=128, nx2=256) ---  mb: 32x32  (4x8=32 MBs)
+run_sim "128x256"   128   256   $((128 / 4))   $((256 / 8))
+
+# --- 512 x 256 (nx1=256, nx2=512) ---  mb: 64x64  (4x8=32 MBs)
+run_sim "256x512"   256   512   $((256 / 4))   $((512 / 8))
+
+# --- 1024 x 512 (nx1=512, nx2=1024) ---  mb: 128x128  (4x8=32 MBs)
+run_sim "512x1024"  512  1024   $((512 / 4))   $((1024 / 8))
 
 echo ""
 echo "============================================================"
-echo " All four resolutions completed successfully."
+echo " All resolution sweep runs completed successfully."
 echo " Outputs:"
-echo "   ${SIM_OUTPUTS}/hr_mpi_128x256/"
-echo "   ${SIM_OUTPUTS}/hr_mpi_256x512/"
-echo "   ${SIM_OUTPUTS}/hr_mpi_512x1024/"
-echo "   ${SIM_OUTPUTS}/hr_mpi_1024x2048/"
+echo "   ${SIM_OUTPUTS}/hr_gpu_8x16/"
+echo "   ${SIM_OUTPUTS}/hr_gpu_16x32/"
+echo "   ${SIM_OUTPUTS}/hr_gpu_32x64/"
+echo "   ${SIM_OUTPUTS}/hr_gpu_64x128/"
+echo "   ${SIM_OUTPUTS}/hr_gpu_128x256/"
+echo "   ${SIM_OUTPUTS}/hr_gpu_256x512/"
+echo "   ${SIM_OUTPUTS}/hr_gpu_512x1024/"
 echo "============================================================"
+
+# ---------------------------------------------------------------------------
+# Post-processing: Profile Plots & Visualizations
+# ---------------------------------------------------------------------------
+if [[ -f "${PROJECT_ROOT}/venv/bin/python" ]]; then
+    PYTHON_EXEC="${PROJECT_ROOT}/venv/bin/python"
+else
+    PYTHON_EXEC="python3"
+fi
+
+echo ""
+echo "============================================================"
+echo " Generating profile comparison plots ..."
+echo " Running: ${PROJECT_ROOT}/explore_data/plot_profiles.py"
+echo "============================================================"
+"${PYTHON_EXEC}" "${PROJECT_ROOT}/explore_data/plot_profiles.py"
+
+echo ""
+echo "============================================================"
+echo " Generating simulation animations (saving to run folders) ..."
+echo " Running: ${PROJECT_ROOT}/explore_data/visualize_hr_mpi_sims.py"
+echo "============================================================"
+"${PYTHON_EXEC}" "${PROJECT_ROOT}/explore_data/visualize_hr_mpi_sims.py"
+
+echo ""
+echo "============================================================"
+echo " All resolution sweep runs, plots, and animations completed!"
+echo "============================================================"
+

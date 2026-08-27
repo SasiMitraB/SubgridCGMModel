@@ -427,7 +427,8 @@ void UserSourceTerm(Mesh *pm, const Real bdt) {
                       py::array_t<double>({nmb * Ni, Nj}, vx_h.data()),
                       py::array_t<double>({nmb * Ni, Nj}, vy_h.data()),
                       py::array_t<double>({nmb * Ni, Nj}, tracer_h.data()),
-                      py::array_t<double>({nmb * Ni, Nj}, fmclrho_h.data()));
+                      py::array_t<double>({nmb * Ni, Nj}, fmclrho_h.data()),
+                      bdt);
 
   auto S_buf = S_arr.unchecked<2>();
 

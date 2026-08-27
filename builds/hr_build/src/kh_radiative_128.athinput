@@ -63,7 +63,7 @@ a_char = 0.125		# width of tanh profile
 rho_cold = 0.1 
 rho_hot  = 0.001
 press = 14.02645        # pressure = 2.22685e-13 dyne cm^-3
-cold_frac = 0.66666667  # fraction of region occupied by cold gas
+cold_frac = 0.3333333  # fraction of region occupied by cold gas
 
 <units>
 length_cgs  = 3.08568e+18  

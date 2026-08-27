@@ -28,14 +28,18 @@ ATHINPUT_DIR="${PROJECT_ROOT}/athinputs/subgrid_32x16"
 LR_ATHINPUT="${ATHINPUT_DIR}/lr_vshear31_cf033.athinput"
 LR_ISM_ATHINPUT="${ATHINPUT_DIR}/lr_ism_vshear31_cf033.athinput"
 SG_ATHINPUT="${ATHINPUT_DIR}/sg_tiled_vshear31_cf033.athinput"
-
+    
 # Reference HR simulation (2xlength domain, vshear=31, coldfrac=0.33)
 HR_SIM_DIR="${PROJECT_ROOT}/simulation_outputs/hr_gpu_sweep_1024x2048_2xlength/vshear_31_coldfrac_0.33"
 
 # ML Model Configuration
-export MODEL_SAVES_DIR="${PROJECT_ROOT}/runs/run_optuna_20260816_215537/model_saves"
+export MODEL_SAVES_DIR="${PROJECT_ROOT}/runs/run_random_crop_20260824_190901/model_saves"
 export PDF_CNN_RESOLUTION="1024,512"
 export PDF_CNN_DOWNSAMPLE="64"
+
+# Active cooling window log10(T) bounds (1.1e4 to 0.9e6 K)
+export LOGT_ACTIVE_START="${LOGT_ACTIVE_START:-$(python3 -c 'import math; print(math.log10(1.05e4))')}"
+export LOGT_ACTIVE_END="${LOGT_ACTIVE_END:-$(python3 -c 'import math; print(math.log10(0.95e6))')}"
 
 # Mock SG Configuration
 export HR_SIM_OUTPUT="${HR_SIM_DIR}"
@@ -58,6 +62,7 @@ log "STARTING 32x16 TILED SUBGRID PIPELINE"
 log "Output directory: ${OUTPUT_BASE}"
 log "HR Reference    : ${HR_SIM_DIR}"
 log "Model saves     : ${MODEL_SAVES_DIR}"
+log "Active cooling  : 10^${LOGT_ACTIVE_START} to 10^${LOGT_ACTIVE_END} K (1.1e4 - 0.9e6 K)"
 separator
 
 # ---------------------------------------------------------------------------

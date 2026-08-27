@@ -129,19 +129,13 @@ def chunk_frames(nt, num_workers):
     return [c for c in chunks if len(c) > 0]
 
 
-def get_positive_percentiles(arr1, arr2, p_lo=1, p_hi=99):
-    """Compute percentile range across positive values of two arrays without full concatenation."""
-    pos1 = arr1[arr1 > 0]
-    pos2 = arr2[arr2 > 0]
-    if len(pos1) == 0 and len(pos2) == 0:
-        return 1e-30, 1e-20   # physical CGS fallback (erg/cm³/s)
-    if len(pos1) == 0:
-        return max(np.percentile(pos2, p_lo), 1e-40), np.percentile(pos2, p_hi)
-    if len(pos2) == 0:
-        return max(np.percentile(pos1, p_lo), 1e-40), np.percentile(pos1, p_hi)
-
-    p_lo_val = min(np.percentile(pos1, p_lo), np.percentile(pos2, p_lo))
-    p_hi_val = max(np.percentile(pos1, p_hi), np.percentile(pos2, p_hi))
+def get_positive_percentiles(*arrays, p_lo=1, p_hi=99):
+    """Compute percentile range across positive values of multiple arrays."""
+    pos_list = [arr[arr > 0] for arr in arrays if arr is not None and len(arr[arr > 0]) > 0]
+    if len(pos_list) == 0:
+        return 1e-30, 1e-20   # physical CGS fallback (erg/cm^3/s)
+    p_lo_val = min(np.percentile(pos, p_lo) for pos in pos_list)
+    p_hi_val = max(np.percentile(pos, p_hi) for pos in pos_list)
     return max(p_lo_val, 1e-40), p_hi_val
 
 
@@ -485,7 +479,7 @@ def worker_pdf_compare(frames_list, temp_dir, nt, nx, ny, nb, temp_pdf, conv_tem
     plt.close(fig2)
 
 
-def worker_cooling_compare(frames_list, temp_dir, nt, cool_vmin, cool_vmax, true_iso_cool, cnn_cool, snapshot_cooling_compare_path):
+def worker_cooling_compare(frames_list, temp_dir, nt, cool_vmin, cool_vmax, true_iso_cool, cnn_cool, snapshot_cooling_compare_path, cg_resolved_cool=None):
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
@@ -493,77 +487,85 @@ def worker_cooling_compare(frames_list, temp_dir, nt, cool_vmin, cool_vmax, true
     import numpy as np
     import os
 
-    fig3 = plt.figure(figsize=(12, 6))
-    gs3 = fig3.add_gridspec(
-        1,
-        3,
-        width_ratios=[1, 1, 0.05],
-        top=0.85,
-        bottom=0.15,
-        left=0.08,
-        right=0.90,
-        wspace=0.15,
-    )
-
-    # Add section titles
-    fig3.text(
-        0.28,
-        0.90,
-        "TRUE ISOBARIC COOLING (Simulation)",
-        fontsize=16,
-        ha="center",
-        va="center",
-        weight="bold",
-    )
-    fig3.text(
-        0.70,
-        0.90,
-        "PREDICTED COOLING (CNN Model)",
-        fontsize=16,
-        ha="center",
-        va="center",
-        weight="bold",
-    )
-
+    has_cg = cg_resolved_cool is not None
     norm_cool = colors.LogNorm(vmin=cool_vmin, vmax=cool_vmax)
     cmap_cool = plt.get_cmap("viridis")
 
-    # ---- LEFT (TRUE) ----
-    ax_t = fig3.add_subplot(gs3[0])
-    ax_t.set_title("True Isobaric", fontsize=14)
-    # ---- RIGHT (PRED) ----
-    ax_p = fig3.add_subplot(gs3[1])
-    ax_p.set_title("CNN Prediction", fontsize=14)
+    if has_cg:
+        fig3 = plt.figure(figsize=(16, 6))
+        gs3 = fig3.add_gridspec(
+            1,
+            4,
+            width_ratios=[1, 1, 1, 0.05],
+            top=0.85,
+            bottom=0.15,
+            left=0.06,
+            right=0.92,
+            wspace=0.15,
+        )
 
-    # Plot initial frames
-    im_t = ax_t.imshow(
-        np.clip(true_iso_cool[0], cool_vmin, None),
-        origin="lower",
-        cmap=cmap_cool,
-        norm=norm_cool,
-    )
-    im_p = ax_p.imshow(
-        np.clip(cnn_cool[0], cool_vmin, None),
-        origin="lower",
-        cmap=cmap_cool,
-        norm=norm_cool,
-    )
+        fig3.text(0.20, 0.90, "TRUE PDF COOLING", fontsize=14, ha="center", va="center", weight="bold")
+        fig3.text(0.50, 0.90, "PREDICTED COOLING (CNN)", fontsize=14, ha="center", va="center", weight="bold")
+        fig3.text(0.80, 0.90, r"COARSE-GRAIN $\bar{n}^2 \Lambda(\bar{T})$", fontsize=14, ha="center", va="center", weight="bold")
 
-    for ax in [ax_t, ax_p]:
-        ax.set_xlabel("Y (pixels)", fontsize=12)
-        ax.set_ylabel("X (pixels)", fontsize=12)
+        ax_t = fig3.add_subplot(gs3[0])
+        ax_t.set_title(r"True PDF ($\bar{n}^2 \sum_i \Lambda(T_i)\mathrm{PDF}$)", fontsize=12)
+        ax_p = fig3.add_subplot(gs3[1])
+        ax_p.set_title("CNN Prediction", fontsize=12)
+        ax_cg = fig3.add_subplot(gs3[2])
+        ax_cg.set_title(r"Coarse-Grain ($\bar{n}^2 \Lambda(\bar{T})$)", fontsize=12)
+        cbar_ax3 = fig3.add_subplot(gs3[3])
+
+        im_t = ax_t.imshow(np.clip(true_iso_cool[0], cool_vmin, None), origin="lower", cmap=cmap_cool, norm=norm_cool)
+        im_p = ax_p.imshow(np.clip(cnn_cool[0], cool_vmin, None), origin="lower", cmap=cmap_cool, norm=norm_cool)
+        im_cg = ax_cg.imshow(np.clip(cg_resolved_cool[0], cool_vmin, None), origin="lower", cmap=cmap_cool, norm=norm_cool)
+
+        for ax in [ax_t, ax_p, ax_cg]:
+            ax.set_xlabel("Y (pixels)", fontsize=11)
+            ax.set_ylabel("X (pixels)", fontsize=11)
+    else:
+        fig3 = plt.figure(figsize=(12, 6))
+        gs3 = fig3.add_gridspec(
+            1,
+            3,
+            width_ratios=[1, 1, 0.05],
+            top=0.85,
+            bottom=0.15,
+            left=0.08,
+            right=0.90,
+            wspace=0.15,
+        )
+
+        fig3.text(0.28, 0.90, "TRUE ISOBARIC COOLING (Simulation)", fontsize=16, ha="center", va="center", weight="bold")
+        fig3.text(0.70, 0.90, "PREDICTED COOLING (CNN Model)", fontsize=16, ha="center", va="center", weight="bold")
+
+        ax_t = fig3.add_subplot(gs3[0])
+        ax_t.set_title("True Isobaric", fontsize=14)
+        ax_p = fig3.add_subplot(gs3[1])
+        ax_p.set_title("CNN Prediction", fontsize=14)
+        ax_cg = None
+        cbar_ax3 = fig3.add_subplot(gs3[2])
+
+        im_t = ax_t.imshow(np.clip(true_iso_cool[0], cool_vmin, None), origin="lower", cmap=cmap_cool, norm=norm_cool)
+        im_p = ax_p.imshow(np.clip(cnn_cool[0], cool_vmin, None), origin="lower", cmap=cmap_cool, norm=norm_cool)
+        im_cg = None
+
+        for ax in [ax_t, ax_p]:
+            ax.set_xlabel("Y (pixels)", fontsize=12)
+            ax.set_ylabel("X (pixels)", fontsize=12)
 
     # ---- COLORBAR AXIS ----
-    cbar_ax3 = fig3.add_subplot(gs3[2])
     sm3 = plt.cm.ScalarMappable(cmap=cmap_cool, norm=norm_cool)
     sm3.set_array([])
     cbar3 = fig3.colorbar(sm3, cax=cbar_ax3)
-    cbar3.set_label("Cooling Rate (erg / cm$^3$ / s)", fontsize=14)
+    cbar3.set_label(r"Cooling Rate $(\mathrm{erg\,cm^{-3}\,s^{-1}})$", fontsize=13)
     cbar3.ax.tick_params(labelsize=10)
 
     for frame in frames_list:
         im_t.set_data(np.clip(true_iso_cool[frame], cool_vmin, None))
         im_p.set_data(np.clip(cnn_cool[frame], cool_vmin, None))
+        if has_cg:
+            im_cg.set_data(np.clip(cg_resolved_cool[frame], cool_vmin, None))
 
         fig3.suptitle(f"Cooling Rate Comparison | t = {frame}", fontsize=18, y=0.96)
 
@@ -755,7 +757,7 @@ if __name__ == '__main__':
     nt, nb, nx, ny = temp_pdf.shape
     print(f"Shape: nt={nt}, bins={nb}, nx={nx}, ny={ny}")
     
-    # ─── Predict CNN temperature PDFs, gate, and vorticity (optimized batch) ───
+    # âââ Predict CNN temperature PDFs, gate, and vorticity (optimized batch) âââ
     conv_temp_pdf, cnn_gate_maps, cnn_vort_maps = batch_predict_with_gate(
         sim_data, downsample, resolution, device
     )
@@ -876,8 +878,8 @@ if __name__ == '__main__':
             if frame == 0:
                 fig.savefig(first_frame_path, dpi=300)
                 plt.imsave(temp_frame_path, log_temp, cmap="inferno")
-                print(f"Saved PDF snapshot → {first_frame_path}")
-                print(f"Saved temp snapshot → {temp_frame_path}")
+                print(f"Saved PDF snapshot â {first_frame_path}")
+                print(f"Saved temp snapshot â {temp_frame_path}")
     
             return sum(lines, []) + [temp_im]
     
@@ -897,7 +899,7 @@ if __name__ == '__main__':
                 progress_callback=lambda i, n: pbar.update(1),
             )
     
-        print(f"Saved animation → {mp4_path}")
+        print(f"Saved animation â {mp4_path}")
     
         plt.close(fig)
     
@@ -908,7 +910,7 @@ if __name__ == '__main__':
     # =====================================================================
     # =====================================================================
     # COOLING COMPUTATION BLOCK
-    # Outputs are converted to physical CGS units (erg / cm³ / s)
+    # Outputs are converted to physical CGS units (erg / cm^3 / s)
     # =====================================================================
     print("Computing cooling rates (True PDF, CNN PDF)...")
     
@@ -923,10 +925,10 @@ if __name__ == '__main__':
     _L_cgs   = 3.08568e18         # 1 pc in cm
     _T_cgs   = 3.15576e13         # 1 Myr in s
     _M_cgs   = 4.91417e31         # code mass unit [g]
-    _RHO_cgs = _M_cgs / _L_cgs**3 # code density unit [g/cm³]  (~1.67262e-24 g/cm³)
-    n_to_cm3 = _RHO_cgs / (mu * m_H)  # cm⁻³ per code density unit (~1.6129 cm⁻³)
+    _RHO_cgs = _M_cgs / _L_cgs**3 # code density unit [g/cm^3]  (~1.67262e-24 g/cm^3)
+    n_to_cm3 = _RHO_cgs / (mu * m_H)  # cmâ»³ per code density unit (~1.6129 cmâ»³)
     
-    # Factor that converts compute_cooling_rate output (code units) -> erg/cm³/s
+    # Factor that converts compute_cooling_rate output (code units) -> erg/cm^3/s
     # compute_cooling_rate already returns n_code^2 * sum(PDF*Lambda) * unit_fix
     # Since n_code = rho_code/mu == n_H (in cm^-3), dividing by unit_fix gives physical CGS emissivity.
     _code_to_cgs = 1.0 / unit_fix
@@ -942,7 +944,7 @@ if __name__ == '__main__':
     
     # ------------------------------------------------------------------
     # (B) Coarse-grain pressure  (kept for reference; no longer used in
-    #     cooling — cooling now uses rho_cg which is already computed above)
+    #     cooling â cooling now uses rho_cg which is already computed above)
     # ------------------------------------------------------------------
     cg_pressure = np.zeros((nt, nx, ny))
     for t in tqdm(range(nt), desc="Coarse-graining pressure"):
@@ -950,42 +952,54 @@ if __name__ == '__main__':
     
     # ------------------------------------------------------------------
     # (C) Cool_True_PDF : use TRUE PDF, n = rho_cg / mu  (no isobaric assumption)
-    #     n² × Σᵢ PDF(Tᵢ) Λ(Tᵢ)
+    #     n^2 Ã sum_i PDF(T_i) Î(T_i)
     # ------------------------------------------------------------------
     print("  (C) True PDF cooling (using simulation PDF)...")
     true_iso_cool = np.zeros((nt, nx, ny))
     for t in tqdm(range(nt), desc="True PDF cooling"):
         true_iso_cool[t] = compute_cooling_rate(
-            temp_pdf[t],   # (nb, nx, ny)  – true PDF
+            temp_pdf[t],   # (nb, nx, ny)  â€“ true PDF
             temp_centers,  # (nb,)
             is_pdf=True,
-            rho_cg=cg_rho[t],   # (nx, ny)  – coarse-grained code density
+            rho_cg=cg_rho[t],  # (nx, ny) - coarse-grained code density
         )
-    
-    # ------------------------------------------------------------------
     # (D) Cool_CNN_PDF : use CNN PDF, n = rho_cg / mu  (no isobaric assumption)
-    #     n² × Σᵢ CNN_PDF(Tᵢ) Λ(Tᵢ)
+    #     n^2 Ã— sum_i CNN_PDF(T_i) Î›(T_i)
     #     Compared to (C) this isolates the CNN's contribution only.
     # ------------------------------------------------------------------
     print("  (D) CNN PDF cooling (using CNN PDF)...")
     cnn_cool = np.zeros((nt, nx, ny))
     for t in tqdm(range(nt), desc="CNN PDF cooling"):
         cnn_cool[t] = compute_cooling_rate(
-            conv_temp_pdf[t],  # (nb, nx, ny)  – CNN PDF
+            conv_temp_pdf[t],  # (nb, nx, ny)  â CNN PDF
             temp_centers,      # (nb,)
             is_pdf=True,
-            rho_cg=cg_rho[t],  # (nx, ny)  – coarse-grained code density
+            rho_cg=cg_rho[t],  # (nx, ny)  â coarse-grained code density
+        )
+    
+    # ------------------------------------------------------------------
+    # (E) Cool_CG_Resolved : use coarse-grained temperature T_bar and density rho_cg
+    #     \bar{n}^2 \times \Lambda(\bar{T})
+    # ------------------------------------------------------------------
+    print("  (E) Coarse-grain resolved cooling n_bar^2 * Lambda(T_bar)...")
+    cg_resolved_cool = np.zeros((nt, nx, ny))
+    for t in tqdm(range(nt), desc="Coarse-grain resolved cooling"):
+        cg_resolved_cool[t] = compute_cooling_rate(
+            cg_rho[t],
+            cg_temp[t],
+            is_pdf=False,
         )
     
     print("Cooling computation done.")
     
     # ------------------------------------------------------------------
-    # Convert both cooling fields from code units -> physical erg/cm³/s
-    # Formula (mirror of mock_sg.py): erg_s = cool_code * n_to_cm3² / unit_fix
+    # Convert cooling fields from code units -> physical erg/cm^3/s
+    # Formula (mirror of mock_sg.py): erg_s = cool_code * n_to_cm3^2 / unit_fix
     # ------------------------------------------------------------------
-    print("  Converting to physical units (erg / cm³ / s)...")
-    true_iso_cool *= _code_to_cgs
-    cnn_cool      *= _code_to_cgs
+    print("  Converting to physical units (erg / cm^3 / s)...")
+    true_iso_cool    *= _code_to_cgs
+    cnn_cool         *= _code_to_cgs
+    cg_resolved_cool *= _code_to_cgs
     print("  Conversion done.")
 
     # Free memory for fine-grid simulation arrays that are no longer needed
@@ -1000,6 +1014,11 @@ if __name__ == '__main__':
         true_iso_cool.flatten(),
         cnn_cool.flatten(),
         "CNN Prediction Error   (True PDF vs CNN PDF)",
+    )
+    print_metrics(
+        true_iso_cool.flatten(),
+        cg_resolved_cool.flatten(),
+        "Coarse-Grain Resolved Error (True PDF vs Coarse-Grain n_bar^2 Lambda(T_bar))",
     )
     
     # =========================
@@ -1031,12 +1050,12 @@ if __name__ == '__main__':
         plt.colorbar(sc2, ax=axes[1], label="CNN active-window mass")
         axes[1].set_xscale("log")
         axes[1].set_yscale("log")
+        axes[1].set_xlabel(r"True PDF Cooling $[\mathrm{erg\,cm^{-3}\,s^{-1}}]$")
+        axes[1].set_ylabel(r"CNN PDF Cooling $[\mathrm{erg\,cm^{-3}\,s^{-1}}]$")
         axes[1].set_title("Cooling scatter coloured by CNN window mass")
         plt.tight_layout()
         plt.show()
         plt.close(fig)
-    
-
     
         # ============================================================
         # GLOBAL COOLING RATE DIAGNOSTICS: 2D Density & Residuals
@@ -1047,10 +1066,11 @@ if __name__ == '__main__':
     
         SCATTER_MIN = 1e-40  # Exclude masked-zero cells; physical CGS values are ~1e-27 to 1e-17
     
-        # Flatten the two cooling fields (raw values; no eps clipping)
+        # Flatten the cooling fields (raw values; no eps clipping)
         temp_flat = cg_temp.flatten()
         flat_true_iso = true_iso_cool.flatten()
         flat_cnn = cnn_cool.flatten()
+        flat_cg_res = cg_resolved_cool.flatten()
     
         def add_running_median(ax, xv, yv, n_bins=25):
             logx = np.log10(xv)
@@ -1068,18 +1088,19 @@ if __name__ == '__main__':
                 hi.append(np.percentile(yb, 84))
             if len(xs) > 0:
                 ax.plot(xs, meds, color="cyan", lw=2, label="Median")
-                ax.fill_between(xs, lo, hi, color="cyan", alpha=0.2, label="16–84%")
+                ax.fill_between(xs, lo, hi, color="cyan", alpha=0.2, label="16-84%")
                 ax.legend(fontsize=8, loc="upper left")
     
-        fig_sc, axes_sc = plt.subplots(1, 2, figsize=(14, 6))
-        ax_pred = axes_sc[0]
-        ax_resid = axes_sc[1]
+        fig_sc, axes_sc = plt.subplots(2, 2, figsize=(15, 11))
+        
+        # Row 1: CNN Prediction Error & Residuals (True PDF vs CNN PDF)
+        ax_pred_cnn = axes_sc[0, 0]
+        ax_resid_cnn = axes_sc[0, 1]
     
-        # Panel 1: CNN Prediction Error (True PDF vs CNN PDF)
         mask2 = (flat_true_iso >= SCATTER_MIN) & (flat_cnn >= SCATTER_MIN)
         xm2, ym2 = flat_true_iso[mask2], flat_cnn[mask2]
     
-        hb2 = ax_pred.hexbin(
+        hb2 = ax_pred_cnn.hexbin(
             xm2, ym2,
             xscale="log", yscale="log",
             gridsize=60,
@@ -1090,20 +1111,19 @@ if __name__ == '__main__':
         )
         if len(xm2):
             _lim = [min(xm2.min(), ym2.min()), max(xm2.max(), ym2.max())]
-            ax_pred.plot(_lim, _lim, "r--", lw=1)
-        ax_pred.set_xscale("log")
-        ax_pred.set_yscale("log")
-        ax_pred.set_xlabel("True PDF Cooling")
-        ax_pred.set_ylabel("CNN PDF Cooling")
-        ax_pred.set_title(f"CNN Prediction Error\n({mask2.sum():,} / {len(flat_true_iso):,} points)")
-        plt.colorbar(hb2, ax=ax_pred, label="log$_{10}$(count)")
-        add_running_median(ax_pred, xm2, ym2)
+            ax_pred_cnn.plot(_lim, _lim, "r--", lw=1)
+        ax_pred_cnn.set_xscale("log")
+        ax_pred_cnn.set_yscale("log")
+        ax_pred_cnn.set_xlabel(r"True PDF Cooling $[\mathrm{erg\,cm^{-3}\,s^{-1}}]$", fontsize=10)
+        ax_pred_cnn.set_ylabel(r"CNN PDF Cooling $[\mathrm{erg\,cm^{-3}\,s^{-1}}]$", fontsize=10)
+        ax_pred_cnn.set_title(f"CNN Prediction Error (True PDF vs CNN PDF)\n({mask2.sum():,} / {len(flat_true_iso):,} points)", fontsize=11)
+        plt.colorbar(hb2, ax=ax_pred_cnn, label="log$_{10}$(count)")
+        add_running_median(ax_pred_cnn, xm2, ym2)
     
-        # Panel 2: CNN Residuals (log10(CNN / True) vs True PDF)
         mask4 = (flat_true_iso >= SCATTER_MIN) & (flat_cnn >= SCATTER_MIN)
         xm4, ym4 = flat_true_iso[mask4], np.log10(flat_cnn[mask4] / flat_true_iso[mask4])
     
-        hb4 = ax_resid.hexbin(
+        hb4 = ax_resid_cnn.hexbin(
             xm4, ym4,
             xscale="log",
             gridsize=60,
@@ -1112,15 +1132,61 @@ if __name__ == '__main__':
             mincnt=1,
             rasterized=True,
         )
-        ax_resid.axhline(0, color="r", linestyle="--", lw=1)
-        ax_resid.set_xscale("log")
-        ax_resid.set_xlabel("True PDF Cooling")
-        ax_resid.set_ylabel(r"$\log_{10}$(CNN / True PDF)")
-        ax_resid.set_title(f"CNN Residuals\n({mask4.sum():,} / {len(flat_true_iso):,} points)")
-        plt.colorbar(hb4, ax=ax_resid, label="log$_{10}$(count)")
-        add_running_median(ax_resid, xm4, ym4)
+        ax_resid_cnn.axhline(0, color="r", linestyle="--", lw=1)
+        ax_resid_cnn.set_xscale("log")
+        ax_resid_cnn.set_xlabel(r"True PDF Cooling $[\mathrm{erg\,cm^{-3}\,s^{-1}}]$", fontsize=10)
+        ax_resid_cnn.set_ylabel(r"$\log_{10}(\mathrm{CNN / True PDF})$", fontsize=10)
+        ax_resid_cnn.set_title(f"CNN Residuals\n({mask4.sum():,} / {len(flat_true_iso):,} points)", fontsize=11)
+        plt.colorbar(hb4, ax=ax_resid_cnn, label="log$_{10}$(count)")
+        add_running_median(ax_resid_cnn, xm4, ym4)
     
-        fig_sc.suptitle("Cooling Rate Comparisons & Diagnostics (All Pixels, All Timesteps)", fontsize=16)
+        # Row 2: Coarse-Grain Resolved Error & Residuals (True PDF vs Coarse-Grain n_bar^2 Lambda(T_bar))
+        ax_pred_cg = axes_sc[1, 0]
+        ax_resid_cg = axes_sc[1, 1]
+    
+        mask_cg = (flat_true_iso >= SCATTER_MIN) & (flat_cg_res >= SCATTER_MIN)
+        xm_cg, ym_cg = flat_true_iso[mask_cg], flat_cg_res[mask_cg]
+    
+        hb_cg = ax_pred_cg.hexbin(
+            xm_cg, ym_cg,
+            xscale="log", yscale="log",
+            gridsize=60,
+            bins="log",
+            cmap="viridis",
+            mincnt=1,
+            rasterized=True,
+        )
+        if len(xm_cg):
+            _lim_cg = [min(xm_cg.min(), ym_cg.min()), max(xm_cg.max(), ym_cg.max())]
+            ax_pred_cg.plot(_lim_cg, _lim_cg, "r--", lw=1)
+        ax_pred_cg.set_xscale("log")
+        ax_pred_cg.set_yscale("log")
+        ax_pred_cg.set_xlabel(r"True PDF Cooling $[\mathrm{erg\,cm^{-3}\,s^{-1}}]$", fontsize=10)
+        ax_pred_cg.set_ylabel(r"Coarse-Grain $\bar{n}^2 \Lambda(\bar{T})\;[\mathrm{erg\,cm^{-3}\,s^{-1}}]$", fontsize=10)
+        ax_pred_cg.set_title(f"Coarse-Grain Resolved Error (True PDF vs $\\bar{{n}}^2 \\Lambda(\\bar{{T}})$)\n({mask_cg.sum():,} / {len(flat_true_iso):,} points)", fontsize=11)
+        plt.colorbar(hb_cg, ax=ax_pred_cg, label="log$_{10}$(count)")
+        add_running_median(ax_pred_cg, xm_cg, ym_cg)
+    
+        xm_cg_res, ym_cg_res = flat_true_iso[mask_cg], np.log10(flat_cg_res[mask_cg] / flat_true_iso[mask_cg])
+    
+        hb_cg_res = ax_resid_cg.hexbin(
+            xm_cg_res, ym_cg_res,
+            xscale="log",
+            gridsize=60,
+            bins="log",
+            cmap="viridis",
+            mincnt=1,
+            rasterized=True,
+        )
+        ax_resid_cg.axhline(0, color="r", linestyle="--", lw=1)
+        ax_resid_cg.set_xscale("log")
+        ax_resid_cg.set_xlabel(r"True PDF Cooling $[\mathrm{erg\,cm^{-3}\,s^{-1}}]$", fontsize=10)
+        ax_resid_cg.set_ylabel(r"$\log_{10}(\mathrm{Coarse\text{-}Grain / True PDF})$", fontsize=10)
+        ax_resid_cg.set_title(f"Coarse-Grain Residuals\n({mask_cg.sum():,} / {len(flat_true_iso):,} points)", fontsize=11)
+        plt.colorbar(hb_cg_res, ax=ax_resid_cg, label="log$_{10}$(count)")
+        add_running_median(ax_resid_cg, xm_cg_res, ym_cg_res)
+    
+        fig_sc.suptitle("Cooling Rate Comparisons & Diagnostics (All Pixels, All Timesteps)", fontsize=15)
         fig_sc.tight_layout()
         fig_sc.savefig(
             os.path.join(PDF_MOCKS_DIR, "pdf_cooling_scatter_twoway.png"), dpi=200
@@ -1128,7 +1194,6 @@ if __name__ == '__main__':
         plt.show()
         plt.close(fig_sc)
         print("Saved cooling diagnostic plot.")
-    
     
     # ============================================================
     # HISTOGRAM: Zero-Fraction + Positive-Only log10 (Change #5)
@@ -1139,26 +1204,29 @@ if __name__ == '__main__':
         _fields = {
             "True PDF": true_iso_cool.flatten(),
             "CNN PDF": cnn_cool.flatten(),
+            r"Coarse-Grain $\bar{n}^2 \Lambda(\bar{T})$": cg_resolved_cool.flatten(),
         }
-        _colors = ["darkorange", "mediumseagreen"]
+        _colors = ["darkorange", "mediumseagreen", "royalblue"]
     
-        fig_hist, (ax_zero, ax_pos) = plt.subplots(1, 2, figsize=(14, 5))
+        fig_hist, (ax_zero, ax_pos) = plt.subplots(1, 2, figsize=(15, 5.2))
     
         # ---- Panel 1: Zero-fraction bar chart ----
         zero_fracs = [np.mean(v == 0.0) * 100 for v in _fields.values()]
-        bars = ax_zero.bar(_fields.keys(), zero_fracs, color=_colors, width=0.5)
+        bars = ax_zero.bar(_fields.keys(), zero_fracs, color=_colors, width=0.45)
         for bar, frac in zip(bars, zero_fracs):
             ax_zero.text(
                 bar.get_x() + bar.get_width() / 2,
-                bar.get_height() + 0.3,
+                bar.get_height() + 0.4,
                 f"{frac:.1f}%",
                 ha="center",
                 va="bottom",
                 fontsize=11,
+                fontweight="bold",
             )
-        ax_zero.set_ylabel("Fraction of pixels with cooling = 0 (%)")
-        ax_zero.set_title("Zero-Cooling Fraction")
-        ax_zero.set_ylim(0, max(zero_fracs) * 1.25 + 1)
+        ax_zero.set_ylabel("Fraction of pixels with cooling = 0 (%)", fontsize=11)
+        ax_zero.set_title("Zero-Cooling Fraction", fontsize=12, fontweight="bold")
+        ax_zero.set_ylim(0, max(zero_fracs) * 1.25 + 2)
+        ax_zero.grid(True, linestyle=":", alpha=0.6, axis="y")
     
         # ---- Panel 2: log10(cooling) distribution for positive pixels ----
         for (label, vals), col in zip(_fields.items(), _colors):
@@ -1171,18 +1239,19 @@ if __name__ == '__main__':
                 bins=80,
                 density=True,
                 histtype="step",
-                linewidth=2,
-                label=label,
+                linewidth=2.2,
+                label=f"{label} (N={len(pos):,})",
                 color=col,
             )
     
-        ax_pos.set_xlabel(r"$\log_{10}$(Cooling Rate)")
-        ax_pos.set_ylabel("Probability Density")
-        ax_pos.set_title(r"Distribution of Positive $\log_{10}$(Cooling)")
-        ax_pos.legend()
+        ax_pos.set_xlabel(r"$\log_{10}(\mathrm{Cooling\;Rate})\;[\mathrm{erg\,cm^{-3}\,s^{-1}}]$", fontsize=11)
+        ax_pos.set_ylabel("Probability Density", fontsize=11)
+        ax_pos.set_title(r"Distribution of Positive $\log_{10}$(Cooling)", fontsize=12, fontweight="bold")
+        ax_pos.legend(loc="upper left", fontsize=10)
         ax_pos.set_yscale("log")
+        ax_pos.grid(True, linestyle=":", alpha=0.6)
     
-        fig_hist.suptitle("Cooling Rate Histograms", fontsize=14)
+        fig_hist.suptitle("Cooling Rate Histograms", fontsize=14, fontweight="bold")
         fig_hist.tight_layout()
         fig_hist.savefig(os.path.join(PDF_MOCKS_DIR, "pdf_cooling_histogram.png"), dpi=200)
         plt.show()
@@ -1218,7 +1287,7 @@ if __name__ == '__main__':
                 snapshot_compare_path,
             )
         )
-        print(f"Saved comparison animation → {mp4_path_compare}")
+        print(f"Saved comparison animation -> {mp4_path_compare}")
     
     
     # ============================================================
@@ -1235,7 +1304,7 @@ if __name__ == '__main__':
         )
     
         # Compute global vmin/vmax for cooling rates
-        cool_vmin, cool_vmax = get_positive_percentiles(true_iso_cool, cnn_cool)
+        cool_vmin, cool_vmax = get_positive_percentiles(true_iso_cool, cnn_cool, cg_resolved_cool)
     
         generate_parallel_animation(
             worker_cooling_compare,
@@ -1249,9 +1318,10 @@ if __name__ == '__main__':
                 true_iso_cool,
                 cnn_cool,
                 snapshot_cooling_compare_path,
+                cg_resolved_cool,
             )
         )
-        print(f"Saved cooling comparison animation → {mp4_path_cooling_compare}")
+        print(f"Saved cooling comparison animation -> {mp4_path_cooling_compare}")
     
     
     # ============================================================
@@ -1302,10 +1372,10 @@ if __name__ == '__main__':
                 "Predicted Cooling",
                 cmap_cool4,
                 norm_cool4,
-                "Cooling Rate\n(erg / cm³ / s)",
+                "Cooling Rate\n(erg / cm^3 / s)",
             ),
-            (gs4[2], gs4[3], "Vorticity ω", cmap_vort, norm_vort, "Vorticity (code units)"),
-            (gs4[4], gs4[5], "Gate g(x,y)", cmap_gate, norm_gate, "Gate value ∈ (0, 1)"),
+            (gs4[2], gs4[3], "Vorticity Ï", cmap_vort, norm_vort, "Vorticity (code units)"),
+            (gs4[4], gs4[5], "Gate g(x,y)", cmap_gate, norm_gate, "Gate value â (0, 1)"),
         ]
     
         axes4, ims4, cbars4 = [], [], []
@@ -1350,7 +1420,7 @@ if __name__ == '__main__':
             ax.set_ylabel("X (cells)", fontsize=9, color="white")
     
         title4 = fig4.suptitle(
-            "Predicted Cooling | Vorticity | Gate   —   t = 0",
+            "Predicted Cooling | Vorticity | Gate   â   t = 0",
             fontsize=15,
             color="white",
             y=0.97,
@@ -1368,11 +1438,11 @@ if __name__ == '__main__':
             im_vt4.set_data(cnn_vort_maps[frame])
             im_gt4.set_data(cnn_gate_maps[frame])
             title4.set_text(
-                f"Predicted Cooling | Vorticity | Gate   —   t = {frame}"
+                f"Predicted Cooling | Vorticity | Gate   â   t = {frame}"
             )
             if frame == 0:
                 fig4.savefig(snapshot_fourway_path, dpi=300, facecolor=fig4.get_facecolor())
-                print(f"Saved three-panel snapshot → {snapshot_fourway_path}")
+                print(f"Saved three-panel snapshot â {snapshot_fourway_path}")
             return [im_pc4, im_vt4, im_gt4]
     
         anim4 = animation.FuncAnimation(
@@ -1388,7 +1458,7 @@ if __name__ == '__main__':
                 progress_callback=lambda i, n: pbar.update(1),
             )
     
-        print(f"Saved three-panel comparison animation → {mp4_path_fourway}")
+        print(f"Saved three-panel comparison animation â {mp4_path_fourway}")
         plt.close(fig4)
     
     
@@ -1420,7 +1490,7 @@ if __name__ == '__main__':
                 snapshot_density_path,
             )
 
-            print(f"Stitching density gate frames → {mp4_path_density}")
+            print(f"Stitching density gate frames â {mp4_path_density}")
             os.makedirs(os.path.dirname(os.path.abspath(mp4_path_density)), exist_ok=True)
             codec = get_best_video_codec()
             cmd = [
@@ -1448,9 +1518,9 @@ if __name__ == '__main__':
                 if res_fb.returncode != 0:
                     print(f"ffmpeg error: {res.stderr.decode()}")
                 else:
-                    print(f"Saved density/gate animation → {mp4_path_density}")
+                    print(f"Saved density/gate animation â {mp4_path_density}")
             else:
-                print(f"Saved density/gate animation → {mp4_path_density}")
+                print(f"Saved density/gate animation â {mp4_path_density}")
         finally:
             shutil.rmtree(_temp_dir)
 
@@ -1502,7 +1572,7 @@ if __name__ == '__main__':
         pred_entropy_norm = pred_entropy / np.log(nb)
 
         # ---- 3. Residual: log10(CNN / True Isobaric), masked to positive pairs ----
-        SCATTER_MIN_GE = 1e-40  # physical CGS units: ~1e-27 to 1e-17 erg/cm³/s
+        SCATTER_MIN_GE = 1e-40  # physical CGS units: ~1e-27 to 1e-17 erg/cm^3/s
         mask_ge = (true_iso_cool >= SCATTER_MIN_GE) & (cnn_cool >= SCATTER_MIN_GE)
 
         resid_flat = np.log10(cnn_cool[mask_ge] / true_iso_cool[mask_ge])
@@ -1551,7 +1621,7 @@ if __name__ == '__main__':
         add_running_median_linear(ax_resid_ent, true_ent_flat, resid_flat, x_range=(0, 1))
 
         # Panel 3: Gate vs True Entropy (checks whether the gate is actually
-        # tracking the quantity it was trained to predict — a sharp diagonal
+        # tracking the quantity it was trained to predict â a sharp diagonal
         # here means the gate is well-calibrated; scatter/saturation means it isn't)
         hb_ge = ax_gate_vs_ent.hexbin(
             true_ent_flat, gate_flat,

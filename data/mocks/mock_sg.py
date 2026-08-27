@@ -97,6 +97,34 @@ def parallel_save_animation(render_func, frames_list, output_path, fps=10, num_w
         shutil.rmtree(temp_dir)
 
 
+def parallel_chunk_animation(worker_chunk_func, total_frames, output_path, fps=10, num_workers=8):
+    temp_dir = tempfile.mkdtemp()
+    try:
+        ctx = multiprocessing.get_context("fork")
+        chunks = [list(range(i, total_frames, num_workers)) for i in range(num_workers)]
+        chunks = [c for c in chunks if len(c) > 0]
+        worker = partial(worker_chunk_func, temp_dir=temp_dir)
+        with ctx.Pool(processes=len(chunks)) as pool:
+            list(tqdm(pool.imap_unordered(worker, chunks), total=len(chunks),
+                      desc=os.path.basename(output_path)))
+
+        cmd = ["ffmpeg", "-y", "-r", str(fps),
+               "-i", os.path.join(temp_dir, "frame_%04d.png"),
+               "-c:v", "h264_nvenc", "-preset", "p4", "-pix_fmt", "yuv420p",
+               output_path]
+        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        if res.returncode != 0:
+            cmd = ["ffmpeg", "-y", "-r", str(fps),
+                   "-i", os.path.join(temp_dir, "frame_%04d.png"),
+                   "-c:v", "libx264", "-crf", "18", "-pix_fmt", "yuv420p",
+                   output_path]
+            res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+            if res.returncode != 0:
+                raise RuntimeError(res.stderr.decode())
+    finally:
+        shutil.rmtree(temp_dir)
+
+
 def render_frame_all_fields(frame, temp_dir):
     import matplotlib
     matplotlib.use('Agg')
@@ -329,6 +357,124 @@ def render_frame_cooling_rate(frame, temp_dir):
     cbar_cool.ax.tick_params(labelsize=10)
 
     plt.savefig(os.path.join(temp_dir, f"frame_{frame:04d}.png"), dpi=150)
+    plt.close(fig)
+
+
+def worker_render_subgrid_pdf(frames_list, temp_dir):
+    import matplotlib; matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import matplotlib.colors as colors
+    import numpy as np, os
+
+    nx, ny = resolution[0], resolution[1]
+    nb = out_channels
+
+    log_temp_centers = 0.5 * (np.log10(T_edges[:-1]) + np.log10(T_edges[1:]))
+    active_bin_start = int(np.searchsorted(log_temp_centers, LOGT_ACTIVE_START))
+    active_bin_end   = int(np.searchsorted(log_temp_centers, LOGT_ACTIVE_END))
+
+    cmap_temp = plt.get_cmap("inferno")
+    norm_temp = colors.Normalize(vmin=3.0, vmax=7.0)
+
+    cmap_cool = plt.get_cmap("viridis")
+    norm_cool = colors.LogNorm(vmin=cool_vmin, vmax=cool_vmax)
+
+    cmap_gate = plt.get_cmap("plasma")
+    norm_gate = colors.Normalize(vmin=0.0, vmax=1.0)
+
+    fig = plt.figure(figsize=(32, 16))
+    gs = fig.add_gridspec(1, 4, width_ratios=[1.0, 1.0, 1.0, 1.0], wspace=0.22,
+                          left=0.03, right=0.97, top=0.92, bottom=0.06)
+
+    # nx x ny grid of PDF mini-plots (taking up entire panel 0)
+    sub_gs = gs[0].subgridspec(nx, ny, hspace=0.06, wspace=0.06)
+
+    lines, axes = [], []
+    x = np.arange(nb)
+
+    for i in range(nx):
+        row_l, row_a = [], []
+        for j in range(ny):
+            ax = fig.add_subplot(sub_gs[i, j])
+            ax.axvspan(active_bin_start, active_bin_end, color="green", alpha=0.18, lw=0)
+            (line,) = ax.plot([], [], lw=0.9)
+            ax.set_xlim(0, nb - 1)
+            ax.set_ylim(0, 1.05)
+            ax.set_xticks([])
+            ax.set_yticks([])
+            for spine in ax.spines.values():
+                spine.set_color("grey")
+                spine.set_linewidth(0.3)
+            row_l.append(line)
+            row_a.append(ax)
+        lines.append(row_l)
+        axes.append(row_a)
+
+    # Side panel 1: Subgrid Resolved Temperature Map (aspect='auto' to match grid size)
+    ax_temp = fig.add_subplot(gs[1])
+    temp_0 = np.log10(temp[0] + 1e-8)
+    im_temp = ax_temp.imshow(temp_0, origin="lower", cmap=cmap_temp, norm=norm_temp, aspect="auto")
+    ax_temp.set_title("Subgrid $T$ Map", fontsize=15, weight="bold")
+    ax_temp.set_xlabel("X (pixels)", fontsize=13)
+    ax_temp.set_ylabel("Y (pixels)", fontsize=13)
+    cbar_temp = plt.colorbar(im_temp, ax=ax_temp, fraction=0.046, pad=0.04)
+    cbar_temp.set_label(r"$\log_{10}(T\ [\mathrm{K}])$ / Expectation Value", fontsize=12)
+
+    # Side panel 2: Subgrid Cooling Rate Map (aspect='auto' to match grid size)
+    ax_cool = fig.add_subplot(gs[2])
+    cool_0 = np.clip(emis_sg[0], cool_vmin, None)
+    im_cool = ax_cool.imshow(cool_0, origin="lower", cmap=cmap_cool, norm=norm_cool, aspect="auto")
+    ax_cool.set_title("Subgrid Cooling Rate Map", fontsize=15, weight="bold")
+    ax_cool.set_xlabel("X (pixels)", fontsize=13)
+    ax_cool.set_ylabel("Y (pixels)", fontsize=13)
+    cbar_cool = plt.colorbar(im_cool, ax=ax_cool, fraction=0.046, pad=0.04)
+    cbar_cool.set_label(r"Cooling Rate $[\mathrm{erg}\ \mathrm{cm}^{-3}\ \mathrm{s}^{-1}]$", fontsize=12)
+
+    # Side panel 3: Subgrid Mixing Gate Value Map (aspect='auto' to match grid size)
+    ax_gate = fig.add_subplot(gs[3])
+    gate_0 = pred_gate_all[0]
+    im_gate = ax_gate.imshow(gate_0, origin="lower", cmap=cmap_gate, norm=norm_gate, aspect="auto")
+    ax_gate.set_title("Subgrid Mixing Gate Map", fontsize=15, weight="bold")
+    ax_gate.set_xlabel("X (pixels)", fontsize=13)
+    ax_gate.set_ylabel("Y (pixels)", fontsize=13)
+    cbar_gate = plt.colorbar(im_gate, ax=ax_gate, fraction=0.046, pad=0.04)
+    cbar_gate.set_label(r"Gate Value $g \in [0, 1]$", fontsize=12)
+
+    title_text = fig.suptitle("", fontsize=18, weight="bold")
+
+    for frame_idx in frames_list:
+        pdf_frame = pred_pdf_all[frame_idx]
+        temp_frame = np.log10(temp[frame_idx] + 1e-8)
+        cool_frame = np.clip(emis_sg[frame_idx], cool_vmin, None)
+        gate_frame = pred_gate_all[frame_idx]
+        t_myr_cur = RESTART_TIME_MYR + frame_idx * BIN_DT_MYR
+
+        for i in range(nx):
+            ii = nx - 1 - i  # flip vertically so row 0 is top
+            for j in range(ny):
+                y = pdf_frame[:, ii, j]
+                exp_val = np.sum(y * log_temp_centers)
+                y_norm = y / (y.max() + 1e-12)
+
+                bg_color = cmap_temp(norm_temp(exp_val))
+                lum = 0.299 * bg_color[0] + 0.587 * bg_color[1] + 0.114 * bg_color[2]
+                line_color = "white" if lum < 0.5 else "black"
+
+                lines[i][j].set_data(x, y_norm)
+                lines[i][j].set_color(line_color)
+                axes[i][j].set_facecolor(bg_color)
+
+        im_temp.set_data(temp_frame)
+        im_cool.set_data(cool_frame)
+        im_gate.set_data(gate_frame)
+        title_text.set_text(rf"Subgrid Predicted Temperature PDF Grid (${nx} \times {ny}$), $T$, Cooling, & Gate | $t = {t_myr_cur:.2f}$ Myr")
+        
+        frame_out = os.path.join(temp_dir, f"frame_{frame_idx:04d}.png")
+        fig.savefig(frame_out, dpi=120)
+
+        if frame_idx == 0:
+            fig.savefig(save_path + "subgrid_predicted_pdf_snapshot_t0.png", dpi=200)
+
     plt.close(fig)
 
 
@@ -1160,12 +1306,17 @@ T_edges = np.logspace(3.0, 7.0, out_channels + 1)
 T_centers = np.sqrt(T_edges[:-1] * T_edges[1:])
 
 emis_sg = np.zeros_like(rho)
+pred_pdf_all = np.zeros((rho.shape[0], out_channels, *resolution), dtype=np.float32)
+pred_gate_all = np.zeros((rho.shape[0], *resolution), dtype=np.float32)
 print("Computing SG subgrid cooling rate using snapshot_pred_16x8...")
 for t in tqdm(range(rho.shape[0])):
-    pdf_t = snapshot_pred_16x8(
+    pdf_t, gate_t = snapshot_pred_16x8(
         rho[t], temp[t], ux[t], uy[t], ps[t],
         fine_resolution=_fine_res, downsample=_cnn_ds,
+        return_gate=True,
     )
+    pred_pdf_all[t] = pdf_t
+    pred_gate_all[t] = gate_t
     cool_code = compute_cooling_rate(
         pdf_t, T_centers,
         is_pdf=True, rho_cg=rho[t]
@@ -1413,7 +1564,18 @@ parallel_save_animation(
 )
 print("Cooling rate evolution animation saved")
 
+print("Saving subgrid predicted PDF, temperature, and cooling evolution animation...")
+parallel_chunk_animation(
+    worker_render_subgrid_pdf,
+    nt,
+    save_path + "subgrid_predicted_pdf_evolution.mp4",
+    fps=10,
+    num_workers=8,
+)
+print("Subgrid predicted PDF evolution animation saved")
+
 del emis_hr, emis_cg_hr, emis_sg, emis_lr
+del pred_pdf_all, pred_gate_all
 del emis_cg_hr_xavg, emis_sg_xavg, emis_lr_xavg
 gc.collect()
 

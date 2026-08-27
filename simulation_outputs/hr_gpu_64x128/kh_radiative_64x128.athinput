@@ -1,0 +1,102 @@
+# Athena++ (Kokkos version) input file for hydro KH test
+
+<comment>
+problem   = Kelvin-Helmholtz instability
+reference = Lecoanet et al., Fielding et al.
+
+<job>
+basename = KH
+
+<mesh>
+nghost    = 3
+nx1       = 64        # Number of zones in X1-direction
+x1min     = -5.0        # minimum value of X1
+x1max     =  5.0        # maximum value of X1
+ix1_bc    = periodic    # inner-X1 boundary flag
+ox1_bc    = periodic    # inner-X1 boundary flag
+
+nx2       = 128        # Number of zones in X2-direction
+x2min     = -10.0       # minimum value of X2
+x2max     =  10.0       # maximum value of X2
+ix2_bc    = reflect     # inner-X2 boundary flag
+ox2_bc    = user        # inner-X2 boundary flag
+
+nx3       = 1           # Number of zones in X3-direction
+x3min     = -0.5        # minimum value of X3
+x3max     = 0.5         # maximum value of X3
+ix3_bc    = periodic    # inner-X3 boundary flag
+ox3_bc    = periodic    # inner-X3 boundary flag
+
+<meshblock>
+nx1       = 16        # Number of cells in each MeshBlock, X1-dir
+nx2       = 16      # Number of cells in each MeshBlock, X2-dir
+nx3       = 1          # Number of cells in each MeshBlock, X3-dir
+
+<time>
+evolution  = dynamic    # dynamic/kinematic/static
+#integrator = rk3       # time integration algorithm
+integrator = rk2
+cfl_number = 0.4        # The Courant, Friedrichs, & Lewy (CFL) Number
+nlim       = -1         # cycle limit
+tlim       = 10.00        # time limit
+ndiag      = 100        # cycles between diagostic output
+
+<hydro>
+eos         = ideal     # EOS type
+#reconstruct = ppmx     # spatial reconstruction method
+reconstruct = plm
+rsolver     = hllc      # Riemann-solver to be used
+nscalars    = 1         # number of passive scalars in hydro
+gamma       = 1.666667  # gamma = C_p/C_v
+#fofc        = true     # Enable first order flux correction
+ism_cooling = true
+hrate 	    = 0
+
+<problem>
+# Copied straight from https://github.com/ArnavK04/Structure-of-Turbulent-Radiative-Mixing-Layers/blob/main/inputs/kh_cooling1.athinput
+iprob = 1               # flag to select setup
+amp   = 0.05            # amplitude of sinusoidal perturbation (vshear/100)
+sigma = 0.5             # width of gaussian profile
+vx_hot = 28.1818182     # hot phase velocity (~ +30.1 km/s)
+vx_cold = -2.8181818 	# cold phase velocity (~ -0.301 km/s)
+a_char = 0.125		# width of tanh profile
+rho_cold = 0.1 
+rho_hot  = 0.001
+press = 14.02645        # pressure = 2.22685e-13 dyne cm^-3
+cold_frac = 0.66666667  # fraction of region occupied by cold gas
+
+<units>
+length_cgs  = 3.08568e+18  
+mass_cgs    = 4.91417e+31   
+time_cgs    = 3.15576e+13             
+mu = 0.62
+
+# Units :-
+# length = 1 pc = 3.08568e+18 cm
+# time   = 1 My  = 3.15576e+13 s
+# mass   = 4.91417e+31 g cm^-3 		(this is so that density has units of m_p per cm^3)
+# velocity = 9.77793e+4  cm s^-1
+# density  = 1.67262e-24 g cm^-3
+# energy   = 4.69834e+41 ergs
+# power    = 1.48881e+28 erg/s
+# energy density/pressure = 1.59916e-14 dyne/cm^2
+# temperature unit = 71.2937
+
+
+<output1>
+file_type  = hst       # History data dump
+dt         = 0.01    # time increment between outputs
+
+<output2>
+file_type  = bin       # bin data dump
+variable   = hydro_w   # variables to be output
+dt         = 0.01      # time increment between outputs
+
+<output3>
+file_type  = bin       # bin data dump
+variable   = hydro_u   # variables to be output
+dt         = 0.01      # time increment between outputs
+
+<output4>
+file_type  = rst       # rstin data dump
+dt         = 1.0      # time increment between outputs

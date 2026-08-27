@@ -62,12 +62,16 @@ export EMA_ALPHA="${EMA_ALPHA:-0.9}"
 export SEED="${SEED:-42}"
 
 # Loss weights
-export PDF_CNN_ALPHA_ACTIVE_KL="${PDF_CNN_ALPHA_ACTIVE_KL:-10.0}"
-export PDF_CNN_ALPHA_INACTIVE_KL="${PDF_CNN_ALPHA_INACTIVE_KL:-10.0}"
-export PDF_CNN_ALPHA_GATE="${PDF_CNN_ALPHA_GATE:-50.0}"
+export PDF_CNN_ALPHA_ACTIVE_WASSERSTEIN="${PDF_CNN_ALPHA_ACTIVE_WASSERSTEIN:-${PDF_CNN_ALPHA_ACTIVE_KL:-10.0}}"
+export PDF_CNN_ALPHA_INACTIVE_WASSERSTEIN="${PDF_CNN_ALPHA_INACTIVE_WASSERSTEIN:-${PDF_CNN_ALPHA_INACTIVE_KL:-10.0}}"
+export PDF_CNN_ALPHA_ACTIVE_KL="${PDF_CNN_ALPHA_ACTIVE_WASSERSTEIN}"
+export PDF_CNN_ALPHA_INACTIVE_KL="${PDF_CNN_ALPHA_INACTIVE_WASSERSTEIN}"
+export PDF_CNN_ALPHA_GATE="${PDF_CNN_ALPHA_GATE:-0.0}"
 export PDF_CNN_ALPHA_MEAN_TEMP="${PDF_CNN_ALPHA_MEAN_TEMP:-10.0}"
 export PDF_CNN_ALPHA_EMISS="${PDF_CNN_ALPHA_EMISS:-10.0}"
 export PDF_CNN_ALPHA_LEAK="${PDF_CNN_ALPHA_LEAK:-10.0}"
+export PDF_CNN_GATE_EPOCHS="${PDF_CNN_GATE_EPOCHS:-200}"
+export PDF_CNN_GATE_LR="${PDF_CNN_GATE_LR:-1e-3}"
 
 # ---- LR 5 Myr base simulation (Step 3) ----
 LR_OUTPUT_DIR="${PROJECT_ROOT}/simulation_outputs/lr_build"
@@ -197,8 +201,8 @@ MANIFEST="${RUN_DIR}/manifest.txt"
     echo "EMA Alpha          : ${EMA_ALPHA}"
     echo ""
     echo "--- Loss Weights ---"
-    echo "alpha_active_kl    : ${PDF_CNN_ALPHA_ACTIVE_KL}"
-    echo "alpha_inactive_kl  : ${PDF_CNN_ALPHA_INACTIVE_KL}"
+    echo "alpha_active_wass  : ${PDF_CNN_ALPHA_ACTIVE_WASSERSTEIN}"
+    echo "alpha_inact_wass   : ${PDF_CNN_ALPHA_INACTIVE_WASSERSTEIN}"
     echo "alpha_gate         : ${PDF_CNN_ALPHA_GATE}"
     echo "alpha_mean_temp    : ${PDF_CNN_ALPHA_MEAN_TEMP}"
     echo "alpha_emiss        : ${PDF_CNN_ALPHA_EMISS}"
@@ -249,12 +253,14 @@ run_step 1 "train_random_snapshot_cnn" \
         --learning_rate "${LEARNING_RATE}" \
         --weight_decay "${WEIGHT_DECAY}" \
         --seed "${SEED}" \
-        --alpha_active_kl "${PDF_CNN_ALPHA_ACTIVE_KL}" \
-        --alpha_inactive_kl "${PDF_CNN_ALPHA_INACTIVE_KL}" \
+        --alpha_active_wasserstein "${PDF_CNN_ALPHA_ACTIVE_WASSERSTEIN}" \
+        --alpha_inactive_wasserstein "${PDF_CNN_ALPHA_INACTIVE_WASSERSTEIN}" \
         --alpha_gate "${PDF_CNN_ALPHA_GATE}" \
         --alpha_mean_temp "${PDF_CNN_ALPHA_MEAN_TEMP}" \
         --alpha_emiss "${PDF_CNN_ALPHA_EMISS}" \
         --alpha_leak "${PDF_CNN_ALPHA_LEAK}" \
+        --gate_epochs "${PDF_CNN_GATE_EPOCHS}" \
+        --gate_learning_rate "${PDF_CNN_GATE_LR}" \
         --model_save_dir "${MODEL_SAVES_DIR}" \
         --loss_plot_dir "${LOSS_PLOTS_DIR}"
 

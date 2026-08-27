@@ -1,0 +1,3 @@
+[submodule "ergane"]
+	path = ergane
+	url = git@github.com:SasiMitraB/ergane.git

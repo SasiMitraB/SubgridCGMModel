@@ -43,12 +43,16 @@ from models.conv_nn.pdf_cnn import (
     GatedThresholdedSoftmax,
     MeanTemperatureLoss,
     EmissivityLoss,
+    ZonedWassersteinLoss,
     ZonedSymmetricKLLoss,
     LeakageLoss,
     HYPERPARAMS,
     DEFAULT_FINE_RESOLUTION,
     DEFAULT_DOWNSAMPLE,
     _parse_resolution,
+    plot_loss_breakdown,
+    plot_gate_training,
+    train_gate_branch,
 )
 
 try:
@@ -485,21 +489,33 @@ def parse_args():
     )
     # Loss Weights
     parser.add_argument(
+        "--alpha_active_wasserstein",
         "--alpha_active_kl",
         type=float,
-        default=float(os.environ.get("PDF_CNN_ALPHA_ACTIVE_KL", "10.0")),
-        help="Active zone KL loss weight",
+        default=float(
+            os.environ.get(
+                "PDF_CNN_ALPHA_ACTIVE_WASSERSTEIN",
+                os.environ.get("PDF_CNN_ALPHA_ACTIVE_KL", "100.0"),
+            )
+        ),
+        help="Active zone Wasserstein loss weight",
     )
     parser.add_argument(
+        "--alpha_inactive_wasserstein",
         "--alpha_inactive_kl",
         type=float,
-        default=float(os.environ.get("PDF_CNN_ALPHA_INACTIVE_KL", "10.0")),
-        help="Inactive zone KL loss weight",
+        default=float(
+            os.environ.get(
+                "PDF_CNN_ALPHA_INACTIVE_WASSERSTEIN",
+                os.environ.get("PDF_CNN_ALPHA_INACTIVE_KL", "10.0"),
+            )
+        ),
+        help="Inactive zone Wasserstein loss weight",
     )
     parser.add_argument(
         "--alpha_gate",
         type=float,
-        default=HYPERPARAMS.get("alpha_gate", 50.0),
+        default=float(os.environ.get("PDF_CNN_ALPHA_GATE", "0.0")),
         help="Gate loss weight",
     )
     parser.add_argument(
@@ -511,14 +527,50 @@ def parse_args():
     parser.add_argument(
         "--alpha_emiss",
         type=float,
-        default=float(os.environ.get("PDF_CNN_ALPHA_EMISS", "10.0")),
+        default=float(os.environ.get("PDF_CNN_ALPHA_EMISS", "100.0")),
         help="Emissivity loss weight",
     )
     parser.add_argument(
         "--alpha_leak",
         type=float,
-        default=float(os.environ.get("PDF_CNN_ALPHA_LEAK", "10.0")),
+        default=float(os.environ.get("PDF_CNN_ALPHA_LEAK", "100.0")),
         help="Active window mass leakage loss weight",
+    )
+    # Gate pretraining arguments
+    parser.add_argument(
+        "--gate_epochs",
+        type=int,
+        default=int(os.environ.get("PDF_CNN_GATE_EPOCHS", "200")),
+        help="Epochs for gate pretraining (Stage 1)",
+    )
+    parser.add_argument(
+        "--gate_learning_rate",
+        type=float,
+        default=float(os.environ.get("PDF_CNN_GATE_LR", "1e-3")),
+        help="Learning rate for gate pretraining",
+    )
+    parser.add_argument(
+        "--skip_gate_training",
+        action="store_true",
+        help="Skip Stage 1 gate pretraining",
+    )
+    parser.add_argument(
+        "--gate_weights_path",
+        type=str,
+        default=None,
+        help="Path to pre-trained gate weights",
+    )
+    parser.add_argument(
+        "--freeze_gate",
+        action="store_true",
+        default=True,
+        help="Freeze gate branch during Stage 2 PDF training",
+    )
+    parser.add_argument(
+        "--no_freeze_gate",
+        action="store_false",
+        dest="freeze_gate",
+        help="Do not freeze gate branch during Stage 2",
     )
     # Directories
     parser.add_argument(
@@ -640,34 +692,81 @@ def main():
         kernel_size=HYPERPARAMS.get("kernel_size", 9),
     ).to(device)
 
-    # Performance optimizations
-    if device.type == "cuda":
-        torch.backends.cudnn.benchmark = True
-        try:
-            cnn_model = torch.compile(cnn_model, mode="reduce-overhead")
-            print("Compiled cnn_model with torch.compile(mode='reduce-overhead')")
-        except Exception as e:
-            print(f"torch.compile skipped / failed: {e}")
+    batch_size = args.batch_size
+    grad_clip_max_norm = HYPERPARAMS.get("grad_clip_max_norm", 1.0)
 
-    # Initialize Criterion
+    # Initial Dataloaders for Stage 1
+    train_loader = DataLoader(
+        train_dataset,
+        batch_size=batch_size,
+        shuffle=True,
+        num_workers=2,
+        pin_memory=(device.type == "cuda"),
+    )
+    val_loader = DataLoader(
+        val_dataset,
+        batch_size=batch_size,
+        shuffle=False,
+        num_workers=2,
+        pin_memory=(device.type == "cuda"),
+    )
+
+    # ── STAGE 1: GATE PRETRAINING ─────────────────────────────────────
+    gate_save_path = model_save_dir / f"cnn_{res}_{downsample}_gate.pth"
+    gate_plot_path = loss_plot_dir / f"cnn_{res}_{downsample}_gate_loss.jpg"
+
+    if args.gate_weights_path and os.path.exists(args.gate_weights_path):
+        print(f"\nLoading pretrained gate weights from: {args.gate_weights_path}")
+        cnn_model.gate_branch.load_state_dict(
+            torch.load(args.gate_weights_path, map_location=device)
+        )
+    elif not args.skip_gate_training and args.gate_epochs > 0:
+        temp_crit = GatedPDFLoss()
+        gate_history = train_gate_branch(
+            cnn_model=cnn_model,
+            train_loader=train_loader,
+            val_loader=val_loader,
+            active_mask=temp_crit.active_mask,
+            device=device,
+            epochs=args.gate_epochs,
+            lr=args.gate_learning_rate,
+            weight_decay=args.weight_decay,
+            grad_clip_max_norm=grad_clip_max_norm,
+            save_path=str(gate_save_path),
+        )
+        plot_gate_training(gate_history, save_path=str(gate_plot_path))
+    else:
+        print("\nSkipping Stage 1 gate pretraining.")
+
+    # ── STAGE 2: FREEZE GATE AND TRAIN MAIN PDF CNN ──────────────────
+    if args.freeze_gate:
+        print("\nFreezing gate branch parameters for Stage 2 training.")
+        cnn_model.freeze_gate_branch()
+        alpha_gate_stage2 = 0.0
+    else:
+        print("\nGate branch remains trainable for Stage 2.")
+        cnn_model.unfreeze_gate_branch()
+        alpha_gate_stage2 = args.alpha_gate
+
+    # Initialize Criterion with decoupled gate loss for Stage 2
     criterion = GatedPDFLoss(
-        alpha_gate=args.alpha_gate,
+        alpha_gate=alpha_gate_stage2,
         alpha_mean_temp=args.alpha_mean_temp,
         alpha_emiss=args.alpha_emiss,
         alpha_leak=args.alpha_leak,
-        alpha_active_kl=args.alpha_active_kl,
-        alpha_inactive_kl=args.alpha_inactive_kl,
+        alpha_active_wasserstein=args.alpha_active_wasserstein,
+        alpha_inactive_wasserstein=args.alpha_inactive_wasserstein,
     )
 
+    trainable_params = [p for p in cnn_model.parameters() if p.requires_grad]
     optimizer = torch.optim.AdamW(
-        cnn_model.parameters(),
+        trainable_params,
         lr=args.learning_rate,
         weight_decay=args.weight_decay,
     )
 
     num_epochs = args.epochs
-    batch_size = args.batch_size
-    steps_per_epoch = max(1, len(train_dataset) // batch_size)
+    steps_per_epoch = max(1, len(train_loader))
 
     scheduler = torch.optim.lr_scheduler.OneCycleLR(
         optimizer,
@@ -678,17 +777,41 @@ def main():
     )
 
     epochs_array: list[int] = []
-    train_loss_arr: list[float] = []
-    val_loss_arr: list[float] = []
-
-    grad_clip_max_norm = HYPERPARAMS.get("grad_clip_max_norm", 1.0)
+    train_history = {
+        "total": [],
+        "wasserstein_total": [],
+        "wasserstein_active": [],
+        "wasserstein_inactive": [],
+        "kl_total": [],
+        "kl_active": [],
+        "kl_inactive": [],
+        "gate": [],
+        "mean_temp": [],
+        "emiss": [],
+        "leak": [],
+    }
+    val_history = {
+        "total": [],
+        "wasserstein_total": [],
+        "wasserstein_active": [],
+        "wasserstein_inactive": [],
+        "kl_total": [],
+        "kl_active": [],
+        "kl_inactive": [],
+        "gate": [],
+        "mean_temp": [],
+        "emiss": [],
+        "leak": [],
+    }
 
     print(
-        f"Starting training for {num_epochs} epochs | Batch size: {batch_size} | Device: {device}"
+        f"\n{'='*60}\n"
+        f"STAGE 2: Training Main PDF CNN ({num_epochs} epochs | Batch size: {batch_size} | Device: {device})\n"
+        f"{'='*60}"
     )
 
     # Training Loop
-    for epoch in tqdm(range(num_epochs), desc="Training"):
+    for epoch in tqdm(range(num_epochs), desc="Stage 2 Training"):
         # ── 1. Fresh crop pools ───────────────────────────────────────
         train_dataset.resample()
         val_dataset.resample()
@@ -741,36 +864,48 @@ def main():
 
             optimizer.zero_grad()
             loss.backward()
-            torch.nn.utils.clip_grad_norm_(cnn_model.parameters(), grad_clip_max_norm)
+            torch.nn.utils.clip_grad_norm_(trainable_params, grad_clip_max_norm)
             optimizer.step()
             scheduler.step()
 
-        # ── 3. Validate ───────────────────────────────────────────────
+        # ── 3. Validate with individual loss term breakdown ───────────
         cnn_model.eval()
         with torch.no_grad():
-            train_loss = sum(
-                criterion(
-                    *(cnn_model(x.to(device))[:2]),
-                    y.to(device),
-                    r.to(device),
-                    t.to(device),
-                ).item()
-                for x, y, r, t in train_loader
-            ) / max(1, len(train_loader))
+            train_totals = {k: 0.0 for k in train_history}
+            for x_b, y_b, r_b, t_b in train_loader:
+                x_b, y_b = x_b.to(device), y_b.to(device)
+                r_b, t_b = r_b.to(device), t_b.to(device)
+                logits_b, gate_b = cnn_model(x_b)
+                _, comp = criterion(
+                    logits_b, gate_b, y_b, r_b, t_b, return_components=True
+                )
+                for k, v in comp.items():
+                    train_totals[k] += v
 
-            val_loss = sum(
-                criterion(
-                    *(cnn_model(x.to(device))[:2]),
-                    y.to(device),
-                    r.to(device),
-                    t.to(device),
-                ).item()
-                for x, y, r, t in val_loader
-            ) / max(1, len(val_loader))
+            n_tr = max(1, len(train_loader))
+            for k in train_history:
+                train_history[k].append(train_totals[k] / n_tr)
+
+            val_totals = {k: 0.0 for k in val_history}
+            for x_b, y_b, r_b, t_b in val_loader:
+                x_b, y_b = x_b.to(device), y_b.to(device)
+                r_b, t_b = r_b.to(device), t_b.to(device)
+                logits_b, gate_b = cnn_model(x_b)
+                _, comp = criterion(
+                    logits_b, gate_b, y_b, r_b, t_b, return_components=True
+                )
+                for k, v in comp.items():
+                    val_totals[k] += v
+
+            n_val = max(1, len(val_loader))
+            for k in val_history:
+                val_history[k].append(val_totals[k] / n_val)
+
+            train_loss = train_history["total"][-1]
+            val_loss = val_history["total"][-1]
 
         epochs_array.append(epoch + 1)
-        train_loss_arr.append(train_loss)
-        val_loss_arr.append(val_loss)
+        val_loss_arr = val_history["total"]
 
         if (epoch + 1) % 50 == 0 or epoch == num_epochs - 1:
             tqdm.write(
@@ -806,22 +941,36 @@ def main():
         torch.save(state_dict, model_path)
         print(f"Saved weights & stats -> cnn_{r_tuple}_{ds_val}")
 
-    # Plot loss curves
-    plt.figure(figsize=(10, 5))
-    plt.plot(epochs_array, train_loss_arr, label="Train Loss")
-    plt.plot(epochs_array, val_loss_arr, label="Validation Loss")
-    plt.axhline(train_loss_arr[-1], linestyle="--", alpha=0.7)
-    plt.axhline(val_loss_arr[-1], linestyle="--", alpha=0.7)
-    plt.xlabel("Epochs")
-    plt.ylabel("PDF Loss")
-    plt.title("Snapshot-Split Random Crop Training Loss")
-    plt.legend()
-    plt.tight_layout()
-
-    loss_plot_file = loss_plot_dir / f"cnn_{res}_{downsample}_loss.jpg"
-    plt.savefig(loss_plot_file, dpi=300)
-    plt.close()
-    print(f"Saved loss plot to {loss_plot_file}")
+    # Save loss history array (.npz)
+    history_save_path = loss_plot_dir / f"cnn_{res}_{downsample}_loss_history.npz"
+    np.savez(
+        history_save_path,
+        epochs=np.array(epochs_array),
+        train_total=np.array(train_history["total"]),
+        val_total=np.array(val_history["total"]),
+        train_wasserstein_total=np.array(train_history["wasserstein_total"]),
+        val_wasserstein_total=np.array(val_history["wasserstein_total"]),
+        train_wasserstein_active=np.array(train_history["wasserstein_active"]),
+        val_wasserstein_active=np.array(val_history["wasserstein_active"]),
+        train_wasserstein_inactive=np.array(train_history["wasserstein_inactive"]),
+        val_wasserstein_inactive=np.array(val_history["wasserstein_inactive"]),
+        # Aliases for backward compatibility
+        train_kl_total=np.array(train_history["kl_total"]),
+        val_kl_total=np.array(val_history["kl_total"]),
+        train_kl_active=np.array(train_history["kl_active"]),
+        val_kl_active=np.array(val_history["kl_active"]),
+        train_kl_inactive=np.array(train_history["kl_inactive"]),
+        val_kl_inactive=np.array(val_history["kl_inactive"]),
+        train_gate=np.array(train_history["gate"]),
+        val_gate=np.array(val_history["gate"]),
+        train_mean_temp=np.array(train_history["mean_temp"]),
+        val_mean_temp=np.array(val_history["mean_temp"]),
+        train_emiss=np.array(train_history["emiss"]),
+        val_emiss=np.array(val_history["emiss"]),
+        train_leak=np.array(train_history["leak"]),
+        val_leak=np.array(val_history["leak"]),
+    )
+    print(f"Saved loss history arrays to: {history_save_path}")
 
     # Step 5: Test Evaluation
     print("\nEvaluating on Test Set with EMA stats...")
@@ -837,17 +986,54 @@ def main():
 
     cnn_model.eval()
     with torch.no_grad():
-        test_loss = sum(
-            criterion(
-                *(cnn_model(x.to(device))[:2]),
-                y.to(device),
-                r.to(device),
-                t.to(device),
-            ).item()
-            for x, y, r, t in test_loader
-        ) / max(1, len(test_loader))
+        test_totals = {k: 0.0 for k in train_history}
+        for x_b, y_b, r_b, t_b in test_loader:
+            x_b, y_b = x_b.to(device), y_b.to(device)
+            r_b, t_b = r_b.to(device), t_b.to(device)
+            logits_b, gate_b = cnn_model(x_b)
+            _, comp = criterion(
+                logits_b, gate_b, y_b, r_b, t_b, return_components=True
+            )
+            for k, v in comp.items():
+                test_totals[k] += v
 
-    print(f"Test Loss: {test_loss:.6f}")
+        n_test = max(1, len(test_loader))
+        test_history = {k: test_totals[k] / n_test for k in train_history}
+        test_loss = test_history["total"]
+
+    print(f"Test Total Loss: {test_loss:.6f}")
+    for k, v in test_history.items():
+        if k != "total":
+            print(f"  Test {k}: {v:.6f}")
+
+    # 1. Plot overall total loss
+    plt.figure(figsize=(10, 5))
+    plt.plot(epochs_array, train_history["total"], label="Train Loss")
+    plt.plot(epochs_array, val_history["total"], label="Validation Loss")
+    plt.axhline(train_history["total"][-1], linestyle="--", label=f"Final Train: {train_history['total'][-1]:.4f}")
+    plt.axhline(val_history["total"][-1], linestyle="--", label=f"Final Val: {val_history['total'][-1]:.4f}")
+    plt.axhline(test_loss, linestyle="--", color="red", label=f"Test: {test_loss:.4f}")
+    plt.xlabel("Epochs")
+    plt.ylabel("PDF Loss")
+    plt.title("Snapshot-Split Random Crop Training Loss")
+    plt.legend()
+    plt.tight_layout()
+
+    loss_plot_file = loss_plot_dir / f"cnn_{res}_{downsample}_loss.jpg"
+    plt.savefig(loss_plot_file, dpi=300)
+    plt.close()
+    print(f"Saved loss plot to {loss_plot_file}")
+
+    # 2. Plot detailed breakdown of all loss components
+    components_plot_file = loss_plot_dir / f"cnn_{res}_{downsample}_loss_components.jpg"
+    plot_loss_breakdown(
+        epochs_array=epochs_array,
+        train_history=train_history,
+        val_history=val_history,
+        test_history=test_history,
+        save_path=str(components_plot_file),
+        hyperparams=vars(args),
+    )
 
 
 if __name__ == "__main__":

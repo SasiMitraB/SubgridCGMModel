@@ -39,16 +39,48 @@ SIM_ROOT     = PROJECT_ROOT / "simulation_outputs"
 OUT_ROOT     = PROJECT_ROOT / "outputs"
 OUT_ROOT.mkdir(parents=True, exist_ok=True)
 
-# ── Simulation configurations ────────────────────────────────────────────────
-simulations = [
-    {
-        "name":       "hr_512",
-        "label":      r"$512 \times 256$",
-        "athinp":     "/home/sasi/Projects/SubgridCGMModel/simulation_outputs/hr_build_512/kh_radiative_256x512.athinput",
-        "datafolder": "/home/sasi/Projects/SubgridCGMModel/simulation_outputs/hr_build_512",
-        "downsample": 32,
-    },
+# ── Resolution list ─────────────────────────────────────────────────────────
+RESOLUTIONS = [
+    (["8x16", "16x8"],          r"$16 \times 8$"),
+    (["16x32", "32x16"],        r"$32 \times 16$"),
+    (["32x64", "64x32"],        r"$64 \times 32$"),
+    (["64x128", "128x64"],      r"$128 \times 64$"),
+    (["128x256", "256x128"],    r"$256 \times 128$"),
+    (["256x512", "512x256"],    r"$512 \times 256$"),
+    (["512x1024", "1024x512"],  r"$1024 \times 512$"),
 ]
+
+# ── Simulation configurations (Auto-discover GPU runs, fallback to MPI/build) ─
+simulations = []
+seen_folders = set()
+for res_aliases, res_label in RESOLUTIONS:
+    found = False
+    for res_tag in res_aliases:
+        if found:
+            break
+        for prefix in ["hr_gpu", "hr_mpi", "hr_build", "subgrid", "lr"]:
+            datafolder = SIM_ROOT / f"{prefix}_{res_tag}"
+            if not datafolder.is_dir() and prefix == "hr_build":
+                alt = SIM_ROOT / f"{prefix}_{res_tag.split('x')[0]}"
+                if alt.is_dir():
+                    datafolder = alt
+            if datafolder.is_dir() and str(datafolder) not in seen_folders:
+                athinp = datafolder / f"kh_radiative_{res_tag}.athinput"
+                if not athinp.is_file():
+                    matches = list(datafolder.glob("*.athinput"))
+                    if matches:
+                        athinp = matches[0]
+                if athinp.is_file():
+                    simulations.append({
+                        "name":       f"{prefix}_{res_tag}",
+                        "label":      res_label,
+                        "athinp":     str(athinp),
+                        "datafolder": str(datafolder),
+                        "downsample": 32,
+                    })
+                    seen_folders.add(str(datafolder))
+                    found = True
+                    break
 
 # ── Physical constants ────────────────────────────────────────────────────────
 CM_PER_PC       = 3.08568e18          # cm per parsec
@@ -133,7 +165,11 @@ def lambda_cool(temp: np.ndarray, mask: bool = True) -> np.ndarray:
 def coarse_grain_2d(arr: np.ndarray, ds: int = 32) -> np.ndarray:
     """Coarse-grain a 2D array of shape (ny, nx) by factor ds."""
     ny, nx = arr.shape
-    return arr.reshape(ny // ds, ds, nx // ds, ds).mean(axis=(1, 3))
+    if ds <= 1 or ny < ds or nx < ds:
+        return arr.copy()
+    ny_cg = ny // ds
+    nx_cg = nx // ds
+    return arr[:ny_cg * ds, :nx_cg * ds].reshape(ny_cg, ds, nx_cg, ds).mean(axis=(1, 3))
 
 
 # ── Field extractors ─────────────────────────────────────────────────────────
@@ -201,6 +237,21 @@ def compute_coarse_grained_fields(frame: ergane.simulation_data.Frame, ds: int =
     q_cool = (n_H ** 2) * lam
     flux_x = n_H * (vx_kms * CM_PER_KM)
     flux_y = n_H * (vy_kms * CM_PER_KM)
+
+    ny, nx = rho_cgs.shape
+    if ds <= 1 or ny < ds or nx < ds:
+        log10_nH = np.log10(np.maximum(n_H, 1e-30))
+        log10_T  = np.log10(np.maximum(temp_K, 1.0))
+        return {
+            "log10_number_density": log10_nH,
+            "log10_temperature":    log10_T,
+            "cooling":              q_cool,
+            "pressure":             P_cgs,
+            "velx":                 vx_kms,
+            "vely":                 vy_kms,
+            "flux_x":               flux_x,
+            "flux_y":               flux_y,
+        }
 
     # Coarse grain primitives and quantities
     rho_cg  = coarse_grain_2d(rho_cgs, ds)
@@ -315,7 +366,12 @@ FIELD_CONFIGS = [
 # ══════════════════════════════════════════════════════════════════════════════
 
 def main():
+    if not simulations:
+        print(f"No simulation output directories found under {SIM_ROOT}.")
+        return
+
     profile_results = {}
+    valid_simulations = []
 
     for sim in simulations:
         name  = sim["name"]
@@ -325,69 +381,69 @@ def main():
         print(f"  Computing profiles for {name} ({label}, downsample={ds})")
         print(f"{'='*60}")
 
-        sim_data = ergane.SimulationData(
-            athinp=str(sim["athinp"]),
-            datafolder=str(sim["datafolder"]),
-        )
+        try:
+            sim_data = ergane.SimulationData(
+                athinp=str(sim["athinp"]),
+                datafolder=str(sim["datafolder"]),
+            )
 
-        n_frames   = sim_data.n_frames
-        frame_nums = sim_data.frame_numbers
-        print(f"  {n_frames} frames available (#{frame_nums[0]}–#{frame_nums[-1]})")
+            n_frames   = sim_data.n_frames
+            frame_nums = sim_data.frame_numbers
+            if n_frames == 0:
+                print(f"  No frames found for {name}, skipping.")
+                continue
 
-        # Use last 500 snapshots
-        n_avg       = min(500, n_frames)
-        avg_indices = frame_nums[-n_avg:]
-        print(f"  Time-averaging over last {n_avg} snapshots …")
+            print(f"  {n_frames} frames available (#{frame_nums[0]}–#{frame_nums[-1]})")
 
-        # Pre-read grid
-        frame0 = sim_data.get_frame(frame_nums[0])
-        y_pc_raw = get_y_coords_pc(frame0)
-        ny_raw   = y_pc_raw.size
-        nx_raw   = frame0.xc.size
+            # Use last 500 snapshots
+            n_avg       = min(500, n_frames)
+            avg_indices = frame_nums[-n_avg:]
+            print(f"  Time-averaging over last {n_avg} snapshots …")
 
-        ny_cg = ny_raw // ds
-        nx_cg = nx_raw // ds
-        y_pc_cg = y_pc_raw.reshape(ny_cg, ds).mean(axis=1)
+            # Pre-read grid
+            frame0 = sim_data.get_frame(frame_nums[0])
+            y_pc_raw = get_y_coords_pc(frame0)
+            ny_raw   = y_pc_raw.size
+            nx_raw   = frame0.xc.size
 
-        # Storage for all fields: field_name -> array of shape (n_avg, ny)
-        field_stacks_raw = {cfg["key"]: np.zeros((n_avg, ny_raw), dtype=np.float64) for cfg in FIELD_CONFIGS}
-        field_stacks_cg  = {cfg["key"]: np.zeros((n_avg, ny_cg), dtype=np.float64) for cfg in FIELD_CONFIGS}
+            # Storage for all fields: field_name -> array of shape (n_avg, ny)
+            field_stacks_raw = {cfg["key"]: np.zeros((n_avg, ny_raw), dtype=np.float64) for cfg in FIELD_CONFIGS}
 
-        for idx, fn in enumerate(tqdm(avg_indices, desc=f"  [{name}] Snapshots", unit="frame")):
-            f = sim_data.get_frame(fn)
-            fields_raw = compute_physical_fields(f)
-            fields_cg  = compute_coarse_grained_fields(f, ds=ds)
+            for idx, fn in enumerate(tqdm(avg_indices, desc=f"  [{name}] Snapshots", unit="frame")):
+                f = sim_data.get_frame(fn)
+                fields_raw = compute_physical_fields(f)
 
+                for key in FIELD_CONFIGS:
+                    k = key["key"]
+                    field_stacks_raw[k][idx] = x_average_profile(f, fields_raw[k])
+
+                del f
+                if idx % 100 == 0:
+                    gc.collect()
+
+            # Compute mean and standard deviation over time
+            sim_summary = {
+                "y_pc":  y_pc_raw,
+                "label": label,
+                "name":  name,
+                "ny":    ny_raw,
+                "nx":    nx_raw,
+            }
             for key in FIELD_CONFIGS:
                 k = key["key"]
-                field_stacks_raw[k][idx] = x_average_profile(f, fields_raw[k])
-                field_stacks_cg[k][idx]  = np.mean(fields_cg[k], axis=1)
+                with np.errstate(all="ignore"):
+                    sim_summary[f"{k}_mean"] = np.nanmean(field_stacks_raw[k], axis=0)
+                    sim_summary[f"{k}_std"]  = np.nanstd(field_stacks_raw[k],  axis=0)
 
-            del f
-            if idx % 100 == 0:
-                gc.collect()
+            profile_results[name] = sim_summary
+            valid_simulations.append(sim)
+            print(f"  Done {name} (ny={ny_raw}, nx={nx_raw}).")
+        except Exception as e:
+            print(f"  ERROR processing {name}: {e}")
 
-        # Compute mean and standard deviation over time
-        sim_summary = {
-            "y_pc_raw":  y_pc_raw,
-            "y_pc_cg":   y_pc_cg,
-            "label_raw": rf"HR (${ny_raw} \times {nx_raw}$)",
-            "label_cg":  rf"CG HR (${ny_cg} \times {nx_cg}$)",
-            "ny_raw":    ny_raw,
-            "nx_raw":    nx_raw,
-            "ny_cg":     ny_cg,
-            "nx_cg":     nx_cg,
-        }
-        for key in FIELD_CONFIGS:
-            k = key["key"]
-            with np.errstate(all="ignore"):
-                sim_summary[f"{k}_raw_mean"] = np.nanmean(field_stacks_raw[k], axis=0)
-                sim_summary[f"{k}_raw_std"]  = np.nanstd(field_stacks_raw[k],  axis=0)
-                sim_summary[f"{k}_cg_mean"]  = np.nanmean(field_stacks_cg[k],  axis=0)
-                sim_summary[f"{k}_cg_std"]   = np.nanstd(field_stacks_cg[k],   axis=0)
-
-        profile_results[name] = sim_summary
-        print(f"  Done {name} (ny_raw={ny_raw}, ny_cg={ny_cg}).")
+    if not valid_simulations:
+        print("No valid simulation data could be processed.")
+        return
 
     # ══════════════════════════════════════════════════════════════════════════
     # PLOTTING: CONSOLIDATED 8-PANEL COMPARISON FIGURE
@@ -395,8 +451,11 @@ def main():
 
     print("\nPlotting consolidated 8-panel profile comparison figure …")
 
+    palette = plt.cm.tab10.colors
     fig, axes = plt.subplots(4, 2, figsize=(14, 18), sharex=True)
     axes_flat = axes.flatten()
+
+    trapz_fn = getattr(np, "trapezoid", getattr(np, "trapz", None))
 
     for ax, cfg in zip(axes_flat, FIELD_CONFIGS):
         key    = cfg["key"]
@@ -404,64 +463,36 @@ def main():
         title  = cfg["title"]
         is_log = (cfg["yscale"] == "log")
 
-        for idx, sim in enumerate(simulations):
-            name      = sim["name"]
-            res       = profile_results[name]
-            y_pc_raw  = res["y_pc_raw"]
-            y_pc_cg   = res["y_pc_cg"]
-            m_raw     = res[f"{key}_raw_mean"]
-            s_raw     = res[f"{key}_raw_std"]
-            m_cg      = res[f"{key}_cg_mean"]
-            s_cg      = res[f"{key}_cg_std"]
+        for idx, sim in enumerate(valid_simulations):
+            name  = sim["name"]
+            res   = profile_results[name]
+            y_pc  = res["y_pc"]
+            m     = res[f"{key}_mean"]
+            s     = res[f"{key}_std"]
+            label = res["label"]
+            color = palette[idx % len(palette)]
 
-            label_raw = res["label_raw"]
-            label_cg  = res["label_cg"]
+            if key == "cooling" and trapz_fn is not None:
+                int_val = trapz_fn(m, y_pc)
+                label = rf"{label} ($\Sigma_c = {int_val:.2e}$)"
 
-            if key == "cooling":
-                int_raw = np.trapezoid(m_raw, y_pc_raw)
-                int_cg  = np.trapezoid(m_cg, y_pc_cg)
-                label_raw = rf"{label_raw} ($\Sigma_c = {int_raw:.2e}$)"
-                label_cg  = rf"{label_cg} ($\Sigma_c = {int_cg:.2e}$)"
-
-            # Raw HR line
-            ax.plot(y_pc_raw, m_raw, lw=2, ls="-", color="tab:blue", label=label_raw)
+            ax.plot(y_pc, m, lw=2, ls="-", color=color, label=label)
             if is_log:
                 ax.fill_between(
-                    y_pc_raw,
-                    np.clip(m_raw - s_raw, 1e-30, None),
-                    m_raw + s_raw,
-                    color="tab:blue",
+                    y_pc,
+                    np.clip(m - s, 1e-30, None),
+                    m + s,
+                    color=color,
                     alpha=0.2,
                     linewidth=0,
                 )
             else:
                 ax.fill_between(
-                    y_pc_raw,
-                    m_raw - s_raw,
-                    m_raw + s_raw,
-                    color="tab:blue",
+                    y_pc,
+                    m - s,
+                    m + s,
+                    color=color,
                     alpha=0.2,
-                    linewidth=0,
-                )
-
-            # Coarse-grained HR line
-            ax.plot(y_pc_cg, m_cg, lw=2, ls="-.", marker="^", markersize=4, color="tab:orange", label=label_cg)
-            if is_log:
-                ax.fill_between(
-                    y_pc_cg,
-                    np.clip(m_cg - s_cg, 1e-30, None),
-                    m_cg + s_cg,
-                    color="tab:orange",
-                    alpha=0.25,
-                    linewidth=0,
-                )
-            else:
-                ax.fill_between(
-                    y_pc_cg,
-                    m_cg - s_cg,
-                    m_cg + s_cg,
-                    color="tab:orange",
-                    alpha=0.25,
                     linewidth=0,
                 )
 
@@ -470,17 +501,17 @@ def main():
         ax.grid(True, which="both" if is_log else "major", ls="--", alpha=0.4)
         if is_log:
             ax.set_yscale("log")
-            # Set a reasonable bottom limit to avoid blanking on non-positive values
-            all_vals = np.concatenate([m_raw[m_raw > 0], m_cg[m_cg > 0]])
+            all_m = [profile_results[s["name"]][f"{key}_mean"] for s in valid_simulations]
+            all_vals = np.concatenate([v[v > 0] for v in all_m if len(v[v > 0]) > 0], axis=0) if all_m else []
             if len(all_vals) > 0:
                 ax.set_ylim(bottom=max(all_vals.min() * 0.5, 1e-30))
-        ax.legend(title="Dataset", fontsize=8, loc="best")
+        ax.legend(title="Resolution", fontsize=9, loc="best")
 
     axes[3, 0].set_xlabel(r"$y \ [\mathrm{pc}]$", fontsize=12)
     axes[3, 1].set_xlabel(r"$y \ [\mathrm{pc}]$", fontsize=12)
 
     fig.suptitle(
-        "Mean Vertical Profiles vs y for HR and CG HR\n"
+        "Mean Vertical Profiles vs y across Resolutions\n"
         r"(Time-averaged over last 500 snapshots, showing mean $\pm\ 1\sigma$ over time)",
         fontsize=14,
         fontweight="bold",
@@ -489,7 +520,7 @@ def main():
     fig.tight_layout()
 
     for ext in ("png", "pdf"):
-        out_file = OUT_ROOT / f"hr_mpi_all_profiles_comparison.{ext}"
+        out_file = OUT_ROOT / f"hr_resolution_sweep_profiles.{ext}"
         fig.savefig(out_file, dpi=200, bbox_inches="tight")
         print(f"  Saved 8-panel figure -> {out_file}")
 
@@ -509,62 +540,36 @@ def main():
 
         fig_single, ax_single = plt.subplots(figsize=(8, 5.5))
 
-        for idx, sim in enumerate(simulations):
-            name      = sim["name"]
-            res       = profile_results[name]
-            y_pc_raw  = res["y_pc_raw"]
-            y_pc_cg   = res["y_pc_cg"]
-            m_raw     = res[f"{key}_raw_mean"]
-            s_raw     = res[f"{key}_raw_std"]
-            m_cg      = res[f"{key}_cg_mean"]
-            s_cg      = res[f"{key}_cg_std"]
+        for idx, sim in enumerate(valid_simulations):
+            name  = sim["name"]
+            res   = profile_results[name]
+            y_pc  = res["y_pc"]
+            m     = res[f"{key}_mean"]
+            s     = res[f"{key}_std"]
+            label = res["label"]
+            color = palette[idx % len(palette)]
 
-            label_raw = res["label_raw"]
-            label_cg  = res["label_cg"]
+            if key == "cooling" and trapz_fn is not None:
+                int_val = trapz_fn(m, y_pc)
+                label = rf"{label} ($\Sigma_c = {int_val:.2e}$)"
 
-            if key == "cooling":
-                int_raw = np.trapezoid(m_raw, y_pc_raw)
-                int_cg  = np.trapezoid(m_cg, y_pc_cg)
-                label_raw = rf"{label_raw} ($\Sigma_c = {int_raw:.2e}$)"
-                label_cg  = rf"{label_cg} ($\Sigma_c = {int_cg:.2e}$)"
-
-            ax_single.plot(y_pc_raw, m_raw, lw=2, ls="-", color="tab:blue", label=label_raw)
+            ax_single.plot(y_pc, m, lw=2, ls="-", color=color, label=label)
             if is_log:
                 ax_single.fill_between(
-                    y_pc_raw,
-                    np.clip(m_raw - s_raw, 1e-30, None),
-                    m_raw + s_raw,
-                    color="tab:blue",
+                    y_pc,
+                    np.clip(m - s, 1e-30, None),
+                    m + s,
+                    color=color,
                     alpha=0.2,
                     linewidth=0,
                 )
             else:
                 ax_single.fill_between(
-                    y_pc_raw,
-                    m_raw - s_raw,
-                    m_raw + s_raw,
-                    color="tab:blue",
+                    y_pc,
+                    m - s,
+                    m + s,
+                    color=color,
                     alpha=0.2,
-                    linewidth=0,
-                )
-
-            ax_single.plot(y_pc_cg, m_cg, lw=2, ls="-.", marker="^", markersize=5, color="tab:orange", label=label_cg)
-            if is_log:
-                ax_single.fill_between(
-                    y_pc_cg,
-                    np.clip(m_cg - s_cg, 1e-30, None),
-                    m_cg + s_cg,
-                    color="tab:orange",
-                    alpha=0.25,
-                    linewidth=0,
-                )
-            else:
-                ax_single.fill_between(
-                    y_pc_cg,
-                    m_cg - s_cg,
-                    m_cg + s_cg,
-                    color="tab:orange",
-                    alpha=0.25,
                     linewidth=0,
                 )
 
@@ -578,10 +583,11 @@ def main():
         ax_single.grid(True, which="both" if is_log else "major", ls="--", alpha=0.4)
         if is_log:
             ax_single.set_yscale("log")
-            all_vals = np.concatenate([m_raw[m_raw > 0], m_cg[m_cg > 0]])
+            all_m = [profile_results[s["name"]][f"{key}_mean"] for s in valid_simulations]
+            all_vals = np.concatenate([v[v > 0] for v in all_m if len(v[v > 0]) > 0], axis=0) if all_m else []
             if len(all_vals) > 0:
                 ax_single.set_ylim(bottom=max(all_vals.min() * 0.5, 1e-30))
-        ax_single.legend(title="Dataset", fontsize=10, loc="best")
+        ax_single.legend(title="Resolution", fontsize=10, loc="best")
         fig_single.tight_layout()
 
         for ext in ("png", "pdf"):
@@ -596,4 +602,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+
 
