@@ -14,6 +14,7 @@ build/
 data/files/
 data/data_saves/
 outputs/data_cache/
+runs/
 **/*.bin
 *.npy
 *.rst
