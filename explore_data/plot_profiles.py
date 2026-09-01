@@ -174,7 +174,7 @@ def coarse_grain_2d(arr: np.ndarray, ds: int = 32) -> np.ndarray:
 
 # ── Field extractors ─────────────────────────────────────────────────────────
 
-def compute_physical_fields(frame: ergane.simulation_data.Frame) -> dict[str, np.ndarray]:
+def compute_physical_fields(frame: ergane.Frame) -> dict[str, np.ndarray]:
     """
     Extract all 8 physical fields for a single snapshot:
       - log10_number_density: log10(n_H) [log10(cm⁻³)]
@@ -219,7 +219,7 @@ def compute_physical_fields(frame: ergane.simulation_data.Frame) -> dict[str, np
     }
 
 
-def compute_coarse_grained_fields(frame: ergane.simulation_data.Frame, ds: int = 32) -> dict[str, np.ndarray]:
+def compute_coarse_grained_fields(frame: ergane.Frame, ds: int = 32) -> dict[str, np.ndarray]:
     """
     Compute coarse-grained versions of physical fields matching mock_sg.py:
       - Primitive fields (rho, P, T, vx, vy) are coarse-grained by factor ds.
@@ -281,7 +281,7 @@ def compute_coarse_grained_fields(frame: ergane.simulation_data.Frame, ds: int =
     }
 
 
-def x_average_profile(frame: ergane.simulation_data.Frame, values: np.ndarray) -> np.ndarray:
+def x_average_profile(frame: ergane.Frame, values: np.ndarray) -> np.ndarray:
     """Compute the x-averaged profile of a 2-D field as a function of y."""
     if values.ndim != 2:
         raise ValueError(f"Expected a 2-D field, got shape {values.shape!r}.")
@@ -294,7 +294,7 @@ def x_average_profile(frame: ergane.simulation_data.Frame, values: np.ndarray) -
     return weighted_sum / np.sum(dx)
 
 
-def get_y_coords_pc(frame: ergane.simulation_data.Frame) -> np.ndarray:
+def get_y_coords_pc(frame: ergane.Frame) -> np.ndarray:
     """Return cell-centre y-coordinates in parsecs."""
     return frame.yc / CM_PER_PC
 

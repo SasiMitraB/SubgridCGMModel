@@ -1,54 +1,75 @@
 #!/usr/bin/env bash
 # =============================================================================
-# random_subsample_pipeline.sh — SubgridCGM pipeline with Snapshot-Split Random Crop Training
-#
-# Training Data Source (Random Crop Pool):
-#   simulation_outputs/hr_gpu_sweep_1024x2048_2xlength/vshear_31_coldfrac_0.67
-#
-# Evaluation & Benchmark Reference:
-#   simulation_outputs/hr_build_512
+# random_subsample_pipeline.sh — SubgridCGM Pipeline with Random Crop Training
+# =============================================================================
 #
 # Steps:
-#   1. Train the PDF CNN with random snapshot crops (random_snapshot_training.py)
-#   2. Benchmark PDF CNN model against hr_build_512 (data/mocks/pdf_plot.py)
-#   3. Low-resolution simulation 5 Myr              (16×8 grid; ISM cooling)
-#      Outputs to: simulation_outputs/lr_build
-#   4. lr_build — restart from 5 Myr rst           (hr_build/src/athena; ISM cooling)
-#      Uses:  simulation_outputs/lr_build/rst/KH.00005.rst
-#      Outputs to: simulation_outputs/lr_build_ism
-#   5. subgrid_model — restart from same rst         (subgrid_model/src/athena; CNN)
-#      Uses:  simulation_outputs/lr_build/rst/KH.00005.rst
-#      Outputs to: simulation_outputs/subgrid_model
-#   6. Diagnostic plots against hr_build_512        (data/mocks/mock_sg.py)
+#   1. Train PDF CNN on random snapshot crops (random_snapshot_training.py)
+#   2. Benchmark PDF CNN model (pdf_plot.py)
+#   3. Low-resolution simulation 0 -> 5 Myr (athena; ISM cooling)
+#   4. lr_build — restart from 5 Myr rst (athena; ISM cooling, 5 -> 10 Myr)
+#   5. subgrid_model — restart from 5 Myr rst (athena; CNN subgrid, 5 -> 10 Myr)
+#   6. Diagnostic comparison plots & animations (mock_sg.py)
 #
 # =============================================================================
 
 set -euo pipefail
 
-# ---------------------------------------------------------------------------
-# 0.  Project root and paths
-# ---------------------------------------------------------------------------
+# =============================================================================
+# CONFIGURATION
+# =============================================================================
 PROJECT_ROOT="/home/sasi/Projects/SubgridCGMModel"
 
-# ---- High-Resolution Training Data Source (Sweep) ----
+# ---- 1. High-Resolution Training Data Source ----
 HR_TRAIN_OUTPUT="${PROJECT_ROOT}/simulation_outputs/hr_gpu_sweep_1024x2048_2xlength/vshear_31_coldfrac_0.67"
 HR_TRAIN_BIN_DIR="${HR_TRAIN_OUTPUT}/bin"
 HR_TRAIN_CACHE_DIR="${HR_TRAIN_OUTPUT}/cache"
 
-# ---- High-Resolution Evaluation Reference (hr_build_512) ----
-HR_EVAL_OUTPUT="${PROJECT_ROOT}/simulation_outputs/hr_build_512"
+# Full Fine-Grid Training Resolution (height H, width W)
+# Format: "H,W" -> e.g. "2048,1024"
+export PDF_CNN_RESOLUTION="${PDF_CNN_RESOLUTION:-2048,1024}"
+
+# Coarse-graining downsample factor
+# e.g., downsample=32 with 2048x1024 gives full coarse grid of 64x32
+#       downsample=64 with 2048x1024 gives full coarse grid of 32x16
+export PDF_CNN_DOWNSAMPLE="${PDF_CNN_DOWNSAMPLE:-64}"
+
+# Coarse Random Crop Dimensions (height H_cg, width W_cg in coarse cells)
+# 16x8 random crops drawn from the 32x16 coarse grid
+export CROP_H_CG="${CROP_H_CG:-16}"
+export CROP_W_CG="${CROP_W_CG:-8}"
+
+# Derived Fine Crop Dimensions (for random_snapshot_training.py)
+export CROP_H=$(( CROP_H_CG * PDF_CNN_DOWNSAMPLE ))
+export CROP_W=$(( CROP_W_CG * PDF_CNN_DOWNSAMPLE ))
+
+# ---- 2. Low-Resolution Simulation Grid (Athena) ----
+# Mesh resolution for the LR simulation and restarts (nx2=height, nx1=width)
+export SIM_NX2="${SIM_NX2:-${CROP_H_CG}}"         # e.g., 16
+export SIM_NX1="${SIM_NX1:-${CROP_W_CG}}"         # e.g., 8
+export SIM_MB_NX2="${SIM_MB_NX2:-${SIM_NX2}}"     # MeshBlock height (e.g., 16)
+export SIM_MB_NX1="${SIM_MB_NX1:-${SIM_NX1}}"     # MeshBlock width  (e.g., 8)
+
+# Domain boundaries and problem configuration (matches 2xlength sweep domain)
+export DOMAIN_X1MIN="${DOMAIN_X1MIN:--5.0}"
+export DOMAIN_X1MAX="${DOMAIN_X1MAX:-5.0}"
+export DOMAIN_X2MIN="${DOMAIN_X2MIN:--10.0}"
+export DOMAIN_X2MAX="${DOMAIN_X2MAX:-10.0}"
+export PROBLEM_SIGMA="${PROBLEM_SIGMA:-1.0}"
+export PROBLEM_A_CHAR="${PROBLEM_A_CHAR:-0.25}"
+export PROBLEM_COLD_FRAC="${PROBLEM_COLD_FRAC:-0.5}"
+export SIM_TLIM_LR="${SIM_TLIM_LR:-5.0}"
+export SIM_TLIM_RESTART="${SIM_TLIM_RESTART:-10.0}"
+
+# ---- 3. Evaluation & Benchmark Reference ----
+# Benchmarks model against hr_build_512 reference
+HR_EVAL_OUTPUT="${HR_EVAL_OUTPUT:-${PROJECT_ROOT}/simulation_outputs/hr_build_512}"
 HR_EVAL_BIN_DIR="${HR_EVAL_OUTPUT}/bin"
 HR_EVAL_CACHE_DIR="${HR_EVAL_OUTPUT}/cache"
-HR_EVAL_RESOLUTION="512,256"
-HR_EVAL_DOWNSAMPLE="32"
+HR_EVAL_RESOLUTION="${HR_EVAL_RESOLUTION:-512,256}"
+HR_EVAL_DOWNSAMPLE="${HR_EVAL_DOWNSAMPLE:-32}"
 
-# ---- Training Grid & Downsampling Configuration ----
-export PDF_CNN_RESOLUTION="${PDF_CNN_RESOLUTION:-2048,1024}"
-export PDF_CNN_DOWNSAMPLE="${PDF_CNN_DOWNSAMPLE:-64}"
-export CROP_H="${CROP_H:-1024}"
-export CROP_W="${CROP_W:-512}"
-
-# ---- Training Hyperparameters ----
+# ---- 4. Training Hyperparameters ----
 export NUM_EPOCHS="${NUM_EPOCHS:-1000}"
 export BATCH_SIZE="${BATCH_SIZE:-64}"
 export LEARNING_RATE="${LEARNING_RATE:-1e-3}"
@@ -73,17 +94,21 @@ export PDF_CNN_ALPHA_LEAK="${PDF_CNN_ALPHA_LEAK:-10.0}"
 export PDF_CNN_GATE_EPOCHS="${PDF_CNN_GATE_EPOCHS:-200}"
 export PDF_CNN_GATE_LR="${PDF_CNN_GATE_LR:-1e-3}"
 
-# ---- LR 5 Myr base simulation (Step 3) ----
+# Active cooling window log10(T) bounds
+export LOGT_ACTIVE_START="${LOGT_ACTIVE_START:-4.1}"
+export LOGT_ACTIVE_END="${LOGT_ACTIVE_END:-5.9}"
+
+# =============================================================================
+# DIRECTORIES & LOGGING SETUP
+# =============================================================================
+
+# ---- Simulation Output Directories ----
 LR_OUTPUT_DIR="${PROJECT_ROOT}/simulation_outputs/lr_build"
 LR_RST_5MYR="${LR_OUTPUT_DIR}/rst/KH.00005.rst"
-
-# ---- lr_build restart (Step 4) — ISM cooling from 5 Myr ----
 LR_BUILD_OUTPUT_DIR="${PROJECT_ROOT}/simulation_outputs/lr_build_ism"
-
-# ---- subgrid_model restart (Step 5) — CNN from 5 Myr ----
 SG_OUTPUT_DIR="${PROJECT_ROOT}/simulation_outputs/subgrid_model"
 
-# ---- Per-run timestamped directory ----
+# ---- Per-run Timestamped Output Directory ----
 TIMESTAMP="$(date '+%Y%m%d_%H%M%S')"
 RUN_DIR="${PROJECT_ROOT}/runs/run_random_crop_${TIMESTAMP}"
 LOG_DIR="${RUN_DIR}/logs"
@@ -106,9 +131,6 @@ mkdir -p \
     "${SG_OUTPUT_DIR}" \
     "${HR_TRAIN_CACHE_DIR}"
 
-# ---------------------------------------------------------------------------
-# Logging helpers
-# ---------------------------------------------------------------------------
 MASTER_LOG="${RUN_DIR}/pipeline.log"
 
 log() {
@@ -144,7 +166,7 @@ run_step() {
 }
 
 # ---------------------------------------------------------------------------
-# Helper: generate an athinput file from config.json
+# Helper: generate an athinput file with dynamic dimensions
 # ---------------------------------------------------------------------------
 CONFIG_JSON="${PROJECT_ROOT}/shell_scripts/config.json"
 GEN_ATHINPUT="${PROJECT_ROOT}/shell_scripts/gen_athinput.py"
@@ -153,7 +175,21 @@ generate_athinput() {
     local step="$1"
     local output="$2"
     log "Generating ${step} athinput -> ${output}"
-    python3 "${GEN_ATHINPUT}" --config "${CONFIG_JSON}" --step "${step}" --output "${output}"
+    python3 "${GEN_ATHINPUT}" \
+        --config "${CONFIG_JSON}" \
+        --step "${step}" \
+        --output "${output}" \
+        --nx1 "${SIM_NX1}" \
+        --nx2 "${SIM_NX2}" \
+        --mb_nx1 "${SIM_MB_NX1}" \
+        --mb_nx2 "${SIM_MB_NX2}" \
+        --x1min "${DOMAIN_X1MIN}" \
+        --x1max "${DOMAIN_X1MAX}" \
+        --x2min "${DOMAIN_X2MIN}" \
+        --x2max "${DOMAIN_X2MAX}" \
+        --sigma "${PROBLEM_SIGMA}" \
+        --a_char "${PROBLEM_A_CHAR}" \
+        --cold_frac "${PROBLEM_COLD_FRAC}"
 }
 
 # ---------------------------------------------------------------------------
@@ -168,20 +204,21 @@ else
     log "WARNING: venv not found at ${VENV_ACTIVATE} — using system Python"
 fi
 
-# PYTHONPATH so all in-repo modules are importable
 export PYTHONPATH="${PROJECT_ROOT}:${PROJECT_ROOT}/data:${PYTHONPATH:-}"
 
-# Active cooling window log10(T) bounds
-export LOGT_ACTIVE_START="${LOGT_ACTIVE_START:-4.1}"
-export LOGT_ACTIVE_END="${LOGT_ACTIVE_END:-5.9}"
+# Parse resolution components for logging
+RES_H=$(echo "${PDF_CNN_RESOLUTION}" | cut -d',' -f1 | tr -d ' ')
+RES_W=$(echo "${PDF_CNN_RESOLUTION}" | cut -d',' -f2 | tr -d ' ')
+COARSE_FULL_H=$(( RES_H / PDF_CNN_DOWNSAMPLE ))
+COARSE_FULL_W=$(( RES_W / PDF_CNN_DOWNSAMPLE ))
 
 # ---------------------------------------------------------------------------
-# Write a manifest of all key paths for this run
+# Write run manifest
 # ---------------------------------------------------------------------------
 MANIFEST="${RUN_DIR}/manifest.txt"
 {
     echo "============================================================"
-    echo " SubgridCGM Random Crop Pipeline Run"
+    echo " SubgridCGM Random Subsample Pipeline Run"
     echo "============================================================"
     echo "Timestamp          : ${TIMESTAMP}"
     echo "Run directory      : ${RUN_DIR}"
@@ -189,9 +226,12 @@ MANIFEST="${RUN_DIR}/manifest.txt"
     echo "Training data      : ${HR_TRAIN_BIN_DIR}"
     echo "Training cache     : ${HR_TRAIN_CACHE_DIR}"
     echo "Eval reference     : ${HR_EVAL_OUTPUT}"
-    echo "Resolution (train) : ${PDF_CNN_RESOLUTION}"
-    echo "Downsample (train) : ${PDF_CNN_DOWNSAMPLE}"
-    echo "Crop dimensions    : (${CROP_H}, ${CROP_W})"
+    echo "Resolution (fine)  : ${PDF_CNN_RESOLUTION} (H=${RES_H}, W=${RES_W})"
+    echo "Downsample factor  : ${PDF_CNN_DOWNSAMPLE}"
+    echo "Full coarse grid   : (${COARSE_FULL_H}x${COARSE_FULL_W})"
+    echo "Random crop size   : Coarse=(${CROP_H_CG}x${CROP_W_CG}), Fine=(${CROP_H}x${CROP_W})"
+    echo "Athena simulation  : nx2=${SIM_NX2}, nx1=${SIM_NX1} (meshblock: ${SIM_MB_NX2}x${SIM_MB_NX1})"
+    echo "Domain extents     : x1=[${DOMAIN_X1MIN}, ${DOMAIN_X1MAX}], x2=[${DOMAIN_X2MIN}, ${DOMAIN_X2MAX}]"
     echo "Eval resolution    : ${HR_EVAL_RESOLUTION} (ds=${HR_EVAL_DOWNSAMPLE})"
     echo "Epochs             : ${NUM_EPOCHS}"
     echo "Batch size         : ${BATCH_SIZE}"
@@ -221,8 +261,11 @@ MANIFEST="${RUN_DIR}/manifest.txt"
     echo "SG  mock outputs   : ${SG_MOCKS_DIR}"
 } > "${MANIFEST}"
 
-log "Run directory  : ${RUN_DIR}"
-log "Manifest       : ${MANIFEST}"
+log "Run directory      : ${RUN_DIR}"
+log "Training grid      : Fine=${PDF_CNN_RESOLUTION} -> Downsample=${PDF_CNN_DOWNSAMPLE} -> Full coarse=${COARSE_FULL_H}x${COARSE_FULL_W}"
+log "Random crop size   : Coarse=${CROP_H_CG}x${CROP_W_CG} (Fine=${CROP_H}x${CROP_W})"
+log "Athena simulation  : ${SIM_NX2}x${SIM_NX1} grid"
+log "Manifest           : ${MANIFEST}"
 separator
 
 # ===========================================================================
@@ -241,6 +284,8 @@ run_step 1 "train_random_snapshot_cnn" \
         --resolution "${PDF_CNN_RESOLUTION}" \
         --crop_h "${CROP_H}" \
         --crop_w "${CROP_W}" \
+        --crop_h_cg "${CROP_H_CG}" \
+        --crop_w_cg "${CROP_W_CG}" \
         --downsample "${PDF_CNN_DOWNSAMPLE}" \
         --train_frac "${TRAIN_FRAC}" \
         --val_frac "${VAL_FRAC}" \
@@ -264,20 +309,37 @@ run_step 1 "train_random_snapshot_cnn" \
         --model_save_dir "${MODEL_SAVES_DIR}" \
         --loss_plot_dir "${LOSS_PLOTS_DIR}"
 
-# Provide alias checkpoint names for eval resolution (512, 256) ds=32
-train_model=$(find "${MODEL_SAVES_DIR}" -name "cnn_*.pth" | head -n 1)
-train_mean=$(find "${MODEL_SAVES_DIR}" -name "cnn_*_input_mean.npy" | head -n 1)
-train_std=$(find "${MODEL_SAVES_DIR}" -name "cnn_*_input_std.npy" | head -n 1)
+# Provide alias checkpoint names for eval and legacy resolution naming
+# Filter out gate-only checkpoint (*_gate.pth)
+train_model="${MODEL_SAVES_DIR}/cnn_(${PDF_CNN_RESOLUTION//,/,\ })_${PDF_CNN_DOWNSAMPLE}.pth"
+train_mean="${MODEL_SAVES_DIR}/cnn_(${PDF_CNN_RESOLUTION//,/,\ })_${PDF_CNN_DOWNSAMPLE}_input_mean.npy"
+train_std="${MODEL_SAVES_DIR}/cnn_(${PDF_CNN_RESOLUTION//,/,\ })_${PDF_CNN_DOWNSAMPLE}_input_std.npy"
+
+if [[ ! -f "${train_model}" ]]; then
+    train_model=$(find "${MODEL_SAVES_DIR}" -name "cnn_*.pth" ! -name "*gate*" | head -n 1)
+    train_mean=$(find "${MODEL_SAVES_DIR}" -name "cnn_*_input_mean.npy" ! -name "*gate*" | head -n 1)
+    train_std=$(find "${MODEL_SAVES_DIR}" -name "cnn_*_input_std.npy" ! -name "*gate*" | head -n 1)
+fi
 
 if [[ -n "${train_model}" && -f "${train_model}" ]]; then
-    cp -f "${train_model}" "${MODEL_SAVES_DIR}/cnn_(512, 256)_32.pth"
-    cp -f "${train_mean}" "${MODEL_SAVES_DIR}/cnn_(512, 256)_32_input_mean.npy"
-    cp -f "${train_std}" "${MODEL_SAVES_DIR}/cnn_(512, 256)_32_input_std.npy"
-    log "Aliases created for (512, 256)_32 in ${MODEL_SAVES_DIR}"
+    # Aliases for evaluation resolution
+    cp -f "${train_model}" "${MODEL_SAVES_DIR}/cnn_(${HR_EVAL_RESOLUTION//,/,\ })_${HR_EVAL_DOWNSAMPLE}.pth" 2>/dev/null || true
+    cp -f "${train_mean}" "${MODEL_SAVES_DIR}/cnn_(${HR_EVAL_RESOLUTION//,/,\ })_${HR_EVAL_DOWNSAMPLE}_input_mean.npy" 2>/dev/null || true
+    cp -f "${train_std}" "${MODEL_SAVES_DIR}/cnn_(${HR_EVAL_RESOLUTION//,/,\ })_${HR_EVAL_DOWNSAMPLE}_input_std.npy" 2>/dev/null || true
+
+    # Aliases for standard configurations
+    cp -f "${train_model}" "${MODEL_SAVES_DIR}/cnn_(512, 256)_32.pth" 2>/dev/null || true
+    cp -f "${train_mean}" "${MODEL_SAVES_DIR}/cnn_(512, 256)_32_input_mean.npy" 2>/dev/null || true
+    cp -f "${train_std}" "${MODEL_SAVES_DIR}/cnn_(512, 256)_32_input_std.npy" 2>/dev/null || true
+
+    cp -f "${train_model}" "${MODEL_SAVES_DIR}/cnn_(1024, 512)_64.pth" 2>/dev/null || true
+    cp -f "${train_mean}" "${MODEL_SAVES_DIR}/cnn_(1024, 512)_64_input_mean.npy" 2>/dev/null || true
+    cp -f "${train_std}" "${MODEL_SAVES_DIR}/cnn_(1024, 512)_64_input_std.npy" 2>/dev/null || true
+    log "Checkpoint aliases created in ${MODEL_SAVES_DIR}"
 fi
 
 # ===========================================================================
-# STEP 2 — Benchmark PDF CNN model (pdf_plot.py) against hr_build_512
+# STEP 2 — Benchmark PDF CNN model (pdf_plot.py)
 # ===========================================================================
 separator
 log "STEP 2: benchmark_pdf_cnn  (pdf_plot.py against ${HR_EVAL_OUTPUT})"
@@ -293,17 +355,19 @@ run_step 2 "benchmark_pdf_cnn" \
         export SUBGRID_CACHE_PATH='${HR_EVAL_CACHE_DIR}'
         export PDF_CNN_RESOLUTION='${HR_EVAL_RESOLUTION}'
         export PDF_CNN_DOWNSAMPLE='${HR_EVAL_DOWNSAMPLE}'
+        export MODEL_SAVES_DIR='${MODEL_SAVES_DIR}'
+        export PDF_MOCKS_DIR='${PDF_MOCKS_DIR}'
         python3 pdf_plot.py
     "
 
 # ===========================================================================
-# STEP 3 — Low-resolution simulation: 0 → 5 Myr  (16×8 grid, ISM cooling)
+# STEP 3 — Low-resolution simulation: 0 → 5 Myr  (ISM cooling)
 # ===========================================================================
 LR_ATHINPUT="${ATHINPUT_CACHE_DIR}/lr_sim.athinput"
 generate_athinput "lr" "${LR_ATHINPUT}"
 
 separator
-log "STEP 3: lr_simulation  (16×8 grid, 0 → 5 Myr)"
+log "STEP 3: lr_simulation  (${SIM_NX2}×${SIM_NX1} grid, 0 → ${SIM_TLIM_LR} Myr)"
 log "LR athinput mesh settings:"
 grep -E '^\s*nx[12]\s*=' "${LR_ATHINPUT}" | tee -a "${MASTER_LOG}" || true
 log "LR athinput tlim:"
@@ -362,8 +426,13 @@ run_step 5 "subgrid_model_cnn_restart" \
         VENV='${PROJECT_ROOT}/venv'
         SITE_PACKAGES=\"\$VENV/lib/python3.14/site-packages\"
         export PYTHONPATH=\"\$PWD:\$SITE_PACKAGES\${PYTHONPATH:+:\$PYTHONPATH}\"
-        export PDF_CNN_RESOLUTION='${HR_EVAL_RESOLUTION}'
-        export PDF_CNN_DOWNSAMPLE='${HR_EVAL_DOWNSAMPLE}'
+        export PDF_CNN_RESOLUTION='${PDF_CNN_RESOLUTION}'
+        export PDF_CNN_DOWNSAMPLE='${PDF_CNN_DOWNSAMPLE}'
+        export TILE_ROWS='${CROP_H_CG}'
+        export TILE_COLS='${CROP_W_CG}'
+        export CROP_H_CG='${CROP_H_CG}'
+        export CROP_W_CG='${CROP_W_CG}'
+        export MODEL_SAVES_DIR='${MODEL_SAVES_DIR}'
 
         ./athena \
             -i '${SG_ATHINPUT}' \
@@ -372,7 +441,7 @@ run_step 5 "subgrid_model_cnn_restart" \
     "
 
 # ===========================================================================
-# STEP 6 — Diagnostic plots (mock_sg.py) against hr_build_512
+# STEP 6 — Diagnostic plots (mock_sg.py)
 # ===========================================================================
 separator
 log "STEP 6: diagnostic_plots  (mock_sg.py against ${HR_EVAL_OUTPUT})"
@@ -385,8 +454,17 @@ run_step 6 "diagnostic_plots" \
         export HR_SIM_OUTPUT='${HR_EVAL_OUTPUT}'
         export SUBGRID_DATA_PATH='${HR_EVAL_BIN_DIR}'
         export SUBGRID_CACHE_PATH='${HR_EVAL_CACHE_DIR}'
-        export PDF_CNN_RESOLUTION='${HR_EVAL_RESOLUTION}'
-        export PDF_CNN_DOWNSAMPLE='${HR_EVAL_DOWNSAMPLE}'
+        export PDF_CNN_RESOLUTION='${PDF_CNN_RESOLUTION}'
+        export PDF_CNN_DOWNSAMPLE='${PDF_CNN_DOWNSAMPLE}'
+        export HR_EVAL_RESOLUTION='${HR_EVAL_RESOLUTION}'
+        export HR_EVAL_DOWNSAMPLE='${HR_EVAL_DOWNSAMPLE}'
+        export SIM_NX2='${SIM_NX2}'
+        export SIM_NX1='${SIM_NX1}'
+        export CROP_H_CG='${CROP_H_CG}'
+        export CROP_W_CG='${CROP_W_CG}'
+        export SG_RESOLUTION='${SIM_NX2},${SIM_NX1}'
+        export MODEL_SAVES_DIR='${MODEL_SAVES_DIR}'
+        export SG_MOCKS_DIR='${SG_MOCKS_DIR}'
         python3 mock_sg.py
     "
 
@@ -402,7 +480,7 @@ log "Master log       : ${MASTER_LOG}"
 log "Manifest         : ${MANIFEST}"
 log ""
 log "Key output directories:"
-log "  LR sim (0→5 Myr)      : ${LR_OUTPUT_DIR}"
+log "  LR sim (0→5 Myr)       : ${LR_OUTPUT_DIR}"
 log "  lr_build (ISM restart) : ${LR_BUILD_OUTPUT_DIR}"
 log "  subgrid_model (CNN)    : ${SG_OUTPUT_DIR}"
 log "  Model weights          : ${MODEL_SAVES_DIR}"

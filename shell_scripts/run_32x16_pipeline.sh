@@ -33,7 +33,7 @@ SG_ATHINPUT="${ATHINPUT_DIR}/sg_tiled_vshear31_cf033.athinput"
 HR_SIM_DIR="${PROJECT_ROOT}/simulation_outputs/hr_gpu_sweep_1024x2048_2xlength/vshear_31_coldfrac_0.33"
 
 # ML Model Configuration
-export MODEL_SAVES_DIR="${PROJECT_ROOT}/runs/run_random_crop_20260824_190901/model_saves"
+export MODEL_SAVES_DIR="${PROJECT_ROOT}/runs/run_optuna_20260831_205922/model_saves"
 export PDF_CNN_RESOLUTION="1024,512"
 export PDF_CNN_DOWNSAMPLE="64"
 

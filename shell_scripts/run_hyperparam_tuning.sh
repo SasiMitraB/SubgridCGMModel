@@ -26,9 +26,25 @@ PROJECT_ROOT="/home/sasi/Projects/SubgridCGMModel"
 N_OPTUNA_TRIALS="${N_OPTUNA_TRIALS:-60}"
 EPOCHS_PER_TRIAL="${EPOCHS_PER_TRIAL:-500}"
 
-# ---- Canonical HR output (training data source; not re-run here) ----
-HR_SIM_OUTPUT="${PROJECT_ROOT}/simulation_outputs/hr_build_1024"
-HR_BIN_DIR="${HR_SIM_OUTPUT}/bin"
+# ---- 1. High-Resolution Training Data Source (matches random_subsample_pipeline.sh) ----
+HR_TRAIN_OUTPUT="${PROJECT_ROOT}/simulation_outputs/hr_gpu_sweep_1024x2048_2xlength/vshear_31_coldfrac_0.67"
+HR_TRAIN_BIN_DIR="${HR_TRAIN_OUTPUT}/bin"
+HR_TRAIN_CACHE_DIR="${HR_TRAIN_OUTPUT}/cache"
+
+# Full Fine-Grid Training Resolution & Downsample
+export PDF_CNN_RESOLUTION="${PDF_CNN_RESOLUTION:-2048,1024}"
+export PDF_CNN_DOWNSAMPLE="${PDF_CNN_DOWNSAMPLE:-64}"
+
+# Coarse Random Crop Dimensions (16x8 coarse cells)
+export CROP_H_CG="${CROP_H_CG:-16}"
+export CROP_W_CG="${CROP_W_CG:-8}"
+
+# ---- 2. Evaluation & Benchmark Reference ----
+HR_EVAL_OUTPUT="${HR_EVAL_OUTPUT:-${PROJECT_ROOT}/simulation_outputs/hr_build_512}"
+HR_EVAL_BIN_DIR="${HR_EVAL_OUTPUT}/bin"
+HR_EVAL_CACHE_DIR="${HR_EVAL_OUTPUT}/cache"
+HR_EVAL_RESOLUTION="${HR_EVAL_RESOLUTION:-512,256}"
+HR_EVAL_DOWNSAMPLE="${HR_EVAL_DOWNSAMPLE:-32}"
 
 # ---- LR 5 Myr base simulation ----
 LR_OUTPUT_DIR="${PROJECT_ROOT}/simulation_outputs/lr_build"
@@ -60,7 +76,8 @@ mkdir -p \
     "${SG_MOCKS_DIR}" \
     "${LR_OUTPUT_DIR}" \
     "${LR_BUILD_OUTPUT_DIR}" \
-    "${SG_OUTPUT_DIR}"
+    "${SG_OUTPUT_DIR}" \
+    "${HR_TRAIN_CACHE_DIR}"
 
 # ---------------------------------------------------------------------------
 # Logging helpers
@@ -122,20 +139,6 @@ else
 fi
 
 export PYTHONPATH="${PROJECT_ROOT}:${PROJECT_ROOT}/data:${PYTHONPATH:-}"
-
-# Environment variables for pdf_cnn.py's data/cache paths
-export SUBGRID_DATA_PATH="${HR_BIN_DIR}"
-export SUBGRID_CACHE_PATH="${HR_SIM_OUTPUT}/cache"
-
-read -r PDF_CNN_RESOLUTION PDF_CNN_DOWNSAMPLE < <(python3 - <<PY
-import json
-c = json.load(open("${CONFIG_JSON}"))
-hr = c["hr"]
-ds = c["lr"]["downsample_factor"]
-print(f"{hr['nx2']},{hr['nx1']} {ds}")
-PY
-)
-export PDF_CNN_RESOLUTION PDF_CNN_DOWNSAMPLE
 
 export LOGT_ACTIVE_START="${LOGT_ACTIVE_START:-4.1}"
 export LOGT_ACTIVE_END="${LOGT_ACTIVE_END:-5.9}"
@@ -228,6 +231,15 @@ run_step 2 "optuna_hyperparameter_optimization" \
         --restart_file "${LR_RST_5MYR}" \
         --storage "sqlite:///${OPTUNA_DB}" \
         --study_name "cnn_hyperparams_${TIMESTAMP}" \
+        --train_data_path "${HR_TRAIN_BIN_DIR}" \
+        --train_cache_path "${HR_TRAIN_CACHE_DIR}" \
+        --hr_eval_output "${HR_EVAL_OUTPUT}" \
+        --hr_eval_resolution "${HR_EVAL_RESOLUTION}" \
+        --hr_eval_downsample "${HR_EVAL_DOWNSAMPLE}" \
+        --resolution "${PDF_CNN_RESOLUTION}" \
+        --downsample "${PDF_CNN_DOWNSAMPLE}" \
+        --crop_h_cg "${CROP_H_CG}" \
+        --crop_w_cg "${CROP_W_CG}" \
         --output_best_dir "${MODEL_SAVES_DIR}"
 
 # ===========================================================================
@@ -238,7 +250,18 @@ log "STEP 3: benchmark_pdf_cnn (pdf_plot.py)"
 separator
 
 run_step 3 "benchmark_pdf_cnn" \
-    bash -c "cd '${PROJECT_ROOT}/data/mocks' && python3 pdf_plot.py"
+    bash -c "
+        set -euo pipefail
+        cd '${PROJECT_ROOT}/data/mocks'
+        export HR_SIM_OUTPUT='${HR_EVAL_OUTPUT}'
+        export SUBGRID_DATA_PATH='${HR_EVAL_BIN_DIR}'
+        export SUBGRID_CACHE_PATH='${HR_EVAL_CACHE_DIR}'
+        export PDF_CNN_RESOLUTION='${HR_EVAL_RESOLUTION}'
+        export PDF_CNN_DOWNSAMPLE='${HR_EVAL_DOWNSAMPLE}'
+        export MODEL_SAVES_DIR='${MODEL_SAVES_DIR}'
+        export PDF_MOCKS_DIR='${PDF_MOCKS_DIR}'
+        python3 pdf_plot.py
+    "
 
 # ===========================================================================
 # STEP 4 — lr_build: restart from 5 Myr with ISM cooling (no CNN)
@@ -273,6 +296,12 @@ run_step 5 "subgrid_model_cnn_restart" \
         VENV='${PROJECT_ROOT}/venv'
         SITE_PACKAGES=\"\$VENV/lib/python3.10/site-packages\"
         export PYTHONPATH=\"\$PWD:\$SITE_PACKAGES\${PYTHONPATH:+:\$PYTHONPATH}\"
+        export PDF_CNN_RESOLUTION='${PDF_CNN_RESOLUTION}'
+        export PDF_CNN_DOWNSAMPLE='${PDF_CNN_DOWNSAMPLE}'
+        export TILE_ROWS='${CROP_H_CG}'
+        export TILE_COLS='${CROP_W_CG}'
+        export CROP_H_CG='${CROP_H_CG}'
+        export CROP_W_CG='${CROP_W_CG}'
         export MODEL_SAVES_DIR='${MODEL_SAVES_DIR}'
 
         ./athena \
@@ -289,7 +318,20 @@ log "STEP 6: diagnostic_plots (mock_sg.py)"
 separator
 
 run_step 6 "diagnostic_plots" \
-    bash -c "cd '${PROJECT_ROOT}/data/mocks' && python3 mock_sg.py"
+    bash -c "
+        set -euo pipefail
+        cd '${PROJECT_ROOT}/data/mocks'
+        export HR_SIM_OUTPUT='${HR_EVAL_OUTPUT}'
+        export SUBGRID_DATA_PATH='${HR_EVAL_BIN_DIR}'
+        export SUBGRID_CACHE_PATH='${HR_EVAL_CACHE_DIR}'
+        export PDF_CNN_RESOLUTION='${PDF_CNN_RESOLUTION}'
+        export PDF_CNN_DOWNSAMPLE='${PDF_CNN_DOWNSAMPLE}'
+        export HR_EVAL_RESOLUTION='${HR_EVAL_RESOLUTION}'
+        export HR_EVAL_DOWNSAMPLE='${HR_EVAL_DOWNSAMPLE}'
+        export MODEL_SAVES_DIR='${MODEL_SAVES_DIR}'
+        export SG_MOCKS_DIR='${SG_MOCKS_DIR}'
+        python3 mock_sg.py
+    "
 
 # ===========================================================================
 # Summary

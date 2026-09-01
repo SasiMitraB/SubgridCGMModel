@@ -39,6 +39,40 @@ bins_pdf = np.logspace(LOGT_ACTIVE_START, LOGT_ACTIVE_END, 200)
 window = 10
 
 
+def pdf_mass_in_active_range(pdf, T_edges, logt_start=LOGT_ACTIVE_START,
+                             logt_end=LOGT_ACTIVE_END):
+    """
+    Return the PDF mass between log10(T)=logt_start and log10(T)=logt_end.
+
+    Parameters
+    ----------
+    pdf : array-like
+        Temperature PDF. Expected shape: (n_temperature_bins, ...).
+    T_edges : array-like
+        Temperature-bin edges in K. Length must be n_bins + 1.
+    logt_start : float
+        Lower bound in log10(T).
+    logt_end : float
+        Upper bound in log10(T).
+
+    Returns
+    -------
+    mass : ndarray
+        Integrated PDF mass in the requested temperature range.
+        Shape is pdf.shape[1:].
+    """
+    logt_edges = np.log10(T_edges)
+    logt_centers = 0.5 * (logt_edges[:-1] + logt_edges[1:])
+
+    mask = (
+        (logt_centers >= logt_start)
+        & (logt_centers <= logt_end)
+    )
+
+    return np.sum(pdf[mask], axis=0)
+
+
+
 def compute_color_limits(arr, use_log=False):
     finite = arr[np.isfinite(arr)]
     if finite.size == 0:
@@ -62,6 +96,44 @@ def compute_color_limits(arr, use_log=False):
     return vmin, vmax, None
 
 
+def stitch_frames_with_ffmpeg(temp_dir, output_path, fps=10):
+    """
+    Stitch PNG frames in temp_dir into an MP4 video using ffmpeg.
+    Applies scaling/padding to ensure compatibility with H.264 hardware limits (<=4096, even dims),
+    and falls back to mpeg4 if NVENC is unavailable.
+    """
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+    vf_filter = "scale='min(4096,iw)':'min(4096,ih)':force_original_aspect_ratio=decrease,pad=ceil(iw/2)*2:ceil(ih/2)*2"
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-r", str(fps),
+        "-i", os.path.join(temp_dir, "frame_%04d.png"),
+        "-vf", vf_filter,
+        "-c:v", "h264_nvenc",
+        "-preset", "p4",
+        "-pix_fmt", "yuv420p",
+        output_path,
+    ]
+    res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    if res.returncode != 0:
+        # Fallback to high-quality mpeg4 if nvenc is unavailable or fails
+        cmd_fb = [
+            "ffmpeg", "-y",
+            "-r", str(fps),
+            "-i", os.path.join(temp_dir, "frame_%04d.png"),
+            "-vf", vf_filter,
+            "-c:v", "mpeg4",
+            "-q:v", "2",
+            "-pix_fmt", "yuv420p",
+            output_path,
+        ]
+        res_fb = subprocess.run(cmd_fb, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        if res_fb.returncode != 0:
+            print(f"Error compiling video {output_path} with ffmpeg: {res_fb.stderr.decode()}")
+            raise RuntimeError(res_fb.stderr.decode())
+
+
 def parallel_save_animation(render_func, frames_list, output_path, fps=10, num_workers=16):
     """
     Renders frames in parallel using render_func(frame, temp_dir)
@@ -77,22 +149,7 @@ def parallel_save_animation(render_func, frames_list, output_path, fps=10, num_w
         with ctx.Pool(processes=num_workers) as pool:
             list(tqdm(pool.imap(worker, frames_list), total=len(frames_list), desc=os.path.basename(output_path)))
 
-        # Stitch frames with ffmpeg.
-        # Use h264_nvenc (NVIDIA hardware encoder) since libx264 is not available
-        # in this ffmpeg build. Falls back to mpeg4 if nvenc is unavailable.
-        cmd = [
-            'ffmpeg', '-y',
-            '-r', str(fps),
-            '-i', os.path.join(temp_dir, 'frame_%04d.png'),
-            '-c:v', 'h264_nvenc',
-            '-preset', 'p4',
-            '-pix_fmt', 'yuv420p',
-            output_path
-        ]
-        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-        if res.returncode != 0:
-            print(f"Error compiling video {output_path} with ffmpeg: {res.stderr.decode()}")
-            raise RuntimeError(res.stderr.decode())
+        stitch_frames_with_ffmpeg(temp_dir, output_path, fps=fps)
     finally:
         shutil.rmtree(temp_dir)
 
@@ -108,19 +165,7 @@ def parallel_chunk_animation(worker_chunk_func, total_frames, output_path, fps=1
             list(tqdm(pool.imap_unordered(worker, chunks), total=len(chunks),
                       desc=os.path.basename(output_path)))
 
-        cmd = ["ffmpeg", "-y", "-r", str(fps),
-               "-i", os.path.join(temp_dir, "frame_%04d.png"),
-               "-c:v", "h264_nvenc", "-preset", "p4", "-pix_fmt", "yuv420p",
-               output_path]
-        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-        if res.returncode != 0:
-            cmd = ["ffmpeg", "-y", "-r", str(fps),
-                   "-i", os.path.join(temp_dir, "frame_%04d.png"),
-                   "-c:v", "libx264", "-crf", "18", "-pix_fmt", "yuv420p",
-                   output_path]
-            res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-            if res.returncode != 0:
-                raise RuntimeError(res.stderr.decode())
+        stitch_frames_with_ffmpeg(temp_dir, output_path, fps=fps)
     finally:
         shutil.rmtree(temp_dir)
 
@@ -360,6 +405,134 @@ def render_frame_cooling_rate(frame, temp_dir):
     plt.close(fig)
 
 
+def plot_subgrid_pdf_and_diagnostics(
+    pdf_frame,
+    temp_frame,
+    cool_frame,
+    gate_frame,
+    T_edges,
+    logt_start=LOGT_ACTIVE_START,
+    logt_end=LOGT_ACTIVE_END,
+    cool_vmin=1e-28,
+    cool_vmax=1e-18,
+    t_myr=None,
+    save_path=None,
+    dpi=200,
+):
+    """
+    Plot the extended 5-panel subgrid diagnostic figure:
+      1. Grid of predicted Subgrid PDFs per cell
+      2. Subgrid Resolved Temperature Map
+      3. Subgrid Cooling Rate Map
+      4. Subgrid Mixing Gate Value Map (colorbar in [0, 1])
+      5. Subgrid Active Temperature Range PDF Mass Map (colorbar in [0, 1])
+    """
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    import matplotlib.colors as colors
+
+    nx, ny = pdf_frame.shape[1], pdf_frame.shape[2]
+    nb = pdf_frame.shape[0]
+
+    log_temp_centers = 0.5 * (np.log10(T_edges[:-1]) + np.log10(T_edges[1:]))
+    active_bin_start = int(np.searchsorted(log_temp_centers, logt_start))
+    active_bin_end = int(np.searchsorted(log_temp_centers, logt_end))
+
+    cmap_temp = plt.get_cmap("inferno")
+    norm_temp = colors.Normalize(vmin=3.0, vmax=7.0)
+
+    cmap_cool = plt.get_cmap("viridis")
+    norm_cool = colors.LogNorm(vmin=cool_vmin, vmax=cool_vmax)
+
+    cmap_gate = plt.get_cmap("plasma")
+    norm_gate = colors.Normalize(vmin=0.0, vmax=1.0)
+
+    cmap_active = plt.get_cmap("viridis")
+    norm_active = colors.Normalize(vmin=0.0, vmax=1.0)
+
+    active_mass = pdf_mass_in_active_range(pdf_frame, T_edges, logt_start=logt_start, logt_end=logt_end)
+
+    fig = plt.figure(figsize=(40, 16))
+    gs = fig.add_gridspec(1, 5, width_ratios=[1.0, 1.0, 1.0, 1.0, 1.0], wspace=0.22,
+                          left=0.03, right=0.97, top=0.92, bottom=0.06)
+
+    # Panel 0: nx x ny grid of PDF mini-plots
+    sub_gs = gs[0].subgridspec(nx, ny, hspace=0.06, wspace=0.06)
+    x = np.arange(nb)
+
+    for i in range(nx):
+        ii = nx - 1 - i  # flip vertically so row 0 is top
+        for j in range(ny):
+            ax = fig.add_subplot(sub_gs[i, j])
+            ax.axvspan(active_bin_start, active_bin_end, color="green", alpha=0.18, lw=0)
+            y = pdf_frame[:, ii, j]
+            exp_val = np.sum(y * log_temp_centers)
+            y_norm = y / (y.max() + 1e-12)
+
+            bg_color = cmap_temp(norm_temp(exp_val))
+            lum = 0.299 * bg_color[0] + 0.587 * bg_color[1] + 0.114 * bg_color[2]
+            line_color = "white" if lum < 0.5 else "black"
+
+            ax.plot(x, y_norm, lw=0.9, color=line_color)
+            ax.set_facecolor(bg_color)
+            ax.set_xlim(0, nb - 1)
+            ax.set_ylim(0, 1.05)
+            ax.set_xticks([])
+            ax.set_yticks([])
+            for spine in ax.spines.values():
+                spine.set_color("grey")
+                spine.set_linewidth(0.3)
+
+    # Panel 1: Temperature Map
+    ax_temp = fig.add_subplot(gs[1])
+    temp_data = np.log10(temp_frame + 1e-8) if np.nanmax(temp_frame) > 100 else temp_frame
+    im_temp = ax_temp.imshow(temp_data, origin="lower", cmap=cmap_temp, norm=norm_temp, aspect="auto")
+    ax_temp.set_title("Subgrid $T$ Map", fontsize=15, weight="bold")
+    ax_temp.set_xlabel("X (pixels)", fontsize=13)
+    ax_temp.set_ylabel("Y (pixels)", fontsize=13)
+    cbar_temp = plt.colorbar(im_temp, ax=ax_temp, fraction=0.046, pad=0.04)
+    cbar_temp.set_label(r"$\log_{10}(T\ [\mathrm{K}])$ / Expectation Value", fontsize=12)
+
+    # Panel 2: Cooling Rate Map
+    ax_cool = fig.add_subplot(gs[2])
+    im_cool = ax_cool.imshow(np.clip(cool_frame, cool_vmin, None), origin="lower", cmap=cmap_cool, norm=norm_cool, aspect="auto")
+    ax_cool.set_title("Subgrid Cooling Rate Map", fontsize=15, weight="bold")
+    ax_cool.set_xlabel("X (pixels)", fontsize=13)
+    ax_cool.set_ylabel("Y (pixels)", fontsize=13)
+    cbar_cool = plt.colorbar(im_cool, ax=ax_cool, fraction=0.046, pad=0.04)
+    cbar_cool.set_label(r"Cooling Rate $[\mathrm{erg}\ \mathrm{cm}^{-3}\ \mathrm{s}^{-1}]$", fontsize=12)
+
+    # Panel 3: Gate Map
+    ax_gate = fig.add_subplot(gs[3])
+    im_gate = ax_gate.imshow(gate_frame, origin="lower", cmap=cmap_gate, norm=norm_gate, aspect="auto")
+    ax_gate.set_title("Subgrid Mixing Gate Map", fontsize=15, weight="bold")
+    ax_gate.set_xlabel("X (pixels)", fontsize=13)
+    ax_gate.set_ylabel("Y (pixels)", fontsize=13)
+    cbar_gate = plt.colorbar(im_gate, ax=ax_gate, fraction=0.046, pad=0.04)
+    cbar_gate.set_label(r"Gate Value $g \in [0, 1]$", fontsize=12)
+
+    # Panel 4: Active Mass Fraction Map
+    ax_active = fig.add_subplot(gs[4])
+    im_active = ax_active.imshow(active_mass, origin="lower", cmap=cmap_active, norm=norm_active, aspect="auto")
+    ax_active.set_title("Subgrid Active Range PDF Mass", fontsize=15, weight="bold")
+    ax_active.set_xlabel("X (pixels)", fontsize=13)
+    ax_active.set_ylabel("Y (pixels)", fontsize=13)
+    cbar_active = plt.colorbar(im_active, ax=ax_active, fraction=0.046, pad=0.04)
+    cbar_active.set_label(r"Active PDF Mass $\in [0, 1]$", fontsize=12)
+
+    time_str = f" | $t = {t_myr:.2f}$ Myr" if t_myr is not None else ""
+    fig.suptitle(rf"Subgrid Predicted Temperature PDF Grid (${nx} \times {ny}$), $T$, Cooling, Gate, & Active Mass{time_str}",
+                 fontsize=18, weight="bold")
+
+    if save_path is not None:
+        fig.savefig(save_path, dpi=dpi)
+        plt.close(fig)
+        return None
+
+    return fig
+
+
 def worker_render_subgrid_pdf(frames_list, temp_dir):
     import matplotlib; matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -382,8 +555,11 @@ def worker_render_subgrid_pdf(frames_list, temp_dir):
     cmap_gate = plt.get_cmap("plasma")
     norm_gate = colors.Normalize(vmin=0.0, vmax=1.0)
 
-    fig = plt.figure(figsize=(32, 16))
-    gs = fig.add_gridspec(1, 4, width_ratios=[1.0, 1.0, 1.0, 1.0], wspace=0.22,
+    cmap_active = plt.get_cmap("viridis")
+    norm_active = colors.Normalize(vmin=0.0, vmax=1.0)
+
+    fig = plt.figure(figsize=(40, 16))
+    gs = fig.add_gridspec(1, 5, width_ratios=[1.0, 1.0, 1.0, 1.0, 1.0], wspace=0.22,
                           left=0.03, right=0.97, top=0.92, bottom=0.06)
 
     # nx x ny grid of PDF mini-plots (taking up entire panel 0)
@@ -440,6 +616,16 @@ def worker_render_subgrid_pdf(frames_list, temp_dir):
     cbar_gate = plt.colorbar(im_gate, ax=ax_gate, fraction=0.046, pad=0.04)
     cbar_gate.set_label(r"Gate Value $g \in [0, 1]$", fontsize=12)
 
+    # Side panel 4: Subgrid Active Temperature Range Mass Map (aspect='auto' to match grid size)
+    ax_active = fig.add_subplot(gs[4])
+    active_0 = pdf_mass_in_active_range(pred_pdf_all[0], T_edges)
+    im_active = ax_active.imshow(active_0, origin="lower", cmap=cmap_active, norm=norm_active, aspect="auto")
+    ax_active.set_title("Subgrid Active Range PDF Mass", fontsize=15, weight="bold")
+    ax_active.set_xlabel("X (pixels)", fontsize=13)
+    ax_active.set_ylabel("Y (pixels)", fontsize=13)
+    cbar_active = plt.colorbar(im_active, ax=ax_active, fraction=0.046, pad=0.04)
+    cbar_active.set_label(r"Active PDF Mass $\in [0, 1]$", fontsize=12)
+
     title_text = fig.suptitle("", fontsize=18, weight="bold")
 
     for frame_idx in frames_list:
@@ -447,6 +633,7 @@ def worker_render_subgrid_pdf(frames_list, temp_dir):
         temp_frame = np.log10(temp[frame_idx] + 1e-8)
         cool_frame = np.clip(emis_sg[frame_idx], cool_vmin, None)
         gate_frame = pred_gate_all[frame_idx]
+        active_frame = pdf_mass_in_active_range(pdf_frame, T_edges)
         t_myr_cur = RESTART_TIME_MYR + frame_idx * BIN_DT_MYR
 
         for i in range(nx):
@@ -467,7 +654,8 @@ def worker_render_subgrid_pdf(frames_list, temp_dir):
         im_temp.set_data(temp_frame)
         im_cool.set_data(cool_frame)
         im_gate.set_data(gate_frame)
-        title_text.set_text(rf"Subgrid Predicted Temperature PDF Grid (${nx} \times {ny}$), $T$, Cooling, & Gate | $t = {t_myr_cur:.2f}$ Myr")
+        im_active.set_data(active_frame)
+        title_text.set_text(rf"Subgrid Predicted Temperature PDF Grid (${nx} \times {ny}$), $T$, Cooling, Gate, & Active Mass | $t = {t_myr_cur:.2f}$ Myr")
         
         frame_out = os.path.join(temp_dir, f"frame_{frame_idx:04d}.png")
         fig.savefig(frame_out, dpi=120)
@@ -506,7 +694,8 @@ def divergence(f, dx, dy):
 #   t_sg[i] = RESTART_TIME_MYR + i * BIN_DT_MYR
 #   t_lr[i] = RESTART_TIME_MYR + i * BIN_DT_MYR
 # ========================================================================
-RESTART_TIME_MYR = 5.0   # physical time of the restart file (Myr)
+RESTART_TIME_MYR = float(os.environ.get("RESTART_TIME_MYR", "0.0"))   # physical start time of the simulations (Myr)
+START_FRAME      = int(os.environ.get("START_FRAME", "0"))              # start frame index for input_data
 BIN_DT_MYR       = 0.01  # bin output cadence (matches bin_w_dt / bin_u_dt in config)
 
 # --- Physical Constants & Unit Conversions ---
@@ -539,10 +728,20 @@ unit_fix = 1.975e27                                                  # Code unit
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
 
 # Derive LR/SG resolution from the same env vars used by the rest of the pipeline.
-# PDF_CNN_RESOLUTION = "hr_nx1,hr_nx2"; arrays are stored as (nx2, nx1) in bin files.
 _cnn_res = os.environ.get("PDF_CNN_RESOLUTION", "1024,512").split(",")
 _cnn_ds  = int(os.environ.get("PDF_CNN_DOWNSAMPLE", "64"))
-resolution = (int(_cnn_res[0]) // _cnn_ds, int(_cnn_res[1]) // _cnn_ds)
+_default_res = (int(_cnn_res[0]) // _cnn_ds, int(_cnn_res[1]) // _cnn_ds)
+
+if "SG_RESOLUTION" in os.environ:
+    _sg_parts = os.environ["SG_RESOLUTION"].split(",")
+    resolution = (int(_sg_parts[0]), int(_sg_parts[1]))
+elif "CROP_H_CG" in os.environ and "CROP_W_CG" in os.environ:
+    resolution = (int(os.environ["CROP_H_CG"]), int(os.environ["CROP_W_CG"]))
+elif "SIM_NX2" in os.environ and "SIM_NX1" in os.environ:
+    resolution = (int(os.environ["SIM_NX2"]), int(os.environ["SIM_NX1"]))
+else:
+    resolution = _default_res
+
 file_path = os.path.join(PROJECT_ROOT, "simulation_outputs/subgrid_model/bin")
 save_path = (
     os.path.join(os.environ.get("SG_MOCKS_DIR", "mocks/sg"), f"sc{resolution}") + "/"
@@ -557,8 +756,8 @@ os.makedirs(save_path, exist_ok=True)
 # start=501 tells input_data to open KH.hydro_w.00501.bin as frame 0.
 sim_data = simulation_data()
 sim_data.resolution = resolution
-sim_data.input_data(file_path, start=501)
-sim_data.input_cons_data(file_path, start=501)
+sim_data.input_data(file_path, start=START_FRAME)
+sim_data.input_cons_data(file_path, start=START_FRAME)
 
 rho = sim_data.rho
 pres = sim_data.pressure
@@ -579,16 +778,16 @@ lr_frac = np.zeros_like(temp)
 lr_frac[temp < sim_data.T_cutoff] = 1.0
 frac = sim_data.frho
 
-# Physical time axis for restarted simulations (both share the same axis)
+# Physical time axis for simulations (both share the same axis)
 n_sg = rho.shape[0]
 t_sg_myr = RESTART_TIME_MYR + np.arange(n_sg) * BIN_DT_MYR
 
 lr_resolution = resolution
-# lr_build_ism: ISM-cooling restart (5 → 10 Myr).  Frame 0 = t=5 Myr.
+# lr_build_ism: ISM-cooling simulation
 lr_file_path = os.path.join(PROJECT_ROOT, "simulation_outputs/lr_build_ism/bin")
 lr_sim_data = simulation_data()
 lr_sim_data.resolution = lr_resolution
-lr_sim_data.input_data(lr_file_path, start=501)
+lr_sim_data.input_data(lr_file_path, start=START_FRAME)
 lr_rho = lr_sim_data.rho[: rho.shape[0]]
 lr_temp = lr_sim_data.temp[: rho.shape[0]]
 lr_pres = lr_sim_data.pressure[: rho.shape[0]]
@@ -597,7 +796,7 @@ lr_uy = lr_sim_data.uy[: rho.shape[0]]
 lr_ien = lr_sim_data.eint[: rho.shape[0]]
 lr_ps = lr_sim_data.ps[: rho.shape[0]]
 
-lr_sim_data.input_cons_data(lr_file_path, start=501)
+lr_sim_data.input_cons_data(lr_file_path, start=START_FRAME)
 lr_cons_rho = lr_sim_data.cons_rho[: rho.shape[0]]
 lr_cons_momx = lr_sim_data.cons_momx[: rho.shape[0]]
 lr_cons_momy = lr_sim_data.cons_momy[: rho.shape[0]]
@@ -606,17 +805,25 @@ lr_cons_ps = lr_sim_data.cons_ps[: rho.shape[0]]
 
 lr_fmcl = (lr_temp < 1e5).astype(float)
 
-hr_resolution = (int(_cnn_res[0]), int(_cnn_res[1]))
-hr_downsample = _cnn_ds
+_hr_res_str = os.environ.get("HR_EVAL_RESOLUTION", os.environ.get("PDF_CNN_RESOLUTION", "1024,512")).split(",")
+hr_resolution = (int(_hr_res_str[0]), int(_hr_res_str[1]))
+# Coarse graining factor from HR to SG simulation grid
+hr_downsample = max(1, hr_resolution[0] // resolution[0])
+hr_cache_ds = int(os.environ.get("HR_EVAL_DOWNSAMPLE", "32"))
+
 hr_file_path = os.environ.get("HR_SIM_OUTPUT", os.path.join(PROJECT_ROOT, "simulation_outputs/hr_build_512"))
 hr_sim_data = simulation_data()
 hr_sim_data.resolution = hr_resolution
 hr_sim_data.down_sample = hr_downsample
-# hr_sim_data.input_data(hr_file_path)
-# hr_rho = hr_sim_data.rho
-# hr_temp = hr_sim_data.temp
+
 hr_cache_base = os.environ.get("SUBGRID_CACHE_PATH", os.path.join(hr_file_path, "cache"))
-hr_folder_path = os.path.join(hr_cache_base, f"sc{hr_resolution}_{hr_downsample}")
+hr_folder_path = os.path.join(hr_cache_base, f"sc{hr_resolution}_{hr_cache_ds}")
+if not os.path.exists(f"{hr_folder_path}/rho.npy"):
+    import glob
+    matching = sorted(glob.glob(os.path.join(hr_cache_base, f"sc{hr_resolution}_*")))
+    if matching and os.path.exists(os.path.join(matching[0], "rho.npy")):
+        hr_folder_path = matching[0]
+
 # Memory-map the large HR arrays so the OS pages them in on demand
 # instead of loading every frame into RAM at once.
 _n = rho.shape[0]
@@ -628,11 +835,18 @@ hr_uy   = np.load(f"{hr_folder_path}/uy.npy",       mmap_mode="r")[-_n:]
 hr_ien  = np.load(f"{hr_folder_path}/eint.npy",     mmap_mode="r")[-_n:]
 hr_ps   = np.load(f"{hr_folder_path}/ps.npy",       mmap_mode="r")[-_n:]
 
-hr_cons_rho  = np.load(f"{hr_folder_path}/cons_rho.npy",  mmap_mode="r")[-_n:]
-hr_cons_momx = np.load(f"{hr_folder_path}/cons_mx.npy",   mmap_mode="r")[-_n:]
-hr_cons_momy = np.load(f"{hr_folder_path}/cons_my.npy",   mmap_mode="r")[-_n:]
-hr_cons_ener = np.load(f"{hr_folder_path}/cons_ener.npy", mmap_mode="r")[-_n:]
-hr_cons_ps   = np.load(f"{hr_folder_path}/cons_ps.npy",   mmap_mode="r")[-_n:]
+if os.path.exists(f"{hr_folder_path}/cons_rho.npy"):
+    hr_cons_rho  = np.load(f"{hr_folder_path}/cons_rho.npy",  mmap_mode="r")[-_n:]
+    hr_cons_momx = np.load(f"{hr_folder_path}/cons_mx.npy",   mmap_mode="r")[-_n:]
+    hr_cons_momy = np.load(f"{hr_folder_path}/cons_my.npy",   mmap_mode="r")[-_n:]
+    hr_cons_ener = np.load(f"{hr_folder_path}/cons_ener.npy", mmap_mode="r")[-_n:]
+    hr_cons_ps   = np.load(f"{hr_folder_path}/cons_ps.npy",   mmap_mode="r")[-_n:]
+else:
+    hr_cons_rho  = hr_rho
+    hr_cons_momx = hr_rho * hr_ux
+    hr_cons_momy = hr_rho * hr_uy
+    hr_cons_ener = hr_ien + 0.5 * hr_rho * (hr_ux**2 + hr_uy**2)
+    hr_cons_ps   = hr_rho * hr_ps
 
 hr_fmcl = (hr_temp < 1e5).astype(float)
 
@@ -649,10 +863,12 @@ def coarse_grain_array(arr, ds=64):
 
 # Coarse-grained HR primitive fields
 cg_hr_rho  = coarse_grain_array(hr_rho,  hr_downsample)
-cg_hr_temp = coarse_grain_array(hr_temp, hr_downsample)
+# Mass-weighted temperature to match fluid-dynamic cell temperature (P / (rho * (gamma-1)))
+cg_hr_temp = coarse_grain_array(hr_temp * hr_rho, hr_downsample) / cg_hr_rho
 cg_hr_pres = coarse_grain_array(hr_pres, hr_downsample)
-cg_hr_ux   = coarse_grain_array(hr_ux,   hr_downsample)
-cg_hr_uy   = coarse_grain_array(hr_uy,   hr_downsample)
+# Momentum-conserving mass-weighted velocity
+cg_hr_ux   = coarse_grain_array(hr_ux * hr_rho,   hr_downsample) / cg_hr_rho
+cg_hr_uy   = coarse_grain_array(hr_uy * hr_rho,   hr_downsample) / cg_hr_rho
 cg_hr_ien  = coarse_grain_array(hr_ien,  hr_downsample)
 
 # Coarse-grained HR conserved fields
@@ -1564,7 +1780,7 @@ parallel_save_animation(
 )
 print("Cooling rate evolution animation saved")
 
-print("Saving subgrid predicted PDF, temperature, and cooling evolution animation...")
+print("Saving subgrid predicted PDF, temperature, cooling, gate, and active mass evolution animation...")
 parallel_chunk_animation(
     worker_render_subgrid_pdf,
     nt,

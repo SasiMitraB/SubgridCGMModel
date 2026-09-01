@@ -9,6 +9,23 @@ def main():
     parser.add_argument("--config", required=True, help="Path to config.json")
     parser.add_argument("--step", required=True, choices=["hr", "lr", "lr_build", "sg"], help="Step name to generate for")
     parser.add_argument("--output", required=True, help="Output path for the .athinput file")
+    parser.add_argument("--nx1", type=int, default=None, help="Override nx1")
+    parser.add_argument("--nx2", type=int, default=None, help="Override nx2")
+    parser.add_argument("--nx3", type=int, default=None, help="Override nx3")
+    parser.add_argument("--mb_nx1", type=int, default=None, help="Override mb_nx1")
+    parser.add_argument("--mb_nx2", type=int, default=None, help="Override mb_nx2")
+    parser.add_argument("--mb_nx3", type=int, default=None, help="Override mb_nx3")
+    parser.add_argument("--x1min", type=float, default=None, help="Override x1min")
+    parser.add_argument("--x1max", type=float, default=None, help="Override x1max")
+    parser.add_argument("--x2min", type=float, default=None, help="Override x2min")
+    parser.add_argument("--x2max", type=float, default=None, help="Override x2max")
+    parser.add_argument("--sigma", type=float, default=None, help="Override sigma")
+    parser.add_argument("--a_char", type=float, default=None, help="Override a_char")
+    parser.add_argument("--cold_frac", type=float, default=None, help="Override cold_frac")
+    parser.add_argument("--downsample", type=int, default=None, help="Override downsample factor")
+    parser.add_argument("--tlim", type=float, default=None, help="Override tlim")
+    parser.add_argument("--iprob", type=int, default=None, help="Override iprob")
+    parser.add_argument("--init_file", type=str, default=None, help="Override init_file path")
     args = parser.parse_args()
 
     with open(args.config, 'r') as f:
@@ -26,7 +43,7 @@ def main():
     # Apply LR downsampling for any step that runs on the coarse grid
     if args.step in ("lr", "lr_build", "sg"):
         lr_params = config.get("lr", {})
-        downsample = lr_params.get("downsample_factor", 1)
+        downsample = args.downsample if args.downsample is not None else lr_params.get("downsample_factor", 1)
         params["nx1"] = hr_params.get("nx1", 512) // downsample
         params["nx2"] = hr_params.get("nx2", 1024) // downsample
         # Scale meshblock down, then clamp to mesh size so mb never exceeds nx.
@@ -39,6 +56,20 @@ def main():
     # Override with step specific
     for k, v in step_params.items():
         if k != "downsample_factor":
+            params[k] = v
+
+    # Override with explicit CLI arguments if provided
+    cli_overrides = {
+        "nx1": args.nx1, "nx2": args.nx2, "nx3": args.nx3,
+        "mb_nx1": args.mb_nx1, "mb_nx2": args.mb_nx2, "mb_nx3": args.mb_nx3,
+        "x1min": args.x1min, "x1max": args.x1max,
+        "x2min": args.x2min, "x2max": args.x2max,
+        "sigma": args.sigma, "a_char": args.a_char,
+        "cold_frac": args.cold_frac, "tlim": args.tlim,
+        "iprob": args.iprob, "init_file": args.init_file,
+    }
+    for k, v in cli_overrides.items():
+        if v is not None:
             params[k] = v
 
     # Group into sections
@@ -74,6 +105,7 @@ def main():
         },
         "problem": {
             "iprob": params.get("iprob"),
+            "init_file": params.get("init_file"),
             "amp": params.get("amp"),
             "sigma": params.get("sigma"),
             "vx_hot": params.get("vx_hot"),

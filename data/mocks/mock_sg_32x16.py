@@ -346,6 +346,44 @@ def compute_color_limits(arr, use_log=False):
     return vmin, vmax, None
 
 
+def stitch_frames_with_ffmpeg(temp_dir, output_path, fps=10):
+    """
+    Stitch PNG frames in temp_dir into an MP4 video using ffmpeg.
+    Applies scaling/padding to ensure compatibility with H.264 hardware limits (<=4096, even dims),
+    and falls back to mpeg4 if NVENC is unavailable.
+    """
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+    vf_filter = "scale='min(4096,iw)':'min(4096,ih)':force_original_aspect_ratio=decrease,pad=ceil(iw/2)*2:ceil(ih/2)*2"
+
+    cmd = [
+        "ffmpeg", "-y",
+        "-r", str(fps),
+        "-i", os.path.join(temp_dir, "frame_%04d.png"),
+        "-vf", vf_filter,
+        "-c:v", "h264_nvenc",
+        "-preset", "p4",
+        "-pix_fmt", "yuv420p",
+        output_path,
+    ]
+    res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    if res.returncode != 0:
+        # Fallback to high-quality mpeg4 if nvenc is unavailable or fails
+        cmd_fb = [
+            "ffmpeg", "-y",
+            "-r", str(fps),
+            "-i", os.path.join(temp_dir, "frame_%04d.png"),
+            "-vf", vf_filter,
+            "-c:v", "mpeg4",
+            "-q:v", "2",
+            "-pix_fmt", "yuv420p",
+            output_path,
+        ]
+        res_fb = subprocess.run(cmd_fb, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        if res_fb.returncode != 0:
+            print(f"Error compiling video {output_path} with ffmpeg: {res_fb.stderr.decode()}")
+            raise RuntimeError(res_fb.stderr.decode())
+
+
 def parallel_save_animation(render_func, frames_list, output_path,
                              fps=10, num_workers=16):
     temp_dir = tempfile.mkdtemp()
@@ -355,13 +393,7 @@ def parallel_save_animation(render_func, frames_list, output_path,
         with ctx.Pool(processes=num_workers) as pool:
             list(tqdm(pool.imap(worker, frames_list), total=len(frames_list),
                       desc=os.path.basename(output_path)))
-        cmd = ["ffmpeg", "-y", "-r", str(fps),
-               "-i", os.path.join(temp_dir, "frame_%04d.png"),
-               "-c:v", "h264_nvenc", "-preset", "p4", "-pix_fmt", "yuv420p",
-               output_path]
-        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-        if res.returncode != 0:
-            raise RuntimeError(res.stderr.decode())
+        stitch_frames_with_ffmpeg(temp_dir, output_path, fps=fps)
     finally:
         shutil.rmtree(temp_dir)
 
@@ -1140,19 +1172,7 @@ def parallel_chunk_animation(worker_chunk_func, total_frames, output_path, fps=1
             list(tqdm(pool.imap_unordered(worker, chunks), total=len(chunks),
                       desc=os.path.basename(output_path)))
 
-        cmd = ["ffmpeg", "-y", "-r", str(fps),
-               "-i", os.path.join(temp_dir, "frame_%04d.png"),
-               "-c:v", "h264_nvenc", "-preset", "p4", "-pix_fmt", "yuv420p",
-               output_path]
-        res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-        if res.returncode != 0:
-            cmd = ["ffmpeg", "-y", "-r", str(fps),
-                   "-i", os.path.join(temp_dir, "frame_%04d.png"),
-                   "-c:v", "libx264", "-crf", "18", "-pix_fmt", "yuv420p",
-                   output_path]
-            res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-            if res.returncode != 0:
-                raise RuntimeError(res.stderr.decode())
+        stitch_frames_with_ffmpeg(temp_dir, output_path, fps=fps)
     finally:
         shutil.rmtree(temp_dir)
 

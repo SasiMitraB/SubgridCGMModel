@@ -1,28 +1,24 @@
 #!/usr/bin/env bash
 # =============================================================================
-# run_pipeline.sh — Full SubgridCGM pipeline
+# run_pipeline.sh — Full SubgridCGM pipeline (Downsampled IC Mode)
 #
 # Steps:
 #   1. Train the PDF CNN model              (models/conv_nn/pdf_cnn.py)
 #   2. Benchmark PDF CNN model              (data/mocks/pdf_plot.py)
-#   3. Low-resolution simulation 5 Myr      (16×8 grid; ISM cooling)
-#      Outputs to: simulation_outputs/lr_build
-#   4. lr_build — restart from 5 Myr rst   (hr_build/src/athena; ISM cooling)
-#      Uses:  simulation_outputs/lr_build/rst/KH.00005.rst
-#      Outputs to: simulation_outputs/lr_build_ism
-#   5. subgrid_model — restart from same rst (subgrid_model/src/athena; CNN)
-#      Uses:  simulation_outputs/lr_build/rst/KH.00005.rst
-#      Outputs to: simulation_outputs/subgrid_model
+#   3. Downsample HR snapshot to coarse IC  (data/downsample_ic.py)
+#   4. Low-resolution simulation (ISM)      (hr_build/src/athena; ISM cooling)
+#      Starts from: downsampled IC file (iprob=2)
+#      Outputs to:  simulation_outputs/lr_build_ism
+#   5. subgrid_model simulation (CNN)       (subgrid_model/src/athena; CNN)
+#      Starts from: same downsampled IC file (iprob=2)
+#      Outputs to:  simulation_outputs/subgrid_model
 #   6. Diagnostic plots                     (data/mocks/mock_sg.py)
 #
-# RESTART FILE POLICY
+# INITIAL CONDITION POLICY
 # -----------------------------------
-# Steps 3 and 4 both branch from the SAME 5 Myr restart file produced
-# by Step 2:
-#   simulation_outputs/lr_build/rst/KH.00005.rst
-#
-# The restart file index 00005 corresponds to tlim=5.0 with rst_dt=1.0
-# (one restart file written per simulated Myr).
+# Both LR (ISM cooling) and Subgrid (CNN) start directly from the SAME
+# downsampled high-resolution snapshot (iprob=2, init_file).
+# No 0→5 Myr pre-run or restart file is used.
 #
 # ATHINPUT CACHING
 # -----------------------------------
@@ -52,14 +48,19 @@ PROJECT_ROOT="/home/sasi/Projects/SubgridCGMModel"
 HR_SIM_OUTPUT="${PROJECT_ROOT}/simulation_outputs/hr_build_512"
 HR_BIN_DIR="${HR_SIM_OUTPUT}/bin"
 
-# ---- LR 5 Myr base simulation (Step 2) ----
-LR_OUTPUT_DIR="${PROJECT_ROOT}/simulation_outputs/lr_build"
-LR_RST_5MYR="${LR_OUTPUT_DIR}/rst/KH.00005.rst"
+# ---- High-Resolution Snapshot for Initial Condition Downsampling ----
+HR_IC_SNAPSHOT="${HR_IC_SNAPSHOT:-${PROJECT_ROOT}/simulation_outputs/hr_build_512/bin/KH.hydro_w.00500.bin}"
 
-# ---- lr_build restart (Step 3) — ISM cooling from 5 Myr ----
+# ---- Target Low-Resolution Simulation Grid (nx1=width, nx2=height) ----
+export SIM_NX1="${SIM_NX1:-8}"
+export SIM_NX2="${SIM_NX2:-16}"
+export SIM_MB_NX1="${SIM_MB_NX1:-${SIM_NX1}}"
+export SIM_MB_NX2="${SIM_MB_NX2:-${SIM_NX2}}"
+export SIM_TLIM="${SIM_TLIM:-5.0}"
+export RESTART_TIME_MYR="${RESTART_TIME_MYR:-5.0}"
+
+# ---- Output Directories ----
 LR_BUILD_OUTPUT_DIR="${PROJECT_ROOT}/simulation_outputs/lr_build_ism"
-
-# ---- subgrid_model restart (Step 4) — CNN from 5 Myr ----
 SG_OUTPUT_DIR="${PROJECT_ROOT}/simulation_outputs/subgrid_model"
 
 # ---- Per-run timestamped directory ----
@@ -73,6 +74,9 @@ export LOSS_PLOTS_DIR="${RUN_DIR}/loss_plots"
 export PDF_MOCKS_DIR="${RUN_DIR}/pdf_mocks"
 export SG_MOCKS_DIR="${RUN_DIR}/sg_mocks"
 
+# Path where the downsampled initial condition binary will be stored
+DOWNSAMPLED_IC_FILE="${DOWNSAMPLED_IC_FILE:-${RUN_DIR}/ic_downsampled_${SIM_NX1}x${SIM_NX2}.bin}"
+
 mkdir -p \
     "${LOG_DIR}" \
     "${ATHINPUT_CACHE_DIR}" \
@@ -80,7 +84,6 @@ mkdir -p \
     "${LOSS_PLOTS_DIR}" \
     "${PDF_MOCKS_DIR}" \
     "${SG_MOCKS_DIR}" \
-    "${LR_OUTPUT_DIR}" \
     "${LR_BUILD_OUTPUT_DIR}" \
     "${SG_OUTPUT_DIR}"
 
@@ -124,7 +127,7 @@ run_step() {
 }
 
 # ---------------------------------------------------------------------------
-# Helper: generate an athinput file from config.json
+# Helper: generate an athinput file from config.json with IC override
 # ---------------------------------------------------------------------------
 CONFIG_JSON="${PROJECT_ROOT}/shell_scripts/config.json"
 GEN_ATHINPUT="${PROJECT_ROOT}/shell_scripts/gen_athinput.py"
@@ -133,7 +136,17 @@ generate_athinput() {
     local step="$1"
     local output="$2"
     log "Generating ${step} athinput -> ${output}"
-    python3 "${GEN_ATHINPUT}" --config "${CONFIG_JSON}" --step "${step}" --output "${output}"
+    python3 "${GEN_ATHINPUT}" \
+        --config "${CONFIG_JSON}" \
+        --step "${step}" \
+        --output "${output}" \
+        --nx1 "${SIM_NX1}" \
+        --nx2 "${SIM_NX2}" \
+        --mb_nx1 "${SIM_MB_NX1}" \
+        --mb_nx2 "${SIM_MB_NX2}" \
+        --iprob 2 \
+        --init_file "${DOWNSAMPLED_IC_FILE}" \
+        --tlim "${SIM_TLIM}"
 }
 
 # ---------------------------------------------------------------------------
@@ -176,11 +189,17 @@ export LOGT_ACTIVE_END="${LOGT_ACTIVE_END:-5.9}"
 MANIFEST="${RUN_DIR}/manifest.txt"
 {
     echo "============================================================"
-    echo " SubgridCGM Pipeline Run"
+    echo " SubgridCGM Pipeline Run (Downsampled IC Mode)"
     echo "============================================================"
     echo "Timestamp          : ${TIMESTAMP}"
     echo "Run directory      : ${RUN_DIR}"
     echo "Project root       : ${PROJECT_ROOT}"
+    echo ""
+    echo "--- Grid & Initial Condition ---"
+    echo "HR IC Snapshot     : ${HR_IC_SNAPSHOT}"
+    echo "Downsampled IC File: ${DOWNSAMPLED_IC_FILE}"
+    echo "Grid Nx1 x Nx2     : ${SIM_NX1} x ${SIM_NX2}"
+    echo "Simulation tlim    : ${SIM_TLIM} Myr"
     echo ""
     echo "--- Active Window Bounds ---"
     echo "LOGT_ACTIVE_START  : ${LOGT_ACTIVE_START}"
@@ -188,18 +207,16 @@ MANIFEST="${RUN_DIR}/manifest.txt"
     echo ""
     echo "--- Source scripts / configs ---"
     echo "Config JSON        : ${CONFIG_JSON}"
-    echo "LR athinput (gen)  : ${ATHINPUT_CACHE_DIR}/lr_sim.athinput"
     echo "lr_build athinput  : ${ATHINPUT_CACHE_DIR}/lr_build_sim.athinput"
     echo "SG athinput (gen)  : ${ATHINPUT_CACHE_DIR}/sg_sim.athinput"
     echo "CNN trainer        : ${PROJECT_ROOT}/models/conv_nn/pdf_cnn.py"
     echo "PDF benchmark      : ${PROJECT_ROOT}/data/mocks/pdf_plot.py"
+    echo "IC Downsampler     : ${PROJECT_ROOT}/data/downsample_ic.py"
     echo "Diagnostic plots   : ${PROJECT_ROOT}/data/mocks/mock_sg.py"
     echo ""
     echo "--- Simulation outputs ---"
-    echo "LR sim (0→5 Myr)   : ${LR_OUTPUT_DIR}"
-    echo "lr_build (5→10 Myr): ${LR_BUILD_OUTPUT_DIR}  [ISM cooling restart]"
-    echo "subgrid_model      : ${SG_OUTPUT_DIR}         [CNN restart]"
-    echo "5 Myr restart file : ${LR_RST_5MYR}"
+    echo "lr_build (ISM)     : ${LR_BUILD_OUTPUT_DIR}"
+    echo "subgrid_model (CNN): ${SG_OUTPUT_DIR}"
     echo ""
     echo "--- Model / plot outputs ---"
     echo "Model weights      : ${MODEL_SAVES_DIR}"
@@ -208,7 +225,6 @@ MANIFEST="${RUN_DIR}/manifest.txt"
     echo "SG  mock outputs   : ${SG_MOCKS_DIR}"
     echo ""
     echo "--- Cached athinputs (this run) ---"
-    echo "  ${ATHINPUT_CACHE_DIR}/lr_sim.athinput"
     echo "  ${ATHINPUT_CACHE_DIR}/lr_build_sim.athinput"
     echo "  ${ATHINPUT_CACHE_DIR}/sg_sim.athinput"
 } > "${MANIFEST}"
@@ -243,99 +259,76 @@ run_step 2 "benchmark_pdf_cnn" \
     bash -c "cd '${PROJECT_ROOT}/data/mocks' && python3 pdf_plot.py"
 
 # ===========================================================================
-# STEP 3 — Low-resolution simulation: 0 → 5 Myr  (16×8 grid, ISM cooling)
-#
-# Grid:  nx1=8, nx2=16  (16×8 cells — 32× downsampled from HR 256×512)
-# tlim:  5.0  (5 Myr)
-# rst_dt: 1.0 → restart files written at t=1,2,3,4,5 Myr
-#
-# Output restart files land in:
-#   simulation_outputs/lr_build/rst/KH.000{01..05}.rst
-# The 5 Myr file KH.00005.rst is the branch point for Steps 4 & 5.
+# STEP 3 — Downsample HR Snapshot to Coarse Initial Condition File
 # ===========================================================================
-LR_ATHINPUT="${ATHINPUT_CACHE_DIR}/lr_sim.athinput"
-generate_athinput "lr" "${LR_ATHINPUT}"
-
 separator
-log "STEP 3: lr_simulation  (16×8 grid, 0 → 5 Myr)"
-log "LR athinput mesh settings:"
-grep -E '^\s*nx[12]\s*=' "${LR_ATHINPUT}" | tee -a "${MASTER_LOG}"
-log "LR athinput tlim:"
-grep -E '^\s*tlim\s*=' "${LR_ATHINPUT}" | tee -a "${MASTER_LOG}"
-log "LR athinput press and mu settings:"
-grep -E '^\s*(press|mu)\s*=' "${LR_ATHINPUT}" | tee -a "${MASTER_LOG}"
+log "STEP 3: downsample_ic  (${SIM_NX1}x${SIM_NX2} from ${HR_IC_SNAPSHOT})"
+log "Output IC file : ${DOWNSAMPLED_IC_FILE}"
 separator
 
-run_step 3 "lr_simulation_5myr" \
-    bash -c "
-        set -euo pipefail
-        cd '${PROJECT_ROOT}/builds/hr_build/src'
-        ./athena -i '${LR_ATHINPUT}' -d '${LR_OUTPUT_DIR}'
-    "
-
-# Verify the 5 Myr restart file was produced
-if [[ ! -f "${LR_RST_5MYR}" ]]; then
-    log "ERROR: Expected 5 Myr restart file not found: ${LR_RST_5MYR}"
-    log "       Check the LR simulation output in ${LR_OUTPUT_DIR}/rst/"
-    exit 1
-fi
-log "5 Myr restart file confirmed: ${LR_RST_5MYR}"
+run_step 3 "downsample_ic" \
+    python3 "${PROJECT_ROOT}/data/downsample_ic.py" \
+        --input "${HR_IC_SNAPSHOT}" \
+        --nx1 "${SIM_NX1}" \
+        --nx2 "${SIM_NX2}" \
+        --output "${DOWNSAMPLED_IC_FILE}"
 
 # ===========================================================================
-# STEP 4 — lr_build: restart from 5 Myr with ISM cooling (no CNN)
+# STEP 4 — lr_build: Low-Resolution Simulation with ISM cooling (no CNN)
 #
-# Uses:    hr_build/src/athena   (ISM-cooling build, no neural-network source)
-# Restart: simulation_outputs/lr_build/rst/KH.00005.rst  (t = 5 Myr)
-# tlim:    10.0  (continues from 5 → 10 Myr)
+# Starts directly from downsampled initial condition (iprob=2, init_file).
+# Uses:    hr_build/src/athena
 # Output:  simulation_outputs/lr_build_ism/
 # ===========================================================================
 LR_BUILD_ATHINPUT="${ATHINPUT_CACHE_DIR}/lr_build_sim.athinput"
 generate_athinput "lr_build" "${LR_BUILD_ATHINPUT}"
 
 separator
-log "STEP 4: lr_build  (ISM cooling restart from ${LR_RST_5MYR})"
+log "STEP 4: lr_build_ism  (ISM cooling, starting from ${DOWNSAMPLED_IC_FILE})"
 log "lr_build athinput mesh settings:"
 grep -E '^\s*nx[12]\s*=' "${LR_BUILD_ATHINPUT}" | tee -a "${MASTER_LOG}"
+log "lr_build athinput problem settings:"
+grep -E '^\s*(iprob|init_file)\s*=' "${LR_BUILD_ATHINPUT}" | tee -a "${MASTER_LOG}"
 log "lr_build athinput tlim:"
 grep -E '^\s*tlim\s*=' "${LR_BUILD_ATHINPUT}" | tee -a "${MASTER_LOG}"
-log "lr_build athinput press and mu settings:"
-grep -E '^\s*(press|mu)\s*=' "${LR_BUILD_ATHINPUT}" | tee -a "${MASTER_LOG}"
 separator
 
-run_step 4 "lr_build_ism_restart" \
+# Clean previous simulation outputs if any
+rm -rf "${LR_BUILD_OUTPUT_DIR}"/*
+
+run_step 4 "lr_build_ism" \
     bash -c "
         set -euo pipefail
         cd '${PROJECT_ROOT}/builds/hr_build/src'
         ./athena \
             -i '${LR_BUILD_ATHINPUT}' \
-            -d '${LR_BUILD_OUTPUT_DIR}' \
-            -r '${LR_RST_5MYR}'
+            -d '${LR_BUILD_OUTPUT_DIR}'
     "
 
 # ===========================================================================
-# STEP 5 — subgrid_model: restart from same 5 Myr rst with CNN source terms
+# STEP 5 — subgrid_model: Simulation with CNN source terms
 #
+# Starts directly from SAME downsampled initial condition (iprob=2, init_file).
 # Uses:    subgrid_model/src/athena  (CNN-enabled build)
-# Restart: simulation_outputs/lr_build/rst/KH.00005.rst  (t = 5 Myr)
-# tlim:    10.0  (continues from 5 → 10 Myr)
 # Output:  simulation_outputs/subgrid_model/
-#
-# The subgrid_model build requires PYTHONPATH to find source_module.py.
 # ===========================================================================
 SG_ATHINPUT="${ATHINPUT_CACHE_DIR}/sg_sim.athinput"
 generate_athinput "sg" "${SG_ATHINPUT}"
 
 separator
-log "STEP 5: subgrid_model  (CNN restart from ${LR_RST_5MYR})"
+log "STEP 5: subgrid_model_cnn  (CNN subgrid, starting from ${DOWNSAMPLED_IC_FILE})"
 log "SG athinput mesh settings:"
 grep -E '^\s*nx[12]\s*=' "${SG_ATHINPUT}" | tee -a "${MASTER_LOG}"
+log "SG athinput problem settings:"
+grep -E '^\s*(iprob|init_file)\s*=' "${SG_ATHINPUT}" | tee -a "${MASTER_LOG}"
 log "SG athinput tlim:"
 grep -E '^\s*tlim\s*=' "${SG_ATHINPUT}" | tee -a "${MASTER_LOG}"
-log "SG athinput press and mu settings:"
-grep -E '^\s*(press|mu)\s*=' "${SG_ATHINPUT}" | tee -a "${MASTER_LOG}"
 separator
 
-run_step 5 "subgrid_model_cnn_restart" \
+# Clean previous simulation outputs if any
+rm -rf "${SG_OUTPUT_DIR}"/*
+
+run_step 5 "subgrid_model_cnn" \
     bash -c "
         set -euo pipefail
         cd '${PROJECT_ROOT}/builds/subgrid_model/src'
@@ -348,14 +341,13 @@ run_step 5 "subgrid_model_cnn_restart" \
 
         ./athena \
             -i '${SG_ATHINPUT}' \
-            -d '${SG_OUTPUT_DIR}' \
-            -r '${LR_RST_5MYR}'
+            -d '${SG_OUTPUT_DIR}'
     "
 
 # ===========================================================================
 # STEP 6 — Diagnostic plots (mock_sg.py)
 #
-# Compares lr_build (ISM) and subgrid_model (CNN) simulation outputs.
+# Compares lr_build_ism and subgrid_model simulation outputs from t=0.
 # Run from data/mocks/ so relative output paths resolve correctly.
 # ===========================================================================
 separator
@@ -363,7 +355,13 @@ log "STEP 6: diagnostic_plots  (mock_sg.py)"
 separator
 
 run_step 6 "diagnostic_plots" \
-    bash -c "cd '${PROJECT_ROOT}/data/mocks' && python3 mock_sg.py"
+    bash -c "
+        export START_FRAME=0
+        export RESTART_TIME_MYR='${RESTART_TIME_MYR}'
+        export SIM_NX1='${SIM_NX1}'
+        export SIM_NX2='${SIM_NX2}'
+        cd '${PROJECT_ROOT}/data/mocks' && python3 mock_sg.py
+    "
 
 # ===========================================================================
 # Done — summary
@@ -376,8 +374,11 @@ log "Run directory    : ${RUN_DIR}"
 log "Master log       : ${MASTER_LOG}"
 log "Manifest         : ${MANIFEST}"
 log ""
+log "Initial condition used:"
+log "  Source snapshot: ${HR_IC_SNAPSHOT}"
+log "  Downsampled IC : ${DOWNSAMPLED_IC_FILE} (${SIM_NX1}x${SIM_NX2})"
+log ""
 log "Cached athinputs (this run):"
-log "  LR (0→5 Myr)    → ${ATHINPUT_CACHE_DIR}/lr_sim.athinput"
 log "  lr_build (ISM)  → ${ATHINPUT_CACHE_DIR}/lr_build_sim.athinput"
 log "  subgrid_model   → ${ATHINPUT_CACHE_DIR}/sg_sim.athinput"
 log ""
@@ -387,8 +388,7 @@ for f in "${LOG_DIR}"/step*.log; do
 done
 log ""
 log "Key output directories:"
-log "  LR sim (0→5 Myr)      : ${LR_OUTPUT_DIR}"
-log "  lr_build (ISM restart) : ${LR_BUILD_OUTPUT_DIR}"
+log "  lr_build (ISM)         : ${LR_BUILD_OUTPUT_DIR}"
 log "  subgrid_model (CNN)    : ${SG_OUTPUT_DIR}"
 log "  Model weights          : ${MODEL_SAVES_DIR}"
 log "  PDF mock               : ${PDF_MOCKS_DIR}"

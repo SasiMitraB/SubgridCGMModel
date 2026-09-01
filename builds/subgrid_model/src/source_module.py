@@ -80,9 +80,9 @@ resolution = (int(_res_str[0]), int(_res_str[1]))
 downsample = int(os.environ.get("PDF_CNN_DOWNSAMPLE", "64"))
 
 # Tile size: the coarse-grid size the model was trained on
-# Default tile size (e.g., 16 rows × 8 cols)
-TILE_ROWS = resolution[0] // downsample
-TILE_COLS = resolution[1] // downsample
+# Default tile size (e.g., 16 rows × 8 cols or 32 rows × 16 cols)
+TILE_ROWS = int(os.environ.get("TILE_ROWS", os.environ.get("CROP_H_CG", str(resolution[0] // downsample))))
+TILE_COLS = int(os.environ.get("TILE_COLS", os.environ.get("CROP_W_CG", str(resolution[1] // downsample))))
 
 layer_size4 = 256
 layer_size5 = 512
@@ -123,6 +123,7 @@ def _find_available_model(save_dir: str):
         candidates.append(cand_env)
 
     default_candidates = [
+        ((2048, 1024), 32),
         ((1024, 512), 64),
         ((512, 256), 32),
     ]
@@ -158,8 +159,8 @@ def _load_model():
 
     resolution = res
     downsample = ds
-    TILE_ROWS = resolution[0] // downsample
-    TILE_COLS = resolution[1] // downsample
+    TILE_ROWS = int(os.environ.get("TILE_ROWS", os.environ.get("CROP_H_CG", str(resolution[0] // downsample))))
+    TILE_COLS = int(os.environ.get("TILE_COLS", os.environ.get("CROP_W_CG", str(resolution[1] // downsample))))
 
     # --- Load normalization stats ---
     mean_arr = np.load(mean_path)

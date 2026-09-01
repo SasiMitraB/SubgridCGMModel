@@ -158,15 +158,31 @@ def create_density_animation(sim_hr, sim_lr, sim_sg, output_mp4, output_gif=None
             list(tqdm(pool.imap(_render_frame_worker, tasks), total=len(tasks), desc="Rendering frames"))
 
         # Stitch with ffmpeg into mp4
+        vf_filter = "scale='min(4096,iw)':'min(4096,ih)':force_original_aspect_ratio=decrease,pad=ceil(iw/2)*2:ceil(ih/2)*2"
         cmd_mp4 = [
             'ffmpeg', '-y',
             '-r', str(fps),
             '-i', os.path.join(temp_dir, 'frame_%04d.png'),
-            '-c:v', 'libx264',
+            '-vf', vf_filter,
+            '-c:v', 'h264_nvenc',
+            '-preset', 'p4',
             '-pix_fmt', 'yuv420p',
             str(output_mp4)
         ]
         res = subprocess.run(cmd_mp4, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+        if res.returncode != 0:
+            cmd_fb = [
+                'ffmpeg', '-y',
+                '-r', str(fps),
+                '-i', os.path.join(temp_dir, 'frame_%04d.png'),
+                '-vf', vf_filter,
+                '-c:v', 'mpeg4',
+                '-q:v', '2',
+                '-pix_fmt', 'yuv420p',
+                str(output_mp4)
+            ]
+            res = subprocess.run(cmd_fb, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+
         if res.returncode == 0:
             print(f"Saved MP4 animation: {output_mp4}")
         else:

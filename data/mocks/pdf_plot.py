@@ -1,6 +1,7 @@
 # Python script to plot the actual and predicted PDFs using a discrete form for the PDFs (n bins in log temp space)
 
 import os
+import subprocess
 import sys
 from multiprocessing.shared_memory import SharedMemory
 
@@ -41,8 +42,8 @@ RUN_GATE_ENTROPY_DIAGNOSTIC = True
 # =========================
 # SETTINGS
 # =========================
-DEFAULT_FINE_RESOLUTION = (1024, 512)
-DEFAULT_DOWNSAMPLE = 64
+DEFAULT_FINE_RESOLUTION = (512, 256)
+DEFAULT_DOWNSAMPLE = 32
 
 
 def _parse_resolution(value: str, default: tuple[int, int]) -> tuple[int, int]:
@@ -54,9 +55,9 @@ def _parse_resolution(value: str, default: tuple[int, int]) -> tuple[int, int]:
 
 
 resolution = _parse_resolution(
-    os.environ.get("PDF_CNN_RESOLUTION", "1024,512"), DEFAULT_FINE_RESOLUTION
+    os.environ.get("HR_EVAL_RESOLUTION", os.environ.get("PDF_CNN_RESOLUTION", "512,256")), DEFAULT_FINE_RESOLUTION
 )
-downsample = int(os.environ.get("PDF_CNN_DOWNSAMPLE", str(DEFAULT_DOWNSAMPLE)))
+downsample = int(os.environ.get("HR_EVAL_DOWNSAMPLE", os.environ.get("PDF_CNN_DOWNSAMPLE", str(DEFAULT_DOWNSAMPLE))))
 bins = 40
 
 
@@ -177,6 +178,16 @@ def get_best_video_codec():
     return "mpeg4"
 
 
+def get_ffmpeg_codec_args(codec):
+    """Return high-quality encoding arguments for the detected codec."""
+    if codec == "h264_nvenc":
+        return ["-c:v", "h264_nvenc", "-cq", "18", "-b:v", "12M", "-maxrate", "18M", "-bufsize", "24M"]
+    elif codec == "libx264":
+        return ["-c:v", "libx264", "-crf", "18", "-preset", "slow"]
+    else:
+        return ["-c:v", "mpeg4", "-q:v", "2"]
+
+
 def generate_parallel_animation(worker_func, nt, output_path, fps, num_workers=16, extra_args=None):
     import tempfile
     import shutil
@@ -253,25 +264,28 @@ def generate_parallel_animation(worker_func, nt, output_path, fps, num_workers=1
         print(f"Stitching frames together into {output_path} using ffmpeg...")
         os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
         codec = get_best_video_codec()
+        codec_args = get_ffmpeg_codec_args(codec)
+        vf_filter = "scale='min(4096,iw)':'min(4096,ih)':force_original_aspect_ratio=decrease,pad=ceil(iw/2)*2:ceil(ih/2)*2"
         
         cmd = [
             "ffmpeg", "-y",
             "-framerate", str(fps),
             "-i", os.path.join(temp_dir, "frame_%04d.png"),
-            "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2",
-            "-c:v", codec,
+            "-vf", vf_filter,
+            *codec_args,
             "-pix_fmt", "yuv420p",
             output_path
         ]
         res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         if res.returncode != 0:
-            # Fallback to mpeg4
+            # Fallback to high-quality mpeg4
             cmd_fb = [
                 "ffmpeg", "-y",
                 "-framerate", str(fps),
                 "-i", os.path.join(temp_dir, "frame_%04d.png"),
-                "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2",
+                "-vf", vf_filter,
                 "-c:v", "mpeg4",
+                "-q:v", "2",
                 "-pix_fmt", "yuv420p",
                 output_path
             ]
@@ -293,7 +307,9 @@ def worker_pdf_compare(frames_list, temp_dir, nt, nx, ny, nb, temp_pdf, conv_tem
     import numpy as np
     import os
 
-    fig2 = plt.figure(figsize=(ny * 4.0, nx * 1.8))
+    fig_w = min(max(ny * 1.0, 12.0), 36.0)
+    fig_h = min(max(nx * 0.5, 8.0), 28.0)
+    fig2 = plt.figure(figsize=(fig_w, fig_h))
     gs2 = fig2.add_gridspec(1, 3, width_ratios=[1, 1, 0.05], top=0.90, wspace=0.15)
 
     # Add section titles for True vs Predicted groups
@@ -301,7 +317,7 @@ def worker_pdf_compare(frames_list, temp_dir, nt, nx, ny, nb, temp_pdf, conv_tem
         0.24,
         0.92,
         "TRUE PDFs (Simulation)",
-        fontsize=36,
+        fontsize=14,
         ha="center",
         va="center",
         weight="bold",
@@ -310,7 +326,7 @@ def worker_pdf_compare(frames_list, temp_dir, nt, nx, ny, nb, temp_pdf, conv_tem
         0.72,
         0.92,
         "PREDICTED PDFs (CNN Model)",
-        fontsize=36,
+        fontsize=14,
         ha="center",
         va="center",
         weight="bold",
@@ -358,8 +374,8 @@ def worker_pdf_compare(frames_list, temp_dir, nt, nx, ny, nb, temp_pdf, conv_tem
     sm2 = plt.cm.ScalarMappable(cmap=cmap, norm=norm)
     sm2.set_array([])
     cbar2 = fig2.colorbar(sm2, cax=cbar_ax2)
-    cbar2.set_label(r"Expectation Value of \log_{10} Temperature", fontsize=36)
-    cbar2.ax.tick_params(labelsize=28)
+    cbar2.set_label(r"Expectation Value of $\log_{10}$ Temperature", fontsize=12)
+    cbar2.ax.tick_params(labelsize=10)
 
     true_lines, pred_lines = np.empty((nx, ny), dtype=object), np.empty((nx, ny), dtype=object)
     true_texts, pred_texts = np.empty((nx, ny), dtype=object), np.empty((nx, ny), dtype=object)
@@ -372,17 +388,19 @@ def worker_pdf_compare(frames_list, temp_dir, nt, nx, ny, nb, temp_pdf, conv_tem
             true_axes[i, j].set_xlim(0, nb - 1)
             true_axes[i, j].set_yscale("log")
             true_axes[i, j].set_ylim(1e-5, 1.1)
+            true_axes[i, j].tick_params(left=False, labelleft=False, bottom=False, labelbottom=False)
 
             pred_axes[i, j].set_xlim(0, nb - 1)
             pred_axes[i, j].set_yscale("log")
             pred_axes[i, j].set_ylim(1e-5, 1.1)
+            pred_axes[i, j].tick_params(left=False, labelleft=False, bottom=False, labelbottom=False)
 
             ttxt = true_axes[i, j].text(
                 0.95,
                 0.95,
                 "",
                 transform=true_axes[i, j].transAxes,
-                fontsize=6,
+                fontsize=5,
                 color="black",
                 ha="right",
                 va="top",
@@ -393,7 +411,7 @@ def worker_pdf_compare(frames_list, temp_dir, nt, nx, ny, nb, temp_pdf, conv_tem
                 0.95,
                 "",
                 transform=pred_axes[i, j].transAxes,
-                fontsize=6,
+                fontsize=5,
                 color="black",
                 ha="right",
                 va="top",
@@ -464,13 +482,13 @@ def worker_pdf_compare(frames_list, temp_dir, nt, nx, ny, nb, temp_pdf, conv_tem
                 true_texts[i, j].set_text(f"{tic:.1e}")
                 pred_texts[i, j].set_text(f"{pc:.1e}")
 
-        fig2.suptitle(f"True vs Predicted PDFs | t = {frame}", fontsize=48, y=0.96)
+        fig2.suptitle(f"True vs Predicted PDFs | t = {frame}", fontsize=16, y=0.96)
 
         if frame == 0:
-            fig2.savefig(snapshot_compare_path, dpi=300)
+            fig2.savefig(snapshot_compare_path, dpi=150)
 
-        # dpi=40 is fast and sharp enough
-        fig2.savefig(os.path.join(temp_dir, f"frame_{frame:04d}.png"), dpi=40)
+        # Render frames at dpi=100
+        fig2.savefig(os.path.join(temp_dir, f"frame_{frame:04d}.png"), dpi=100)
         
         # Write progress marker
         with open(os.path.join(temp_dir, f"progress_{frame}.txt"), "w") as f:
@@ -504,9 +522,6 @@ def worker_cooling_compare(frames_list, temp_dir, nt, cool_vmin, cool_vmax, true
             wspace=0.15,
         )
 
-        fig3.text(0.20, 0.90, "TRUE PDF COOLING", fontsize=14, ha="center", va="center", weight="bold")
-        fig3.text(0.50, 0.90, "PREDICTED COOLING (CNN)", fontsize=14, ha="center", va="center", weight="bold")
-        fig3.text(0.80, 0.90, r"COARSE-GRAIN $\bar{n}^2 \Lambda(\bar{T})$", fontsize=14, ha="center", va="center", weight="bold")
 
         ax_t = fig3.add_subplot(gs3[0])
         ax_t.set_title(r"True PDF ($\bar{n}^2 \sum_i \Lambda(T_i)\mathrm{PDF}$)", fontsize=12)
@@ -572,7 +587,7 @@ def worker_cooling_compare(frames_list, temp_dir, nt, cool_vmin, cool_vmax, true
         if frame == 0:
             fig3.savefig(snapshot_cooling_compare_path, dpi=300)
 
-        fig3.savefig(os.path.join(temp_dir, f"frame_{frame:04d}.png"), dpi=100)
+        fig3.savefig(os.path.join(temp_dir, f"frame_{frame:04d}.png"), dpi=300)
         
         # Write progress marker
         with open(os.path.join(temp_dir, f"progress_{frame}.txt"), "w") as f:
@@ -581,25 +596,48 @@ def worker_cooling_compare(frames_list, temp_dir, nt, cool_vmin, cool_vmax, true
     plt.close(fig3)
 
 
-def render_density_gate_sequential(nt, temp_dir, rho_vmin, rho_vmax, sim_data_rho, cg_rho, cnn_gate_maps, snapshot_density_path):
+def render_density_gate_sequential(nt, temp_dir, rho_vmin, rho_vmax, data_path_or_rho, cg_rho, cnn_gate_maps, snapshot_density_path):
     """Render every density-gate frame sequentially in a single process.
 
-    Using parallel workers here causes each worker to receive a full copy of
-    sim_data_rho, cg_rho, and cnn_gate_maps (all large arrays), which balloons
-    RAM and freezes Python.  Sequential rendering reuses a single figure and
-    never duplicates the arrays.
+    Streams fine-grid rho snapshot-by-snapshot to avoid allocating 100+ GB of RAM.
     """
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     import numpy as np
     from tqdm import tqdm
+    import os
+
+    w_files = []
+    is_path = isinstance(data_path_or_rho, (str, bytes, os.PathLike)) and os.path.isdir(data_path_or_rho)
+    if is_path:
+        try:
+            import bin_convert
+            w_files = sorted(
+                [f for f in os.listdir(data_path_or_rho) if ".hydro_w." in f and f.endswith(".bin")],
+                key=lambda f: int(f.split(".")[-2]),
+            )
+        except Exception:
+            w_files = []
+
+    def _get_fine_rho(frame):
+        if is_path and w_files and frame < len(w_files):
+            try:
+                import bin_convert
+                file_data = bin_convert.read_binary(os.path.join(data_path_or_rho, w_files[frame]))
+                return bin_convert.make_2D_array(file_data, "dens").astype(np.float32)
+            except Exception:
+                pass
+        elif isinstance(data_path_or_rho, np.ndarray):
+            return data_path_or_rho[frame]
+        return cg_rho[frame]
 
     fig5, axes5 = plt.subplots(1, 3, figsize=(12, 7))
     ax_fine, ax_cg, ax_gate = axes5
 
+    rho0 = _get_fine_rho(0)
     im_fine = ax_fine.imshow(
-        np.log10(sim_data_rho[0] + 1e-10),
+        np.log10(rho0 + 1e-10),
         origin="lower", cmap="viridis", vmin=rho_vmin, vmax=rho_vmax
     )
     ax_fine.set_title(r"True Density (Before CG) [$\log_{10}$]", fontsize=14)
@@ -627,7 +665,8 @@ def render_density_gate_sequential(nt, temp_dir, rho_vmin, rho_vmax, sim_data_rh
     plt.tight_layout(rect=[0, 0.03, 1, 0.95], w_pad=1.0)
 
     for frame in tqdm(range(nt), desc="Rendering density gate frames"):
-        im_fine.set_data(np.log10(sim_data_rho[frame] + 1e-10))
+        rho_frame = _get_fine_rho(frame)
+        im_fine.set_data(np.log10(rho_frame + 1e-10))
         im_cg.set_data(np.log10(cg_rho[frame] + 1e-10))
         im_gate.set_data(cnn_gate_maps[frame])
         title5.set_text(f"Density & Gate Comparison | t = {frame}")
@@ -635,24 +674,29 @@ def render_density_gate_sequential(nt, temp_dir, rho_vmin, rho_vmax, sim_data_rh
         if frame == 0:
             fig5.savefig(snapshot_density_path, dpi=300)
 
-        fig5.savefig(os.path.join(temp_dir, f"frame_{frame:04d}.png"), dpi=100)
+        fig5.savefig(os.path.join(temp_dir, f"frame_{frame:04d}.png"), dpi=300)
 
     plt.close(fig5)
 
 
-def batch_predict_with_gate(sim_data, downsample, resolution, device):
-    from models.conv_nn.pdf_cnn import ConvNN, MODEL_SAVE_DIR, in_channels, layer_size1, layer_size2, layer_size3, layer_size4, out_channels, kernel_size
+def batch_predict_with_gate(cg_inputs, downsample, resolution, device):
+    from models.conv_nn.pdf_cnn import ConvNN, in_channels, layer_size1, layer_size2, layer_size3, layer_size4, out_channels, kernel_size
     import torch
     import numpy as np
     from tqdm import tqdm
     import os
+    import glob
 
-    nt = sim_data.rho.shape[0]
-    shape = (resolution[0] // downsample, resolution[1] // downsample)
-    nx, ny = shape
-    
+    model_save_dir = os.environ.get("MODEL_SAVES_DIR", os.environ.get("MODEL_SAVE_DIR", "model_saves"))
+    nt, _, nx, ny = cg_inputs.shape
+
     # 1. Load model once
-    model_path = os.path.join(MODEL_SAVE_DIR, f"cnn_{resolution}_{downsample}.pth")
+    model_path = os.path.join(model_save_dir, f"cnn_{resolution}_{downsample}.pth")
+    if not os.path.exists(model_path):
+        pths = [p for p in sorted(glob.glob(os.path.join(model_save_dir, "cnn_*.pth"))) if "_gate" not in p]
+        if pths:
+            model_path = pths[0]
+
     state_dict = torch.load(model_path, map_location=device)
     ckpt_ksize = kernel_size
     if "encoder.0.weight" in state_dict:
@@ -669,112 +713,121 @@ def batch_predict_with_gate(sim_data, downsample, resolution, device):
     ).to(device)
     cnn_model.load_state_dict(state_dict)
     cnn_model.eval()
-    
+
     # 2. Load normalization stats once
+    mean_path = os.path.join(model_save_dir, f"cnn_{resolution}_{downsample}_input_mean.npy")
+    std_path = os.path.join(model_save_dir, f"cnn_{resolution}_{downsample}_input_std.npy")
+    if not (os.path.exists(mean_path) and os.path.exists(std_path)):
+        m_list = [p for p in sorted(glob.glob(os.path.join(model_save_dir, "cnn_*_input_mean.npy"))) if "_gate" not in p]
+        s_list = [p for p in sorted(glob.glob(os.path.join(model_save_dir, "cnn_*_input_std.npy"))) if "_gate" not in p]
+        if m_list and s_list:
+            mean_path, std_path = m_list[0], s_list[0]
+
     input_mean = torch.tensor(
-        np.load(os.path.join(MODEL_SAVE_DIR, f"cnn_{resolution}_{downsample}_input_mean.npy")),
+        np.load(mean_path),
         dtype=torch.float32,
     ).to(device)
     input_std = torch.tensor(
-        np.load(os.path.join(MODEL_SAVE_DIR, f"cnn_{resolution}_{downsample}_input_std.npy")),
+        np.load(std_path),
         dtype=torch.float32,
     ).to(device)
-    
-    conv_temp_pdf = np.zeros((nt, out_channels, nx, ny))
-    cnn_gate_maps = np.zeros((nt, nx, ny))
-    cnn_vort_maps = np.zeros((nt, nx, ny))
-    
+
+    conv_temp_pdf = np.zeros((nt, out_channels, nx, ny), dtype=np.float32)
+    cnn_gate_maps = np.zeros((nt, nx, ny), dtype=np.float32)
+    cnn_vort_maps = np.zeros((nt, nx, ny), dtype=np.float32)
+
+    batch_size = 64
     print("Running batch predictions...")
     with torch.no_grad():
-        for i in tqdm(range(nt), desc="Predicting CNN temperature PDFs"):
-            # Coarse-grain inputs
-            cg_rho = sim_data.coarse_grain(sim_data.rho[i])
-            cg_temp = sim_data.coarse_grain(sim_data.temp[i])
-            cg_ux = sim_data.coarse_grain(sim_data.ux[i])
-            cg_uy = sim_data.coarse_grain(sim_data.uy[i])
-            cg_ps = sim_data.coarse_grain(sim_data.ps[i])
-            
-            # Stack and build input tensor
-            stack = np.stack([cg_rho, cg_temp, cg_ux, cg_uy, cg_ps], axis=0).astype(np.float32)
-            input_tensor = torch.from_numpy(stack).unsqueeze(0).to(device) # (1, C, nx, ny)
-            
-            # Normalize
+        for start_idx in range(0, nt, batch_size):
+            end_idx = min(start_idx + batch_size, nt)
+            batch_arr = cg_inputs[start_idx:end_idx]
+            input_tensor = torch.from_numpy(batch_arr).to(device)
             input_tensor = (input_tensor - input_mean) / input_std
-            
-            # Predict
+
             x_enriched = cnn_model.mixing(input_tensor)
             mixing_feats = x_enriched[:, -cnn_model._N_MIXING :, :, :]
             gate_raw = cnn_model.gate_branch(mixing_feats)
-            
+
             features = cnn_model.encoder(x_enriched)
             logits = cnn_model.decoder(features)
             pdf_tensor = cnn_model.pdf_activation(logits, gate_raw)
-            
-            conv_temp_pdf[i] = pdf_tensor[0].cpu().numpy()
-            cnn_gate_maps[i] = gate_raw[0, 0].cpu().numpy()
-            cnn_vort_maps[i] = mixing_feats[0, 0].cpu().numpy()
-            
+
+            conv_temp_pdf[start_idx:end_idx] = pdf_tensor.cpu().numpy()
+            cnn_gate_maps[start_idx:end_idx] = gate_raw[:, 0].cpu().numpy()
+            cnn_vort_maps[start_idx:end_idx] = mixing_feats[:, 0].cpu().numpy()
+
     return conv_temp_pdf, cnn_gate_maps, cnn_vort_maps
 
+
 if __name__ == '__main__':
-    
-    
+
     # =========================
     # LOAD DATA
     # =========================
     print("Loading data...")
-    
-    sim_data = simulation_data()
-    sim_data.down_sample = downsample
-    sim_data.resolution = resolution
-    
-    sim_data.rho = np.load(f"{folder_path}/rho.npy")
-    sim_data.temp = np.load(f"{folder_path}/temp.npy")
-    sim_data.pressure = np.load(f"{folder_path}/pressure.npy")
-    sim_data.ux = np.load(f"{folder_path}/ux.npy")
-    sim_data.uy = np.load(f"{folder_path}/uy.npy")
-    sim_data.eint = np.load(f"{folder_path}/eint.npy")
-    sim_data.ps = np.load(f"{folder_path}/ps.npy")
-    
-    print("Data loaded.")
-    
-    # Derive the Code's internal Temperature Unit factor ONCE globally
-    # T_phys = T_unit * (P_code / rho_code), so T_unit = T_phys * (rho_code / P_code)
-    # (If your code uses v0 = 1 km/s and mu = 0.62, this will perfectly equal ~75.0 K)
-    mu = 0.62
-    T_unit = float(np.median(sim_data.temp[0] * sim_data.rho[0] / sim_data.pressure[0]))
-    print(f"Derived internal T_unit = {T_unit:.2f} K")
-    
-    
-    # =========================
-    # COMPUTE PDF
-    # =========================
-    print("Computing pixel PDFs...")
-    
-    temp_pdf = sim_data.calc_pixel_pdf(bins=bins)
-    temp_pdf /= temp_pdf.sum(axis=1, keepdims=True) + 1e-12
-    
-    nt, nb, nx, ny = temp_pdf.shape
-    print(f"Shape: nt={nt}, bins={nb}, nx={nx}, ny={ny}")
-    
-    # âââ Predict CNN temperature PDFs, gate, and vorticity (optimized batch) âââ
-    conv_temp_pdf, cnn_gate_maps, cnn_vort_maps = batch_predict_with_gate(
-        sim_data, downsample, resolution, device
+
+    data_path = os.environ.get(
+        "SUBGRID_DATA_PATH",
+        os.path.join(os.environ.get("HR_SIM_OUTPUT", ""), "bin"),
     )
-    conv_temp_pdf /= conv_temp_pdf.sum(axis=1, keepdims=True) + 1e-12
-    
-    
-    # =========================
-    # COARSE-GRAIN TEMP
-    # =========================
-    print("Computing coarse-grained temperature...")
-    
-    cg_rho = np.zeros((nt, nx, ny))
-    cg_temp = np.zeros((nt, nx, ny))
-    
-    for t in tqdm(range(nt), desc="Coarse-graining temperature & density"):
-        cg_rho[t] = sim_data.coarse_grain(sim_data.rho[t])
-        cg_temp[t] = sim_data.coarse_grain(sim_data.temp[t])
+
+    coarse_cache_dir = os.path.join(CACHE_PATH, f"coarse_{resolution[0]}x{resolution[1]}_ds{downsample}_bins{bins}")
+    cg_inputs_path = os.path.join(coarse_cache_dir, "cg_inputs.npy")
+    cg_pdfs_path = os.path.join(coarse_cache_dir, "cg_pdfs.npy")
+
+    if os.path.exists(cg_inputs_path) and os.path.exists(cg_pdfs_path):
+        print(f"Loading coarse data from cache: {coarse_cache_dir}")
+        cg_inputs = np.load(cg_inputs_path)
+        temp_pdf = np.load(cg_pdfs_path)
+    elif os.path.exists(f"{folder_path}/rho.npy"):
+        print(f"Loading from legacy cache: {folder_path}...")
+        sim_data = simulation_data()
+        sim_data.resolution = resolution
+        sim_data.down_sample = downsample
+        sim_data.rho = np.load(f"{folder_path}/rho.npy", mmap_mode="r")
+        sim_data.temp = np.load(f"{folder_path}/temp.npy", mmap_mode="r")
+        sim_data.pressure = np.load(f"{folder_path}/pressure.npy", mmap_mode="r")
+        sim_data.ux = np.load(f"{folder_path}/ux.npy", mmap_mode="r")
+        sim_data.uy = np.load(f"{folder_path}/uy.npy", mmap_mode="r")
+        sim_data.ps = np.load(f"{folder_path}/ps.npy", mmap_mode="r")
+        _nt = sim_data.rho.shape[0]
+        _nx, _ny = sim_data.coarse_grain(sim_data.rho[0]).shape
+        cg_inputs = np.zeros((_nt, 5, _nx, _ny), dtype=np.float32)
+        for t in range(_nt):
+            cg_inputs[t, 0] = sim_data.coarse_grain(sim_data.rho[t])
+            cg_inputs[t, 1] = sim_data.coarse_grain(sim_data.temp[t])
+            cg_inputs[t, 2] = sim_data.coarse_grain(sim_data.ux[t])
+            cg_inputs[t, 3] = sim_data.coarse_grain(sim_data.uy[t])
+            cg_inputs[t, 4] = sim_data.coarse_grain(sim_data.ps[t])
+        temp_pdf = sim_data.calc_pixel_pdf(bins=bins)
+    else:
+        print(f"Cache not found in {coarse_cache_dir}. Processing binary snapshots streamingly...")
+        from random_snapshot_training import load_or_create_coarse_data
+        cg_inputs, temp_pdf = load_or_create_coarse_data(
+            data_path,
+            CACHE_PATH,
+            resolution=resolution,
+            downsample=downsample,
+            out_channels=bins,
+        )
+
+    temp_pdf /= (temp_pdf.sum(axis=1, keepdims=True) + 1e-12)
+    nt, nb, nx, ny = temp_pdf.shape
+    print(f"Data loaded. Shape: nt={nt}, bins={nb}, nx={nx}, ny={ny}")
+
+    # Coarse-grained fields
+    cg_rho = cg_inputs[:, 0]
+    cg_temp = cg_inputs[:, 1]
+    cg_ux = cg_inputs[:, 2]
+    cg_uy = cg_inputs[:, 3]
+    cg_ps = cg_inputs[:, 4]
+
+    # --- Predict CNN temperature PDFs, gate, and vorticity (optimized batch) ---
+    conv_temp_pdf, cnn_gate_maps, cnn_vort_maps = batch_predict_with_gate(
+        cg_inputs, downsample, resolution, device
+    )
+    conv_temp_pdf /= (conv_temp_pdf.sum(axis=1, keepdims=True) + 1e-12)
     
     
     # =========================
@@ -811,8 +864,8 @@ if __name__ == '__main__':
     
         temp_ax.set_title(r"$\log_{10}$ Temp (CG)")
         cbar = plt.colorbar(temp_im, ax=temp_ax, fraction=0.046)
-        cbar.set_label(r"$\log_{10}$ Temperature / Expectation Value", fontsize=24)
-        cbar.ax.tick_params(labelsize=18)
+        cbar.set_label(r"$\log_{10}$ Temperature / Expectation Value", fontsize=14)
+        cbar.ax.tick_params(labelsize=11)
     
         # =========================
         # INIT LINES
@@ -872,7 +925,7 @@ if __name__ == '__main__':
             log_temp = np.log10(cg_temp[frame] + 1e-8)
             temp_im.set_data(log_temp)
     
-            fig.suptitle(f"t = {frame}", fontsize=48)
+            fig.suptitle(f"t = {frame}", fontsize=18)
     
             # Save first frame
             if frame == 0:
@@ -891,11 +944,15 @@ if __name__ == '__main__':
         anim = animation.FuncAnimation(fig, update, frames=nt, init_func=init, blit=False)
     
         print("Saving MP4...")
+        codec = get_best_video_codec()
+        codec_args = get_ffmpeg_codec_args(codec)
         with tqdm(total=nt, desc="Saving MP4") as pbar:
             anim.save(
                 mp4_path,
                 writer="ffmpeg",
                 fps=10,
+                dpi=300,
+                extra_args=codec_args,
                 progress_callback=lambda i, n: pbar.update(1),
             )
     
@@ -943,16 +1000,8 @@ if __name__ == '__main__':
     active_bin_end = np.searchsorted(temp_centers, 10**logT_active_end)
     
     # ------------------------------------------------------------------
-    # (B) Coarse-grain pressure  (kept for reference; no longer used in
-    #     cooling â cooling now uses rho_cg which is already computed above)
-    # ------------------------------------------------------------------
-    cg_pressure = np.zeros((nt, nx, ny))
-    for t in tqdm(range(nt), desc="Coarse-graining pressure"):
-        cg_pressure[t] = sim_data.coarse_grain(sim_data.pressure[t])
-    
-    # ------------------------------------------------------------------
     # (C) Cool_True_PDF : use TRUE PDF, n = rho_cg / mu  (no isobaric assumption)
-    #     n^2 Ã sum_i PDF(T_i) Î(T_i)
+    #     n^2 Ã— sum_i PDF(T_i) Î›(T_i)
     # ------------------------------------------------------------------
     print("  (C) True PDF cooling (using simulation PDF)...")
     true_iso_cool = np.zeros((nt, nx, ny))
@@ -1002,8 +1051,6 @@ if __name__ == '__main__':
     cg_resolved_cool *= _code_to_cgs
     print("  Conversion done.")
 
-    # Free memory for fine-grid simulation arrays that are no longer needed
-    del sim_data.temp, sim_data.pressure, sim_data.ux, sim_data.uy, sim_data.eint, sim_data.ps
     
     # =========================
     # METRICS
@@ -1272,7 +1319,7 @@ if __name__ == '__main__':
             nt,
             mp4_path_compare,
             fps=10,
-            num_workers=16,
+            num_workers=min(4, os.cpu_count() or 4),
             extra_args=(
                 nx,
                 ny,
@@ -1311,7 +1358,7 @@ if __name__ == '__main__':
             nt,
             mp4_path_cooling_compare,
             fps=10,
-            num_workers=16,
+            num_workers=min(8, os.cpu_count() or 8),
             extra_args=(
                 cool_vmin,
                 cool_vmax,
@@ -1450,11 +1497,15 @@ if __name__ == '__main__':
         )
     
         print("Saving three-panel comparison MP4...")
+        codec = get_best_video_codec()
+        codec_args = get_ffmpeg_codec_args(codec)
         with tqdm(total=nt, desc="Saving three-panel MP4") as pbar:
             anim4.save(
                 mp4_path_fourway,
                 writer="ffmpeg",
                 fps=10,
+                dpi=300,
+                extra_args=codec_args,
                 progress_callback=lambda i, n: pbar.update(1),
             )
     
@@ -1486,41 +1537,44 @@ if __name__ == '__main__':
             render_density_gate_sequential(
                 nt, _temp_dir,
                 rho_vmin, rho_vmax,
-                sim_data.rho, cg_rho, cnn_gate_maps,
+                data_path, cg_rho, cnn_gate_maps,
                 snapshot_density_path,
             )
 
-            print(f"Stitching density gate frames â {mp4_path_density}")
+            print(f"Stitching density gate frames → {mp4_path_density}")
             os.makedirs(os.path.dirname(os.path.abspath(mp4_path_density)), exist_ok=True)
             codec = get_best_video_codec()
+            codec_args = get_ffmpeg_codec_args(codec)
+            vf_filter = "scale='min(4096,iw)':'min(4096,ih)':force_original_aspect_ratio=decrease,pad=ceil(iw/2)*2:ceil(ih/2)*2"
             cmd = [
                 "ffmpeg", "-y",
                 "-framerate", "24",
                 "-i", os.path.join(_temp_dir, "frame_%04d.png"),
-                "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2",
-                "-c:v", codec,
+                "-vf", vf_filter,
+                *codec_args,
                 "-pix_fmt", "yuv420p",
                 mp4_path_density,
             ]
             res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
             if res.returncode != 0:
-                # Fallback to mpeg4
+                # Fallback to high-quality mpeg4
                 cmd_fb = [
                     "ffmpeg", "-y",
                     "-framerate", "24",
                     "-i", os.path.join(_temp_dir, "frame_%04d.png"),
-                    "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2",
+                    "-vf", vf_filter,
                     "-c:v", "mpeg4",
+                    "-q:v", "2",
                     "-pix_fmt", "yuv420p",
                     mp4_path_density,
                 ]
                 res_fb = subprocess.run(cmd_fb, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
                 if res_fb.returncode != 0:
-                    print(f"ffmpeg error: {res.stderr.decode()}")
+                    print(f"ffmpeg error: {res_fb.stderr.decode()}")
                 else:
-                    print(f"Saved density/gate animation â {mp4_path_density}")
+                    print(f"Saved density/gate animation → {mp4_path_density}")
             else:
-                print(f"Saved density/gate animation â {mp4_path_density}")
+                print(f"Saved density/gate animation → {mp4_path_density}")
         finally:
             shutil.rmtree(_temp_dir)
 

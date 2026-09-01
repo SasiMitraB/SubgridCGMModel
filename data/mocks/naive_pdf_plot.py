@@ -1,6 +1,7 @@
 # Python script to plot the actual and predicted PDFs using a discrete form for the PDFs (n bins in log temp space)
 
 import os
+import subprocess
 import sys
 from multiprocessing.shared_memory import SharedMemory
 
@@ -184,6 +185,16 @@ def get_best_video_codec():
     return "mpeg4"
 
 
+def get_ffmpeg_codec_args(codec):
+    """Return high-quality encoding arguments for the detected codec."""
+    if codec == "h264_nvenc":
+        return ["-c:v", "h264_nvenc", "-cq", "18", "-b:v", "12M", "-maxrate", "18M", "-bufsize", "24M"]
+    elif codec == "libx264":
+        return ["-c:v", "libx264", "-crf", "18", "-preset", "slow"]
+    else:
+        return ["-c:v", "mpeg4", "-q:v", "2"]
+
+
 def generate_parallel_animation(worker_func, nt, output_path, fps, num_workers=16, extra_args=None):
     import tempfile
     import shutil
@@ -260,24 +271,28 @@ def generate_parallel_animation(worker_func, nt, output_path, fps, num_workers=1
         print(f"Stitching frames together into {output_path} using ffmpeg...")
         os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
         codec = get_best_video_codec()
+        codec_args = get_ffmpeg_codec_args(codec)
+        vf_filter = "scale='min(4096,iw)':'min(4096,ih)':force_original_aspect_ratio=decrease,pad=ceil(iw/2)*2:ceil(ih/2)*2"
         
         cmd = [
             "ffmpeg", "-y",
             "-framerate", str(fps),
             "-i", os.path.join(temp_dir, "frame_%04d.png"),
-            "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2",
-            "-c:v", codec,
+            "-vf", vf_filter,
+            *codec_args,
             "-pix_fmt", "yuv420p",
             output_path
         ]
         res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         if res.returncode != 0:
+            # Fallback to high-quality mpeg4
             cmd_fb = [
                 "ffmpeg", "-y",
                 "-framerate", str(fps),
                 "-i", os.path.join(temp_dir, "frame_%04d.png"),
-                "-vf", "pad=ceil(iw/2)*2:ceil(ih/2)*2",
+                "-vf", vf_filter,
                 "-c:v", "mpeg4",
+                "-q:v", "2",
                 "-pix_fmt", "yuv420p",
                 output_path
             ]
@@ -475,8 +490,8 @@ def worker_pdf_compare(frames_list, temp_dir, nt, nx, ny, nb, temp_pdf, conv_tem
         if frame == 0:
             fig2.savefig(snapshot_compare_path, dpi=300)
 
-        # dpi=40 is fast and sharp enough
-        fig2.savefig(os.path.join(temp_dir, f"frame_{frame:04d}.png"), dpi=40)
+        # Render high-resolution frames at dpi=300
+        fig2.savefig(os.path.join(temp_dir, f"frame_{frame:04d}.png"), dpi=300)
         
         # Write progress marker
         with open(os.path.join(temp_dir, f"progress_{frame}.txt"), "w") as f:
@@ -570,7 +585,7 @@ def worker_cooling_compare(frames_list, temp_dir, nt, cool_vmin, cool_vmax, true
         if frame == 0:
             fig3.savefig(snapshot_cooling_compare_path, dpi=300)
 
-        fig3.savefig(os.path.join(temp_dir, f"frame_{frame:04d}.png"), dpi=100)
+        fig3.savefig(os.path.join(temp_dir, f"frame_{frame:04d}.png"), dpi=300)
         
         # Write progress marker
         with open(os.path.join(temp_dir, f"progress_{frame}.txt"), "w") as f:
@@ -1404,17 +1419,37 @@ if __name__ == '__main__':
             )
 
             print(f"Stitching density gate frames → {mp4_path_density}")
+            os.makedirs(os.path.dirname(os.path.abspath(mp4_path_density)), exist_ok=True)
+            codec = get_best_video_codec()
+            codec_args = get_ffmpeg_codec_args(codec)
+            vf_filter = "scale='min(4096,iw)':'min(4096,ih)':force_original_aspect_ratio=decrease,pad=ceil(iw/2)*2:ceil(ih/2)*2"
             cmd = [
                 "ffmpeg", "-y",
                 "-framerate", "24",
                 "-i", os.path.join(_temp_dir, "frame_%04d.png"),
-                "-c:v", "libx264",
+                "-vf", vf_filter,
+                *codec_args,
                 "-pix_fmt", "yuv420p",
                 mp4_path_density,
             ]
             res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
             if res.returncode != 0:
-                print(f"ffmpeg error: {res.stderr.decode()}")
+                # Fallback to high-quality mpeg4
+                cmd_fb = [
+                    "ffmpeg", "-y",
+                    "-framerate", "24",
+                    "-i", os.path.join(_temp_dir, "frame_%04d.png"),
+                    "-vf", vf_filter,
+                    "-c:v", "mpeg4",
+                    "-q:v", "2",
+                    "-pix_fmt", "yuv420p",
+                    mp4_path_density,
+                ]
+                res_fb = subprocess.run(cmd_fb, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+                if res_fb.returncode != 0:
+                    print(f"ffmpeg error: {res_fb.stderr.decode()}")
+                else:
+                    print(f"Saved density/gate animation → {mp4_path_density}")
             else:
                 print(f"Saved density/gate animation → {mp4_path_density}")
         finally:

@@ -160,12 +160,12 @@ T_centers = np.sqrt(T_edges[:-1] * T_edges[1:])
 
 logT_centers = torch.log10(torch.tensor(T_centers, dtype=torch.float32))
 
-LOGT_ACTIVE_START = float(os.environ.get("LOGT_ACTIVE_START", "4.2"))
-LOGT_ACTIVE_END = float(os.environ.get("LOGT_ACTIVE_END", "6.0"))
+LOGT_ACTIVE_START = float(os.environ.get("LOGT_ACTIVE_START", "4.021189299069938"))
+LOGT_ACTIVE_END = float(os.environ.get("LOGT_ACTIVE_END", "5.977723605288848"))
 
 
 # New Version that truncates to 10^4.5 to 10^5.5
-def lambda_cool(temp, mask=False):
+def lambda_cool(temp, mask=False, LOGT_ACTIVE_START=LOGT_ACTIVE_START, LOGT_ACTIVE_END=LOGT_ACTIVE_END):
     """
     Cooling function ISMCoolFn translated from AthenaK C++.
     Works on scalars or numpy arrays (any shape).
@@ -406,11 +406,12 @@ def nn_data(resolution: tuple, downsample: int) -> tuple:
         sim_data.eint = np.load(f"{folder_path}/eint.npy")
         sim_data.ps = np.load(f"{folder_path}/ps.npy")
 
-        sim_data.cons_rho = np.load(f"{folder_path}/cons_rho.npy")
-        sim_data.cons_momx = np.load(f"{folder_path}/cons_mx.npy")
-        sim_data.cons_momy = np.load(f"{folder_path}/cons_my.npy")
-        sim_data.cons_ener = np.load(f"{folder_path}/cons_ener.npy")
-        sim_data.cons_ps = np.load(f"{folder_path}/cons_ps.npy")
+        if os.path.exists(f"{folder_path}/cons_rho.npy"):
+            sim_data.cons_rho = np.load(f"{folder_path}/cons_rho.npy")
+            sim_data.cons_momx = np.load(f"{folder_path}/cons_mx.npy")
+            sim_data.cons_momy = np.load(f"{folder_path}/cons_my.npy")
+            sim_data.cons_ener = np.load(f"{folder_path}/cons_ener.npy")
+            sim_data.cons_ps = np.load(f"{folder_path}/cons_ps.npy")
     else:
         sim_data.input_data(file_path)
         sim_data.input_cons_data(file_path)
@@ -667,6 +668,11 @@ def snapshot_pred_16x8(
     if return_gate:
         return pdf, gate
     return pdf
+
+
+# Aliases for arbitrary coarse-grained shapes (e.g., 32x16, 16x8)
+snapshot_pred_cg = snapshot_pred_16x8
+snapshot_pred_coarse = snapshot_pred_16x8
 
 
 def snapshot_pred_with_gate(

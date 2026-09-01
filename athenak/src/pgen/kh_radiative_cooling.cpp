@@ -13,6 +13,9 @@
 
 #include <iostream>
 #include <sstream>
+#include <cstdio>
+#include <vector>
+#include <cmath>
 
 #include "athena.hpp"
 #include "parameter_input.hpp"
@@ -39,6 +42,7 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart) {
 
   // read problem parameters from input file
   int iprob  = pin->GetReal("problem","iprob");
+  std::string init_file = pin->GetOrAddString("problem", "init_file", "none");
   Real amp   = pin->GetOrAddReal("problem","amp",0.01);                   // amplitude of perturbation  
   Real sigma = pin->GetOrAddReal("problem","sigma",0.05);                 // characteristic length for the region where perturbation is applied
   Real vx_hot = pin->GetOrAddReal("problem","vx_hot",0.0);                 // x-velocity of the hot phase
@@ -111,44 +115,120 @@ void ProblemGenerator::UserProblem(ParameterInput *pin, const bool restart) {
   units::Units my_unit(pin);
 
   // initialize primitive variables
-  par_for("KHI", DevExeSpace(), 0,(pmbp->nmb_thispack-1),ks,ke,js,je,is,ie,
-  KOKKOS_LAMBDA(int m, int k, int j, int i) {
+  if (iprob == 2 || init_file != "none") {
+    int Nx1_mesh = pmy_mesh_->mesh_indcs.nx1;
+    int Nx2_mesh = pmy_mesh_->mesh_indcs.nx2;
+    const int num_vars = 7;
 
-    // Calculating the cell center coordinates
-    Real &x1min = size.d_view(m).x1min;
-    Real &x1max = size.d_view(m).x1max;
-    int nx1 = indcs.nx1;
-    Real x1v = CellCenterX(i-is, nx1, x1min, x1max);
-    Real &x2min = size.d_view(m).x2min;
-    Real &x2max = size.d_view(m).x2max;
-    int nx2 = indcs.nx2;
-    Real x2v = CellCenterX(j-js, nx2, x2min, x2max);
-
-    Real dens,pres,vx,vy,vz,scal;
-
-    if (iprob == 1) {
-        pres = p_in;
-        dens = rho0 - rho1*tanh((x2v - y_cold)/a_char);
-        vx = vshear_half + vshear_delta*tanh((x2v - y_cold)/a_char);            // this makes relative shear velocity = vx_hot - vx_cold.
-        // Adding perturbations to vy. The perturbation is a sum of sine functions with different wavelengths.
-        // wavenumbers are k_n = 2n*pi/L_x, where n = 5,10,18,25,32.
-        Real perturb = sin(2.0*5.0*M_PI*x1v/L_x)+sin(2.0*10.0*M_PI*x1v/L_x)+sin(2.0*18.0*M_PI*x1v/L_x)+sin(2.0*25.0*M_PI*x1v/L_x)+sin(2.0*32.0*M_PI*x1v/L_x);
-        vy = -amp*2.0*vshear_delta*(perturb)*exp( -SQR((x2v - y_cold)/sigma) );
-        vz = 0.0;
-        scal = y0 - y1*tanh((x2v - y_cold)/a_char);
+    std::vector<double> host_data(num_vars * Nx2_mesh * Nx1_mesh);
+    FILE *fp = std::fopen(init_file.c_str(), "rb");
+    if (!fp) {
+      std::cout << "### FATAL ERROR in " << __FILE__ << " at line " << __LINE__ << std::endl
+                << "Cannot open initial data file: " << init_file << std::endl;
+      std::exit(EXIT_FAILURE);
     }
+    size_t read_count = std::fread(host_data.data(), sizeof(double), host_data.size(), fp);
+    if (read_count != host_data.size()) {
+      std::cout << "### FATAL ERROR in " << __FILE__ << " at line " << __LINE__ << std::endl
+                << "Failed to read expected data elements (" << read_count << " / " << host_data.size()
+                << ") from: " << init_file << std::endl;
+      std::fclose(fp);
+      std::exit(EXIT_FAILURE);
+    }
+    std::fclose(fp);
 
-    // setting primitives
-    w0_(m,IDN,k,j,i) = dens;
-    w0_(m,IEN,k,j,i) = pres/gm1;
-    w0_(m,IVX,k,j,i) = vx;
-    w0_(m,IVY,k,j,i) = vy;
-    w0_(m,IVZ,k,j,i) = vz;
-    // adding passive scalars
-    for (int n=nfluid; n<(nfluid+nscalars); ++n) {
-      w0_(m,n,k,j,i) = scal;
-    } 
-  });
+    DvceArray3D<Real> d_ic_data("d_ic_data", num_vars, Nx2_mesh, Nx1_mesh);
+    auto h_ic_data = Kokkos::create_mirror(d_ic_data);
+
+    for (int v = 0; v < num_vars; ++v) {
+      for (int j = 0; j < Nx2_mesh; ++j) {
+        for (int i = 0; i < Nx1_mesh; ++i) {
+          h_ic_data(v, j, i) = host_data[v * (Nx2_mesh * Nx1_mesh) + j * Nx1_mesh + i];
+        }
+      }
+    }
+    Kokkos::deep_copy(d_ic_data, h_ic_data);
+
+    Real dx1 = pmy_mesh_->mesh_size.dx1;
+    Real dx2 = pmy_mesh_->mesh_size.dx2;
+
+    par_for("KHI_FromFile", DevExeSpace(), 0, (pmbp->nmb_thispack - 1), ks, ke, js, je, is, ie,
+    KOKKOS_LAMBDA(int m, int k, int j, int i) {
+      Real &x1min = size.d_view(m).x1min;
+      Real &x1max = size.d_view(m).x1max;
+      int nx1 = indcs.nx1;
+      Real x1v = CellCenterX(i - is, nx1, x1min, x1max);
+      Real &x2min = size.d_view(m).x2min;
+      Real &x2max = size.d_view(m).x2max;
+      int nx2 = indcs.nx2;
+      Real x2v = CellCenterX(j - js, nx2, x2min, x2max);
+
+      int ig = static_cast<int>((x1v - x1min_mesh) / dx1);
+      int jg = static_cast<int>((x2v - x2min_mesh) / dx2);
+      ig = (ig < 0) ? 0 : ((ig >= Nx1_mesh) ? (Nx1_mesh - 1) : ig);
+      jg = (jg < 0) ? 0 : ((jg >= Nx2_mesh) ? (Nx2_mesh - 1) : jg);
+
+      Real dens  = d_ic_data(0, jg, ig);
+      Real eint  = d_ic_data(1, jg, ig);
+      Real vx    = d_ic_data(2, jg, ig);
+      Real vy    = d_ic_data(3, jg, ig);
+      Real vz    = d_ic_data(4, jg, ig);
+      Real scal1 = d_ic_data(5, jg, ig);
+      Real scal2 = d_ic_data(6, jg, ig);
+
+      w0_(m, IDN, k, j, i) = dens;
+      w0_(m, IEN, k, j, i) = eint;
+      w0_(m, IVX, k, j, i) = vx;
+      w0_(m, IVY, k, j, i) = vy;
+      w0_(m, IVZ, k, j, i) = vz;
+      w0_(m, nfluid, k, j, i) = scal1;
+      if (nscalars > 1) {
+        w0_(m, nfluid + 1, k, j, i) = scal2;
+      }
+      for (int n = nfluid + 2; n < (nfluid + nscalars); ++n) {
+        w0_(m, n, k, j, i) = 0.0;
+      }
+    });
+  } else {
+    par_for("KHI", DevExeSpace(), 0,(pmbp->nmb_thispack-1),ks,ke,js,je,is,ie,
+    KOKKOS_LAMBDA(int m, int k, int j, int i) {
+
+      // Calculating the cell center coordinates
+      Real &x1min = size.d_view(m).x1min;
+      Real &x1max = size.d_view(m).x1max;
+      int nx1 = indcs.nx1;
+      Real x1v = CellCenterX(i-is, nx1, x1min, x1max);
+      Real &x2min = size.d_view(m).x2min;
+      Real &x2max = size.d_view(m).x2max;
+      int nx2 = indcs.nx2;
+      Real x2v = CellCenterX(j-js, nx2, x2min, x2max);
+
+      Real dens,pres,vx,vy,vz,scal;
+
+      if (iprob == 1) {
+          pres = p_in;
+          dens = rho0 - rho1*tanh((x2v - y_cold)/a_char);
+          vx = vshear_half + vshear_delta*tanh((x2v - y_cold)/a_char);            // this makes relative shear velocity = vx_hot - vx_cold.
+          // Adding perturbations to vy. The perturbation is a sum of sine functions with different wavelengths.
+          // wavenumbers are k_n = 2n*pi/L_x, where n = 5,10,18,25,32.
+          Real perturb = sin(2.0*5.0*M_PI*x1v/L_x)+sin(2.0*10.0*M_PI*x1v/L_x)+sin(2.0*18.0*M_PI*x1v/L_x)+sin(2.0*25.0*M_PI*x1v/L_x)+sin(2.0*32.0*M_PI*x1v/L_x);
+          vy = -amp*2.0*vshear_delta*(perturb)*exp( -SQR((x2v - y_cold)/sigma) );
+          vz = 0.0;
+          scal = y0 - y1*tanh((x2v - y_cold)/a_char);
+      }
+
+      // setting primitives
+      w0_(m,IDN,k,j,i) = dens;
+      w0_(m,IEN,k,j,i) = pres/gm1;
+      w0_(m,IVX,k,j,i) = vx;
+      w0_(m,IVY,k,j,i) = vy;
+      w0_(m,IVZ,k,j,i) = vz;
+      // adding passive scalars
+      for (int n=nfluid; n<(nfluid+nscalars); ++n) {
+        w0_(m,n,k,j,i) = scal;
+      } 
+    });
+  }
 
   // Convert primitives to conserved
   if (pmbp->phydro != nullptr) {
