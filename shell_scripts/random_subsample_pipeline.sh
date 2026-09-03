@@ -20,10 +20,28 @@ set -euo pipefail
 # =============================================================================
 PROJECT_ROOT="/home/sasi/Projects/SubgridCGMModel"
 
-# ---- 1. High-Resolution Training Data Source ----
-HR_TRAIN_OUTPUT="${PROJECT_ROOT}/simulation_outputs/hr_gpu_sweep_1024x2048_2xlength/vshear_31_coldfrac_0.67"
-HR_TRAIN_BIN_DIR="${HR_TRAIN_OUTPUT}/bin"
-HR_TRAIN_CACHE_DIR="${HR_TRAIN_OUTPUT}/cache"
+# ---- 1. High-Resolution Training Data Sources ----
+# Use both datasets from hr_gpu_sweep_1024x2048_2xlength for training
+HR_SWEEP_BASE="${PROJECT_ROOT}/simulation_outputs/hr_gpu_sweep_1024x2048_2xlength"
+HR_TRAIN_OUTPUT_1="${HR_TRAIN_OUTPUT_1:-${HR_SWEEP_BASE}/vshear_31_coldfrac_0.33}"
+HR_TRAIN_OUTPUT_2="${HR_TRAIN_OUTPUT_2:-${HR_SWEEP_BASE}/vshear_31_coldfrac_0.67}"
+
+HR_TRAIN_RUNS=(
+    "${HR_TRAIN_OUTPUT_1}"
+    "${HR_TRAIN_OUTPUT_2}"
+)
+
+HR_TRAIN_BIN_DIRS=()
+HR_TRAIN_CACHE_DIRS=()
+for run_dir in "${HR_TRAIN_RUNS[@]}"; do
+    HR_TRAIN_BIN_DIRS+=("${run_dir}/bin")
+    HR_TRAIN_CACHE_DIRS+=("${run_dir}/cache")
+done
+
+# Legacy aliases
+HR_TRAIN_OUTPUT="${HR_TRAIN_RUNS[0]}"
+HR_TRAIN_BIN_DIR="${HR_TRAIN_BIN_DIRS[0]}"
+HR_TRAIN_CACHE_DIR="${HR_TRAIN_CACHE_DIRS[0]}"
 
 # Full Fine-Grid Training Resolution (height H, width W)
 # Format: "H,W" -> e.g. "2048,1024"
@@ -60,6 +78,9 @@ export PROBLEM_A_CHAR="${PROBLEM_A_CHAR:-0.25}"
 export PROBLEM_COLD_FRAC="${PROBLEM_COLD_FRAC:-0.5}"
 export SIM_TLIM_LR="${SIM_TLIM_LR:-5.0}"
 export SIM_TLIM_RESTART="${SIM_TLIM_RESTART:-10.0}"
+export RESTART_TIME_MYR="${RESTART_TIME_MYR:-${SIM_TLIM_LR}}"
+export START_FRAME="${START_FRAME:-500}"
+export HR_START_FRAME="${HR_START_FRAME:-500}"
 
 # ---- 3. Evaluation & Benchmark Reference ----
 # Benchmarks model against hr_build_512 reference
@@ -128,8 +149,11 @@ mkdir -p \
     "${SG_MOCKS_DIR}" \
     "${LR_OUTPUT_DIR}" \
     "${LR_BUILD_OUTPUT_DIR}" \
-    "${SG_OUTPUT_DIR}" \
-    "${HR_TRAIN_CACHE_DIR}"
+    "${SG_OUTPUT_DIR}"
+
+for c_dir in "${HR_TRAIN_CACHE_DIRS[@]}"; do
+    mkdir -p "${c_dir}"
+done
 
 MASTER_LOG="${RUN_DIR}/pipeline.log"
 
@@ -223,8 +247,8 @@ MANIFEST="${RUN_DIR}/manifest.txt"
     echo "Timestamp          : ${TIMESTAMP}"
     echo "Run directory      : ${RUN_DIR}"
     echo "Project root       : ${PROJECT_ROOT}"
-    echo "Training data      : ${HR_TRAIN_BIN_DIR}"
-    echo "Training cache     : ${HR_TRAIN_CACHE_DIR}"
+    echo "Training data      : ${HR_TRAIN_BIN_DIRS[*]}"
+    echo "Training cache     : ${HR_TRAIN_CACHE_DIRS[*]}"
     echo "Eval reference     : ${HR_EVAL_OUTPUT}"
     echo "Resolution (fine)  : ${PDF_CNN_RESOLUTION} (H=${RES_H}, W=${RES_W})"
     echo "Downsample factor  : ${PDF_CNN_DOWNSAMPLE}"
@@ -232,6 +256,7 @@ MANIFEST="${RUN_DIR}/manifest.txt"
     echo "Random crop size   : Coarse=(${CROP_H_CG}x${CROP_W_CG}), Fine=(${CROP_H}x${CROP_W})"
     echo "Athena simulation  : nx2=${SIM_NX2}, nx1=${SIM_NX1} (meshblock: ${SIM_MB_NX2}x${SIM_MB_NX1})"
     echo "Domain extents     : x1=[${DOMAIN_X1MIN}, ${DOMAIN_X1MAX}], x2=[${DOMAIN_X2MIN}, ${DOMAIN_X2MAX}]"
+    echo "Simulation times   : LR 0→${SIM_TLIM_LR} Myr, Restart ${RESTART_TIME_MYR}→${SIM_TLIM_RESTART} Myr (start_frame=${START_FRAME}, hr_start=${HR_START_FRAME})"
     echo "Eval resolution    : ${HR_EVAL_RESOLUTION} (ds=${HR_EVAL_DOWNSAMPLE})"
     echo "Epochs             : ${NUM_EPOCHS}"
     echo "Batch size         : ${BATCH_SIZE}"
@@ -273,14 +298,14 @@ separator
 # ===========================================================================
 separator
 log "STEP 1: train_random_snapshot_cnn"
-log "Training data  : ${HR_TRAIN_BIN_DIR}"
-log "Cache path     : ${HR_TRAIN_CACHE_DIR}"
+log "Training data  : ${HR_TRAIN_BIN_DIRS[*]}"
+log "Cache paths    : ${HR_TRAIN_CACHE_DIRS[*]}"
 separator
 
 run_step 1 "train_random_snapshot_cnn" \
     python3 "${PROJECT_ROOT}/random_snapshot_training.py" \
-        --data_path "${HR_TRAIN_BIN_DIR}" \
-        --cache_path "${HR_TRAIN_CACHE_DIR}" \
+        --data_path "${HR_TRAIN_BIN_DIRS[@]}" \
+        --cache_path "${HR_TRAIN_CACHE_DIRS[@]}" \
         --resolution "${PDF_CNN_RESOLUTION}" \
         --crop_h "${CROP_H}" \
         --crop_w "${CROP_W}" \
@@ -397,6 +422,10 @@ separator
 log "STEP 4: lr_build  (ISM cooling restart from ${LR_RST_5MYR})"
 separator
 
+# Clean previous simulation outputs if any to prevent stale files from polluting restart frames
+rm -rf "${LR_BUILD_OUTPUT_DIR:?}"/*
+mkdir -p "${LR_BUILD_OUTPUT_DIR}"
+
 run_step 4 "lr_build_ism_restart" \
     bash -c "
         set -euo pipefail
@@ -416,6 +445,10 @@ generate_athinput "sg" "${SG_ATHINPUT}"
 separator
 log "STEP 5: subgrid_model  (CNN restart from ${LR_RST_5MYR})"
 separator
+
+# Clean previous simulation outputs if any to prevent stale files from polluting restart frames
+rm -rf "${SG_OUTPUT_DIR:?}"/*
+mkdir -p "${SG_OUTPUT_DIR}"
 
 run_step 5 "subgrid_model_cnn_restart" \
     bash -c "
@@ -451,6 +484,9 @@ run_step 6 "diagnostic_plots" \
     bash -c "
         set -euo pipefail
         cd '${PROJECT_ROOT}/data/mocks'
+        export START_FRAME='${START_FRAME}'
+        export RESTART_TIME_MYR='${RESTART_TIME_MYR}'
+        export HR_START_FRAME='${HR_START_FRAME}'
         export HR_SIM_OUTPUT='${HR_EVAL_OUTPUT}'
         export SUBGRID_DATA_PATH='${HR_EVAL_BIN_DIR}'
         export SUBGRID_CACHE_PATH='${HR_EVAL_CACHE_DIR}'

@@ -48,12 +48,27 @@ PROJECT_ROOT="/home/sasi/Projects/SubgridCGMModel"
 HR_SIM_OUTPUT="${PROJECT_ROOT}/simulation_outputs/hr_build_512"
 HR_BIN_DIR="${HR_SIM_OUTPUT}/bin"
 
+CONFIG_JSON="${PROJECT_ROOT}/shell_scripts/config.json"
+
 # ---- High-Resolution Snapshot for Initial Condition Downsampling ----
 HR_IC_SNAPSHOT="${HR_IC_SNAPSHOT:-${PROJECT_ROOT}/simulation_outputs/hr_build_512/bin/KH.hydro_w.00500.bin}"
 
 # ---- Target Low-Resolution Simulation Grid (nx1=width, nx2=height) ----
-export SIM_NX1="${SIM_NX1:-8}"
-export SIM_NX2="${SIM_NX2:-16}"
+# Derive default coarse grid from config.json: hr['nx1']//ds, hr['nx2']//ds
+read -r DEFAULT_SIM_NX1 DEFAULT_SIM_NX2 < <(python3 - <<PY
+import json
+try:
+    with open("${CONFIG_JSON}") as f:
+        c = json.load(f)
+    nx1 = c["hr"]["nx1"] // c["lr"]["downsample_factor"]
+    nx2 = c["hr"]["nx2"] // c["lr"]["downsample_factor"]
+    print(str(nx1) + " " + str(nx2))
+except Exception:
+    print("16 32")
+PY
+)
+export SIM_NX1="${SIM_NX1:-${DEFAULT_SIM_NX1}}"
+export SIM_NX2="${SIM_NX2:-${DEFAULT_SIM_NX2}}"
 export SIM_MB_NX1="${SIM_MB_NX1:-${SIM_NX1}}"
 export SIM_MB_NX2="${SIM_MB_NX2:-${SIM_NX2}}"
 export SIM_TLIM="${SIM_TLIM:-5.0}"

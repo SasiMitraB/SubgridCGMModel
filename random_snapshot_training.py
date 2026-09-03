@@ -77,23 +77,67 @@ def get_device(device_override: str | None = None) -> torch.device:
 
 
 # ===================================================================== #
+# ===================================================================== #
+#  Path Normalization Helper                                            #
+# ===================================================================== #
+def _normalize_paths(paths: str | list[str] | Path | list[Path] | None) -> list[Path]:
+    """Normalize input paths (single, list, or comma/colon-delimited strings) into a list of resolved Paths."""
+    if paths is None:
+        return []
+    if isinstance(paths, (str, Path)):
+        paths = [paths]
+    result: list[Path] = []
+    for item in paths:
+        if isinstance(item, Path):
+            result.append(item.resolve())
+        elif isinstance(item, str):
+            delims = "," if "," in item else (":" if ":" in item else None)
+            if delims:
+                parts = [p.strip() for p in item.split(delims) if p.strip()]
+                for p in parts:
+                    result.append(Path(p).resolve())
+            elif item.strip():
+                result.append(Path(item.strip()).resolve())
+    return result
+
+
+# ===================================================================== #
 #  Step 1: Snapshot Splitter                                            #
 # ===================================================================== #
 def split_snapshots(
-    N_snaps: int,
+    N_snaps: int | list[int] | tuple[int, ...] | np.ndarray,
     train_frac: float = 0.60,
     val_frac: float = 0.20,
     seed: int = 42,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
     """
-    Splits N_snaps snapshot indices into train / val / test with no overlap.
+    Splits snapshot indices into train / val / test with no overlap.
+    If N_snaps is a sequence of integers (e.g. per-dataset sizes), performs a
+    stratified split ensuring each dataset has the exact train/val/test fractions.
     The remaining fraction (1 - train_frac - val_frac) goes to test.
 
     Returns three index arrays: train_idx, val_idx, test_idx.
     """
     rng = np.random.default_rng(seed)
-    idx = rng.permutation(N_snaps)
 
+    if isinstance(N_snaps, (list, tuple, np.ndarray)):
+        train_parts, val_parts, test_parts = [], [], []
+        offset = 0
+        for n in N_snaps:
+            idx = rng.permutation(n) + offset
+            t_end = int(train_frac * n)
+            v_end = int((train_frac + val_frac) * n)
+            train_parts.append(idx[:t_end])
+            val_parts.append(idx[t_end:v_end])
+            test_parts.append(idx[v_end:])
+            offset += n
+
+        train_idx = rng.permutation(np.concatenate(train_parts))
+        val_idx = rng.permutation(np.concatenate(val_parts))
+        test_idx = rng.permutation(np.concatenate(test_parts))
+        return train_idx, val_idx, test_idx
+
+    idx = rng.permutation(N_snaps)
     t_end = int(train_frac * N_snaps)
     v_end = int((train_frac + val_frac) * N_snaps)
 
@@ -103,24 +147,15 @@ def split_snapshots(
 # ===================================================================== #
 #  Coarse-Grained Data Cacher & Loader                                  #
 # ===================================================================== #
-def load_or_create_coarse_data(
-    data_path: str,
-    cache_path: str,
+def _load_or_create_single_coarse_data(
+    data_dir: Path,
+    cache_base: Path,
     resolution: tuple[int, int] = (2048, 1024),
     downsample: int = 64,
     out_channels: int = 40,
 ) -> tuple[np.ndarray, np.ndarray]:
-    """
-    Loads or computes coarse-grained (32x16) physical fields and temperature PDFs.
-
-    Returns:
-    --------
-    cg_inputs : np.ndarray
-        Shape (N_snaps, 5, cH, cW), dtype float32 (rho, temp, ux, uy, ps)
-    cg_pdfs : np.ndarray
-        Shape (N_snaps, out_channels, cH, cW), dtype float32
-    """
-    cache_dir = Path(cache_path) / f"coarse_{resolution[0]}x{resolution[1]}_ds{downsample}_bins{out_channels}"
+    """Loads or computes coarse-grained fields and PDFs for a single simulation run directory."""
+    cache_dir = cache_base / f"coarse_{resolution[0]}x{resolution[1]}_ds{downsample}_bins{out_channels}"
     inputs_file = cache_dir / "cg_inputs.npy"
     pdfs_file = cache_dir / "cg_pdfs.npy"
 
@@ -143,7 +178,6 @@ def load_or_create_coarse_data(
     if bin_convert is None:
         raise RuntimeError("`bin_convert` module not found to process simulation binary files.")
 
-    data_dir = Path(data_path)
     if not data_dir.exists():
         raise FileNotFoundError(f"Binary directory does not exist: {data_dir}")
 
@@ -155,7 +189,7 @@ def load_or_create_coarse_data(
 
     if not w_files:
         raise ValueError(
-            f"No valid .bin snapshots found in {data_path}. "
+            f"No valid .bin snapshots found in {data_dir}. "
             f"Expected binary files matching pattern '*.hydro_w.*.bin'."
         )
 
@@ -165,7 +199,8 @@ def load_or_create_coarse_data(
     cW = W // downsample  # 1024 // 64 = 16
     T_edges = np.logspace(3.0, 7.0, out_channels + 1)
 
-    print(f"Processing & coarse-graining {num_snaps} snapshots ({H}x{W} -> {cH}x{cW}, ds={downsample})...")
+    dataset_name = data_dir.parent.name if data_dir.name == "bin" else data_dir.name
+    print(f"Processing & coarse-graining {num_snaps} snapshots from {dataset_name} ({H}x{W} -> {cH}x{cW}, ds={downsample})...")
 
     # Physics constants matching simulation_data
     gamma = 5.0 / 3.0
@@ -179,7 +214,7 @@ def load_or_create_coarse_data(
     cwd = os.getcwd()
     try:
         os.chdir(data_dir)
-        for idx, fname in enumerate(tqdm(w_files, desc="Coarse-graining binary snapshots")):
+        for idx, fname in enumerate(tqdm(w_files, desc=f"Coarse-graining {dataset_name}")):
             file_data = bin_convert.read_binary(fname)
             rho_fine = bin_convert.make_2D_array(file_data, "dens").astype(np.float32)
             ux_fine = bin_convert.make_2D_array(file_data, "velx").astype(np.float32)
@@ -217,6 +252,90 @@ def load_or_create_coarse_data(
     print(f"Saved coarse data cache to {cache_dir} (Total size: ~{(cg_inputs.nbytes + cg_pdfs.nbytes) / (1024**2):.1f} MB)")
 
     return cg_inputs, cg_pdfs
+
+
+def load_or_create_coarse_data(
+    data_path: str | list[str] | Path | list[Path],
+    cache_path: str | list[str] | Path | list[Path] | None = None,
+    resolution: tuple[int, int] = (2048, 1024),
+    downsample: int = 64,
+    out_channels: int = 40,
+    return_dataset_sizes: bool = False,
+) -> tuple[np.ndarray, np.ndarray] | tuple[np.ndarray, np.ndarray, list[int]]:
+    """
+    Loads or computes coarse-grained physical fields and temperature PDFs.
+    Supports single or multiple simulation runs.
+
+    Parameters:
+    -----------
+    data_path : str | list[str] | Path | list[Path]
+        Single path or list/comma-separated paths to simulation binary directories.
+    cache_path : str | list[str] | Path | list[Path] | None
+        Single path or list/comma-separated paths to cache directories.
+        If None, defaults to `<data_path>/../cache`.
+    resolution : tuple[int, int]
+        Fine-grid resolution (H, W).
+    downsample : int
+        Coarse-graining downsample factor.
+    out_channels : int
+        Number of PDF temperature bins.
+    return_dataset_sizes : bool
+        If True, also returns snapshot counts per dataset.
+
+    Returns:
+    --------
+    cg_inputs : np.ndarray
+        Shape (N_snaps_total, 5, cH, cW), dtype float32 (rho, temp, ux, uy, ps)
+    cg_pdfs : np.ndarray
+        Shape (N_snaps_total, out_channels, cH, cW), dtype float32
+    dataset_sizes : list[int] (only if return_dataset_sizes=True)
+    """
+    data_paths = _normalize_paths(data_path)
+    if not data_paths:
+        raise ValueError("No data path provided.")
+
+    cache_paths = _normalize_paths(cache_path)
+    if not cache_paths:
+        cache_paths = [d.parent / "cache" for d in data_paths]
+    elif len(cache_paths) == 1 and len(data_paths) > 1:
+        base = cache_paths[0]
+        cache_paths = [base / (d.parent.name if d.name == "bin" else d.name) for d in data_paths]
+    elif len(cache_paths) != len(data_paths):
+        raise ValueError(
+            f"Number of data paths ({len(data_paths)}) does not match "
+            f"number of cache paths ({len(cache_paths)})."
+        )
+
+    all_inputs = []
+    all_pdfs = []
+    dataset_sizes = []
+
+    for d_path, c_path in zip(data_paths, cache_paths):
+        inputs, pdfs = _load_or_create_single_coarse_data(
+            data_dir=d_path,
+            cache_base=c_path,
+            resolution=resolution,
+            downsample=downsample,
+            out_channels=out_channels,
+        )
+        all_inputs.append(inputs)
+        all_pdfs.append(pdfs)
+        dataset_sizes.append(inputs.shape[0])
+
+    if len(all_inputs) == 1:
+        combined_inputs = all_inputs[0]
+        combined_pdfs = all_pdfs[0]
+    else:
+        combined_inputs = np.concatenate(all_inputs, axis=0)
+        combined_pdfs = np.concatenate(all_pdfs, axis=0)
+        print(
+            f"Combined {len(all_inputs)} simulation datasets: "
+            f"total {combined_inputs.shape[0]} snapshots (per-run breakdown: {dataset_sizes})"
+        )
+
+    if return_dataset_sizes:
+        return combined_inputs, combined_pdfs, dataset_sizes
+    return combined_inputs, combined_pdfs
 
 
 # ===================================================================== #
@@ -364,18 +483,44 @@ def parse_args():
     parser = argparse.ArgumentParser(
         description="Snapshot-Split Random Crop Training Pipeline for Subgrid CGM PDF Model"
     )
+    default_data = os.environ.get("SUBGRID_DATA_PATH")
+    if default_data:
+        default_data_list = [default_data]
+    else:
+        sweep_base = PROJECT_ROOT / "simulation_outputs" / "hr_gpu_sweep_1024x2048_2xlength"
+        run1 = sweep_base / "vshear_31_coldfrac_0.33" / "bin"
+        run2 = sweep_base / "vshear_31_coldfrac_0.67" / "bin"
+        if run1.exists() and run2.exists():
+            default_data_list = [str(run1), str(run2)]
+        else:
+            default_data_list = ["/path/to/simulation/bin"]
+
+    default_cache = os.environ.get("SUBGRID_CACHE_PATH")
+    if default_cache:
+        default_cache_list = [default_cache]
+    else:
+        sweep_base = PROJECT_ROOT / "simulation_outputs" / "hr_gpu_sweep_1024x2048_2xlength"
+        c1 = sweep_base / "vshear_31_coldfrac_0.33" / "cache"
+        c2 = sweep_base / "vshear_31_coldfrac_0.67" / "cache"
+        if c1.parent.exists() and c2.parent.exists():
+            default_cache_list = [str(c1), str(c2)]
+        else:
+            default_cache_list = ["/path/to/cache"]
+
     # Data & Resolution
     parser.add_argument(
         "--data_path",
         type=str,
-        default=os.environ.get("SUBGRID_DATA_PATH", "/path/to/simulation/bin"),
-        help="Path to simulation binary files",
+        nargs="+",
+        default=default_data_list,
+        help="Path(s) to simulation binary files. Accepts multiple directories or comma-separated list.",
     )
     parser.add_argument(
         "--cache_path",
         type=str,
-        default=os.environ.get("SUBGRID_CACHE_PATH", "/path/to/cache"),
-        help="Path to preprocessed cache directory",
+        nargs="+",
+        default=default_cache_list,
+        help="Path(s) to preprocessed cache directory. Accepts multiple directories or comma-separated list.",
     )
     parser.add_argument(
         "--resolution",
@@ -628,20 +773,24 @@ def main():
     )
 
     # Load / create compact coarse dataset
-    cg_inputs, cg_pdfs = load_or_create_coarse_data(
+    cg_inputs, cg_pdfs, dataset_sizes = load_or_create_coarse_data(
         data_path=args.data_path,
         cache_path=args.cache_path,
         resolution=res,
         downsample=downsample,
         out_channels=out_channels,
+        return_dataset_sizes=True,
     )
 
     N_snaps = cg_inputs.shape[0]
-    print(f"Dataset ready: {N_snaps} coarse snapshots available.")
+    print(
+        f"Dataset ready: {N_snaps} coarse snapshots available across "
+        f"{len(dataset_sizes)} simulation run(s) ({dataset_sizes})."
+    )
 
-    # Split snapshots
+    # Split snapshots (stratified across simulation runs)
     train_idx, val_idx, test_idx = split_snapshots(
-        N_snaps=N_snaps,
+        N_snaps=dataset_sizes if len(dataset_sizes) > 1 else N_snaps,
         train_frac=args.train_frac,
         val_frac=args.val_frac,
         seed=args.seed,

@@ -696,6 +696,7 @@ def divergence(f, dx, dy):
 # ========================================================================
 RESTART_TIME_MYR = float(os.environ.get("RESTART_TIME_MYR", "0.0"))   # physical start time of the simulations (Myr)
 START_FRAME      = int(os.environ.get("START_FRAME", "0"))              # start frame index for input_data
+HR_START_FRAME   = os.environ.get("HR_START_FRAME")                     # explicit start snapshot index for HR data
 BIN_DT_MYR       = 0.01  # bin output cadence (matches bin_w_dt / bin_u_dt in config)
 
 # --- Physical Constants & Unit Conversions ---
@@ -827,20 +828,33 @@ if not os.path.exists(f"{hr_folder_path}/rho.npy"):
 # Memory-map the large HR arrays so the OS pages them in on demand
 # instead of loading every frame into RAM at once.
 _n = rho.shape[0]
-hr_rho  = np.load(f"{hr_folder_path}/rho.npy",      mmap_mode="r")[-_n:]
-hr_temp = np.load(f"{hr_folder_path}/temp.npy",     mmap_mode="r")[-_n:]
-hr_pres = np.load(f"{hr_folder_path}/pressure.npy", mmap_mode="r")[-_n:]
-hr_ux   = np.load(f"{hr_folder_path}/ux.npy",       mmap_mode="r")[-_n:]
-hr_uy   = np.load(f"{hr_folder_path}/uy.npy",       mmap_mode="r")[-_n:]
-hr_ien  = np.load(f"{hr_folder_path}/eint.npy",     mmap_mode="r")[-_n:]
-hr_ps   = np.load(f"{hr_folder_path}/ps.npy",       mmap_mode="r")[-_n:]
+
+if HR_START_FRAME is not None:
+    _hr_start = int(HR_START_FRAME)
+    hr_slice = slice(_hr_start, _hr_start + _n)
+    print(f"Loading HR data starting at snapshot {_hr_start} via HR_START_FRAME (slice {_hr_start}:{_hr_start + _n})")
+elif START_FRAME > 0:
+    _hr_start = START_FRAME
+    hr_slice = slice(_hr_start, _hr_start + _n)
+    print(f"Loading HR data starting at snapshot {_hr_start} matching START_FRAME (slice {_hr_start}:{_hr_start + _n})")
+else:
+    hr_slice = slice(-_n, None)
+    print(f"Loading HR data matching last {_n} snapshots (slice -{_n}:)")
+
+hr_rho  = np.load(f"{hr_folder_path}/rho.npy",      mmap_mode="r")[hr_slice]
+hr_temp = np.load(f"{hr_folder_path}/temp.npy",     mmap_mode="r")[hr_slice]
+hr_pres = np.load(f"{hr_folder_path}/pressure.npy", mmap_mode="r")[hr_slice]
+hr_ux   = np.load(f"{hr_folder_path}/ux.npy",       mmap_mode="r")[hr_slice]
+hr_uy   = np.load(f"{hr_folder_path}/uy.npy",       mmap_mode="r")[hr_slice]
+hr_ien  = np.load(f"{hr_folder_path}/eint.npy",     mmap_mode="r")[hr_slice]
+hr_ps   = np.load(f"{hr_folder_path}/ps.npy",       mmap_mode="r")[hr_slice]
 
 if os.path.exists(f"{hr_folder_path}/cons_rho.npy"):
-    hr_cons_rho  = np.load(f"{hr_folder_path}/cons_rho.npy",  mmap_mode="r")[-_n:]
-    hr_cons_momx = np.load(f"{hr_folder_path}/cons_mx.npy",   mmap_mode="r")[-_n:]
-    hr_cons_momy = np.load(f"{hr_folder_path}/cons_my.npy",   mmap_mode="r")[-_n:]
-    hr_cons_ener = np.load(f"{hr_folder_path}/cons_ener.npy", mmap_mode="r")[-_n:]
-    hr_cons_ps   = np.load(f"{hr_folder_path}/cons_ps.npy",   mmap_mode="r")[-_n:]
+    hr_cons_rho  = np.load(f"{hr_folder_path}/cons_rho.npy",  mmap_mode="r")[hr_slice]
+    hr_cons_momx = np.load(f"{hr_folder_path}/cons_mx.npy",   mmap_mode="r")[hr_slice]
+    hr_cons_momy = np.load(f"{hr_folder_path}/cons_my.npy",   mmap_mode="r")[hr_slice]
+    hr_cons_ener = np.load(f"{hr_folder_path}/cons_ener.npy", mmap_mode="r")[hr_slice]
+    hr_cons_ps   = np.load(f"{hr_folder_path}/cons_ps.npy",   mmap_mode="r")[hr_slice]
 else:
     hr_cons_rho  = hr_rho
     hr_cons_momx = hr_rho * hr_ux
