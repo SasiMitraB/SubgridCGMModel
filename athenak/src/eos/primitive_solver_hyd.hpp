@@ -18,6 +18,7 @@
 #include <type_traits>
 #include <iostream>
 #include <sstream>
+#include <algorithm>
 
 // PrimitiveSolver headers
 #include "eos/primitive-solver/eos.hpp"
@@ -25,11 +26,14 @@
 #include "eos/primitive-solver/idealgas.hpp"
 #include "eos/primitive-solver/piecewise_polytrope.hpp"
 #include "eos/primitive-solver/eos_compose.hpp"
+#include "eos/primitive-solver/eos_hybrid.hpp"
 #include "eos/primitive-solver/reset_floor.hpp"
+#include "eos/primitive-solver/logs.hpp"
 
 // AthenaK headers
 #include "athena.hpp"
 #include "globals.hpp"
+#include "dyn_grmhd/dyn_grmhd.hpp"
 #include "mesh/mesh.hpp"
 #include "parameter_input.hpp"
 #include "coordinates/adm.hpp"
@@ -57,9 +61,42 @@ class PrimitiveSolverHydro {
       }
     }
     // Parameters for CompOSE EoS
-    if constexpr(std::is_same_v<Primitive::EOSCompOSE, EOSPolicy>) {
+    if constexpr (
+         std::is_same_v<Primitive::EOSCompOSE<Primitive::NormalLogs>, EOSPolicy> ||
+         std::is_same_v<Primitive::EOSCompOSE<Primitive::NQTLogs>, EOSPolicy>) {
       // Get and set number of scalars in table. This will currently fail if not 1.
       ps.GetEOSMutable().SetNSpecies(pin->GetOrAddInteger(block, "nscalars", 1));
+      std::string units = pin->GetOrAddString(block, "units", "geometric_solar");
+      if (!units.compare("geometric_solar")) {
+        ps.GetEOSMutable().SetCodeUnitSystem(Primitive::MakeGeometricSolar());
+      } else if (!units.compare("geometric_kilometer")) {
+        ps.GetEOSMutable().SetCodeUnitSystem(Primitive::MakeGeometricKilometer());
+      } else if (!units.compare("nuclear")) {
+        ps.GetEOSMutable().SetCodeUnitSystem(Primitive::MakeNuclear());
+      } else if (!units.compare("cgs")) {
+        ps.GetEOSMutable().SetCodeUnitSystem(Primitive::MakeCGS());
+      } else {
+        std::cout << "### FATAL ERROR in " << __FILE__ << " at line " << __LINE__
+                  << std::endl << "Unknown unit system " << units << " requested."
+                  << std::endl;
+        std::exit(EXIT_FAILURE);
+      }
+
+      // Get table filename, then read the table,
+      std::string fname = pin->GetString(block, "table");
+      ps.GetEOSMutable().ReadTableFromFile(fname);
+
+      // Ensure table was read properly
+      assert(ps.GetEOSMutable().IsInitialized());
+    }
+        // Parameters for Hybrid EoS
+    if constexpr (
+         std::is_same_v<Primitive::EOSHybrid<Primitive::NormalLogs>, EOSPolicy> ||
+         std::is_same_v<Primitive::EOSHybrid<Primitive::NQTLogs>, EOSPolicy>) {
+      // Get and set number of scalars in table. This will currently fail if not 0.
+      ps.GetEOSMutable().SetThermalGamma(pin->GetOrAddReal(block, "gamma_thermal",
+                                         5.0/3.0));
+      ps.GetEOSMutable().SetNSpecies(pin->GetOrAddInteger(block, "nscalars", 0));
       std::string units = pin->GetOrAddString(block, "units", "geometric_solar");
       if (!units.compare("geometric_solar")) {
         ps.GetEOSMutable().SetCodeUnitSystem(Primitive::MakeGeometricSolar());
@@ -113,7 +150,7 @@ class PrimitiveSolverHydro {
 
     for (int n = 0; n < ps.GetEOS().GetNSpecies(); n++) {
       std::stringstream spec_name;
-      spec_name << "s" << (n + 1) << "_atmosphere";
+      spec_name << "s" << n << "_atmosphere";
       ps.GetEOSMutable().SetSpeciesAtmosphere(
           pin->GetOrAddReal(block, spec_name.str(), 0.0), n);
     }
@@ -152,8 +189,8 @@ class PrimitiveSolverHydro {
     // FIXME(JF): Is this needed if the first-order flux correction is enabled?
     prim_pt[PTM] = prim_pt_old[PTM] = eos.GetTemperatureFromP(prim_pt[PRH],
                                         prim_pt[PPR], &prim_pt[PYF]);
-    bool floored = ps.GetEOS().ApplyPrimitiveFloor(prim_pt[PRH], &prim_pt[PVX],
-                                         prim_pt[PPR], prim_pt[PTM], &prim_pt[PYF]);
+    ps.GetEOS().ApplyPrimitiveFloor(prim_pt[PRH], &prim_pt[PVX],
+                                    prim_pt[PPR], prim_pt[PTM], &prim_pt[PYF]);
 
     ps.PrimToCon(prim_pt, cons_pt, bin, g3d);
 
@@ -270,6 +307,7 @@ class PrimitiveSolverHydro {
 
   void ConsToPrim(DvceArray5D<Real> &cons, const DvceFaceFld4D<Real> &bfc,
                   DvceArray5D<Real> &bcc0, DvceArray5D<Real> &prim,
+                  DvceArray5D<Real> &temperature,
                   const int il, const int iu, const int jl, const int ju,
                   const int kl, const int ku, bool floors_only=false) {
     int &nhyd = pmy_pack->pmhd->nmhd;
@@ -279,14 +317,21 @@ class PrimitiveSolverHydro {
 
     // Some problem-specific parameters
     auto &excise = pmy_pack->pcoord->coord_data.bh_excise;
+    auto &smoothing = pmy_pack->pcoord->coord_data.smooth_excision;
     auto &excision_floor_ = pmy_pack->pcoord->excision_floor;
     auto &excision_flux_ = pmy_pack->pcoord->excision_flux;
     auto &dexcise_ = pmy_pack->pcoord->coord_data.dexcise;
-    auto &pexcise_ = pmy_pack->pcoord->coord_data.pexcise;
+    auto &texcise_ = pmy_pack->pcoord->coord_data.texcise;
 
     auto &adm  = pmy_pack->padm->adm;
     auto &eos_ = ps.GetEOS();
     auto &ps_  = ps;
+
+    auto &indcs = pmy_pack->pmesh->mb_indcs;
+    int &is = indcs.is;
+    int &js = indcs.js;
+    int &ks = indcs.ks;
+    auto &size = pmy_pack->pmb->mb_size;
 
     const int ni = (iu - il + 1);
     const int nji = (ju - jl + 1)*ni;
@@ -300,7 +345,7 @@ class PrimitiveSolverHydro {
     Real mb = eos_.GetBaryonMass();
 
     // FIXME: This only works for a flooring policy that has these functions!
-    bool prim_failure, cons_failure;
+    bool prim_failure=false, cons_failure=false;
     if (floors_only) {
       prim_failure = ps.GetEOSMutable().IsPrimitiveFlooringFailure();
       cons_failure = ps.GetEOSMutable().IsConservedFlooringFailure();
@@ -375,27 +420,31 @@ class PrimitiveSolverHydro {
       // If we're in an excised region, set the primitives to some default value.
       Primitive::SolverResult result;
       if (excise) {
-        if (excision_floor_(m,k,j,i)) {
-          prim_pt[PRH] = dexcise_/mb;
-          prim_pt[PVX] = 0.0;
-          prim_pt[PVY] = 0.0;
-          prim_pt[PVZ] = 0.0;
-          prim_pt[PPR] = pexcise_;
-          for (int n = 0; n < nscal; n++) {
-            // FIXME: Particle abundances should probably be set to a
-            // default inside an excised region.
-            prim_pt[PYF + n] = cons_pt[CYD]/cons_pt[CDN];
-          }
-          prim_pt[PTM] =
-            eos_.GetTemperatureFromP(prim_pt[PRH], prim_pt[PPR], &prim_pt[PYF]);
-          result.error = Primitive::Error::SUCCESS;
-          result.iterations = 0;
-          result.cons_floor = false;
-          result.prim_floor = false;
-          result.cons_adjusted = true;
-          ps_.PrimToCon(prim_pt, cons_pt, b3u, g3d);
-        } else {
+        // If smooth excision is enabled, do C2P everywhere.
+        if (smoothing) {
           result = ps_.ConToPrim(prim_pt, cons_pt, b3u, g3d, g3u);
+        } else {
+          if (excision_floor_(m,k,j,i)) {
+            prim_pt[PRH] = dexcise_/mb;
+            prim_pt[PVX] = 0.0;
+            prim_pt[PVY] = 0.0;
+            prim_pt[PVZ] = 0.0;
+            for (int n = 0; n < nscal; n++) {
+              // FIXME: Particle abundances should probably be set to a
+              // default inside an excised region.
+              prim_pt[PYF + n] = cons_pt[CYD]/cons_pt[CDN];
+            }
+            prim_pt[PPR] = eos_.GetPressure(prim_pt[PRH], texcise_, &prim_pt[PYF]);
+            prim_pt[PTM] = texcise_;
+            result.error = Primitive::Error::SUCCESS;
+            result.iterations = 0;
+            result.cons_floor = false;
+            result.prim_floor = false;
+            result.cons_adjusted = true;
+            ps_.PrimToCon(prim_pt, cons_pt, b3u, g3d);
+          } else {
+            result = ps_.ConToPrim(prim_pt, cons_pt, b3u, g3d, g3u);
+          }
         }
       } else {
         result = ps_.ConToPrim(prim_pt, cons_pt, b3u, g3d, g3u);
@@ -405,10 +454,23 @@ class PrimitiveSolverHydro {
         fofc_(m,k,j,i) = true;
       } else if (!floors_only) {
         if (result.error != Primitive::Error::SUCCESS && (nerrs_ + sumerrs < errcap_)) {
-          // TODO(JF): put in a proper error response here.
           sumerrs++;
+          // Find out where the point went bad and report a bunch of information about it.
+          Real &x1min = size.d_view(m).x1min;
+          Real &x1max = size.d_view(m).x1max;
+          Real x1v = CellCenterX(i-is, indcs.nx1, x1min, x1max);
+
+          Real &x2min = size.d_view(m).x2min;
+          Real &x2max = size.d_view(m).x2max;
+          Real x2v = CellCenterX(j-js, indcs.nx2, x2min, x2max);
+
+          Real &x3min = size.d_view(m).x3min;
+          Real &x3max = size.d_view(m).x3max;
+          Real x3v = CellCenterX(k-ks, indcs.nx3, x3min, x3max);
+
           Kokkos::printf("An error occurred during the primitive solve: %s\n"
                  "  Location: (%d, %d, %d, %d)\n"
+                 "            (%.17g, %.17g, %.17g)\n"
                  "  Conserved vars: \n"
                  "    D   = %.17g\n"
                  "    Sx  = %.17g\n"
@@ -428,6 +490,7 @@ class PrimitiveSolverHydro {
                  "    K_dd = {%.17g, %.17g, %.17g, %.17g, %.17g, %.17g}\n",
                  ErrorToString(result.error),
                  m, k, j, i,
+                 x1v, x2v, x3v,
                  cons_pt_old[CDN], cons_pt_old[CSX], cons_pt_old[CSY], cons_pt_old[CSZ],
                  cons_pt_old[CTA], cons_pt_old[CYD], b3u[IBX], b3u[IBY], b3u[IBZ], detg,
                  g3d[S11], g3d[S12], g3d[S13], g3d[S22], g3d[S23], g3d[S33],
@@ -455,6 +518,8 @@ class PrimitiveSolverHydro {
         for (int n = 0; n < nscal; n++) {
           prim(m, nhyd + n, k, j, i) = prim_pt[PYF + n];
         }
+
+        temperature(m,0,k,j,i) = prim_pt[PTM];
 
         // If the conservative variables were floored or adjusted for consistency,
         // we need to copy the conserved variables, too.

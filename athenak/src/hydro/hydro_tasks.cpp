@@ -23,6 +23,7 @@
 #include "srcterms/srcterms.hpp"
 #include "bvals/bvals.hpp"
 #include "shearing_box/shearing_box.hpp"
+#include "shearing_box/orbital_advection.hpp"
 #include "hydro/hydro.hpp"
 
 namespace hydro {
@@ -33,7 +34,7 @@ namespace hydro {
 //! Many of the functions in the task list are implemented in this file because they are
 //! simple, or they are wrappers that call one or more other functions.
 //!
-//! "before_stagen" tasks are those that must be cmpleted over all MeshBlocks BEFORE each
+//! "before_stagen" tasks are those that must be completed over all MeshBlocks BEFORE each
 //! stage can be run (such as posting MPI receives, setting BoundaryCommStatus flags, etc)
 //!
 //! "stagen" tasks are those performed DURING each stage
@@ -64,9 +65,9 @@ void Hydro::AssembleHydroTasks(std::map<std::string, std::shared_ptr<TaskList>> 
   id.recvu     = tl["stagen"]->AddTask(&Hydro::RecvU, this, id.sendu);
   id.sendu_shr = tl["stagen"]->AddTask(&Hydro::SendU_Shr, this, id.recvu);
   id.recvu_shr = tl["stagen"]->AddTask(&Hydro::RecvU_Shr, this, id.sendu_shr);
-  id.bcs       = tl["stagen"]->AddTask(&Hydro::ApplyPhysicalBCs, this, id.recvu_shr);
-  id.prol      = tl["stagen"]->AddTask(&Hydro::Prolongate, this, id.bcs);
-  id.c2p       = tl["stagen"]->AddTask(&Hydro::ConToPrim, this, id.prol);
+  id.prol      = tl["stagen"]->AddTask(&Hydro::Prolongate, this, id.recvu_shr);
+  id.bcs       = tl["stagen"]->AddTask(&Hydro::ApplyPhysicalBCs, this, id.prol);
+  id.c2p       = tl["stagen"]->AddTask(&Hydro::ConToPrim, this, id.bcs);
   id.newdt     = tl["stagen"]->AddTask(&Hydro::NewTimeStep, this, id.c2p);
 
   // assemble "after_stagen" task list
@@ -74,6 +75,27 @@ void Hydro::AssembleHydroTasks(std::map<std::string, std::shared_ptr<TaskList>> 
   // although RecvFlux/U functions check that all recvs complete, add ClearRecv to
   // task list anyways to catch potential bugs in MPI communication logic
   id.crecv = tl["after_stagen"]->AddTask(&Hydro::ClearRecv, this, id.csend);
+
+  if (has_any_sts_diffusion) {
+    tl["before_parabolic_stagen"]->AddTask(&Hydro::InitRecvParabolic, this, none);
+
+    TaskID pclearf = tl["parabolic_stagen"]->AddTask(&Hydro::ClearSTSFlux, this, none);
+    TaskID pflux = tl["parabolic_stagen"]->AddTask(&Hydro::STSFluxes, this, pclearf);
+    TaskID psendf = tl["parabolic_stagen"]->AddTask(&Hydro::SendFlux, this, pflux);
+    TaskID precvf = tl["parabolic_stagen"]->AddTask(&Hydro::RecvFlux, this, psendf);
+    TaskID pupdt = tl["parabolic_stagen"]->AddTask(&Hydro::STSUpdate, this, precvf);
+    TaskID prestu = tl["parabolic_stagen"]->AddTask(&Hydro::RestrictU, this, pupdt);
+    TaskID psendu = tl["parabolic_stagen"]->AddTask(&Hydro::SendU, this, prestu);
+    TaskID precvu = tl["parabolic_stagen"]->AddTask(&Hydro::RecvU, this, psendu);
+    TaskID pprol = tl["parabolic_stagen"]->AddTask(&Hydro::Prolongate, this, precvu);
+    TaskID pbcs =
+        tl["parabolic_stagen"]->AddTask(&Hydro::ApplyPhysicalBCs, this, pprol);
+    TaskID pc2p = tl["parabolic_stagen"]->AddTask(&Hydro::ConToPrim, this, pbcs);
+    (void) tl["parabolic_stagen"]->AddTask(&Hydro::STSRefreshTimeStep, this, pc2p);
+
+    TaskID pcsend = tl["after_parabolic_stagen"]->AddTask(&Hydro::ClearSend, this, none);
+    (void) tl["after_parabolic_stagen"]->AddTask(&Hydro::ClearRecv, this, pcsend);
+  }
 
   return;
 }
@@ -96,25 +118,43 @@ TaskStatus Hydro::InitRecv(Driver *pdrive, int stage) {
   if (tstat != TaskStatus::complete) return tstat;
 
   // with orbital advection post receives for U
-  // only execute when (shearing box defined) AND (last stage) AND (3D OR 2d_r_phi)
-  if ((psrc->shearing_box) && (stage == pdrive->nexp_stages) &&
-      (pmy_pack->pmesh->three_d || psrc->shearing_box_r_phi)) {
-    tstat = porb_u->InitRecv();
+  // only execute for (last stage) AND (3D OR 2d_r_phi)
+  if (porb_u != nullptr) {
+    if ((stage == pdrive->nexp_stages) &&
+        (pmy_pack->pmesh->three_d || porb_u->shearing_box_r_phi)) {
+      tstat = porb_u->InitRecv();
+    }
   }
   if (tstat != TaskStatus::complete) return tstat;
 
-  // with shearing box boundaries calculate x2-distance x1-boundarues have sheared and
-  // with MPI post receives for U
-  // only execute when (shearing box defined) AND (3D OR 2d_r_phi)
-  if ((psrc->shearing_box) && (pmy_pack->pmesh->three_d || psrc->shearing_box_r_phi)) {
-    Real qom = (psrc->qshear)*(psrc->omega0);
-    Real time = pmy_pack->pmesh->time;
-    if (stage == pdrive->nexp_stages) {
-      time += pmy_pack->pmesh->dt;
+  // with shearing box boundaries calculate x2-distance x1-boundaries have sheared and
+  // with MPI post receives for U.
+  // only execute if (3D OR 2d_r_phi)
+  if (psbox_u != nullptr) {
+    if (pmy_pack->pmesh->three_d || psbox_u->shearing_box_r_phi) {
+      Real time = pmy_pack->pmesh->time;
+      if (stage == pdrive->nexp_stages) {
+        time += pmy_pack->pmesh->dt;
+      }
+      tstat = psbox_u->InitRecv(time);
     }
-    tstat = psbox_u->InitRecv(qom, time);
   }
 
+  return tstat;
+}
+
+//----------------------------------------------------------------------------------------
+//! \fn TaskStatus Hydro::InitRecvParabolic
+//! \brief Post receive operations required for one STS parabolic stage.
+
+TaskStatus Hydro::InitRecvParabolic(Driver *pdrive, int stage) {
+  (void) pdrive;
+  (void) stage;
+  TaskStatus tstat = pbval_u->InitRecv(nhydro+nscalars);
+  if (tstat != TaskStatus::complete) return tstat;
+  if (pmy_pack->pmesh->multilevel) {
+    tstat = pbval_u->InitFluxRecv(nhydro+nscalars);
+  }
   return tstat;
 }
 
@@ -176,13 +216,8 @@ TaskStatus Hydro::Fluxes(Driver *pdrive, int stage) {
     CalculateFluxes<Hydro_RSolver::hlle_gr>(pdrive, stage);
   }
 
-  // Add viscous, heat-flux, etc fluxes
-  if (pvisc != nullptr) {
-    pvisc->IsotropicViscousFlux(w0, pvisc->nu_iso, peos->eos_data, uflx);
-  }
-  if (pcond != nullptr) {
-    pcond->AddHeatFlux(w0, peos->eos_data, uflx);
-  }
+  // Terms selected for STS are advanced only in the parabolic half-sweeps.
+  AddSelectedDiffusionFluxes(parabolic::DiffusionSelection::explicit_only);
 
   // call FOFC if necessary
   if (use_fofc) {
@@ -233,11 +268,11 @@ TaskStatus Hydro::RecvFlux(Driver *pdrive, int stage) {
 TaskStatus Hydro::HydroSrcTerms(Driver *pdrive, int stage) {
   Real beta_dt = (pdrive->beta[stage-1])*(pmy_pack->pmesh->dt);
 
-  // Add source terms for various physics.  Must be computed from primitives.
-  if (psrc->const_accel)  psrc->ConstantAccel(w0, peos->eos_data,  beta_dt, u0);
-  if (psrc->ism_cooling)  psrc->ISMCooling(w0, peos->eos_data, beta_dt, u0);
-  if (psrc->rel_cooling)  psrc->RelCooling(w0, peos->eos_data, beta_dt, u0);
-  if (psrc->shearing_box) psrc->ShearingBox(w0, peos->eos_data, beta_dt, u0);
+  // Add physics source terms (must be computed from primitives)
+  if (psrc != nullptr) psrc->ApplySrcTerms(w0, peos->eos_data,  beta_dt, u0);
+
+  // Add shearing box source terms for cell-centered hydro variables
+  if (psbox_u != nullptr) psbox_u->SourceTermsCC(w0, peos->eos_data, beta_dt, u0);
 
   // Add coordinate source terms in GR.  Again, must be computed with only primitives.
   if (pmy_pack->pcoord->is_general_relativistic) {
@@ -258,10 +293,12 @@ TaskStatus Hydro::HydroSrcTerms(Driver *pdrive, int stage) {
 
 TaskStatus Hydro::SendU_OA(Driver *pdrive, int stage) {
   TaskStatus tstat = TaskStatus::complete;
-  // only execute when (shearing box defined) AND (last stage) AND (3D OR 2d_r_phi)
-  if ((psrc->shearing_box) && (stage == pdrive->nexp_stages) &&
-      (pmy_pack->pmesh->three_d || psrc->shearing_box_r_phi)) {
-    tstat = porb_u->PackAndSendCC(u0);
+  if (porb_u != nullptr) {
+    // only execute if (last stage) AND (3D OR 2d_r_phi)
+    if ((stage == pdrive->nexp_stages) &&
+        (pmy_pack->pmesh->three_d || porb_u->shearing_box_r_phi)) {
+      tstat = porb_u->PackAndSendCC(u0);
+    }
   }
   return tstat;
 }
@@ -273,11 +310,12 @@ TaskStatus Hydro::SendU_OA(Driver *pdrive, int stage) {
 
 TaskStatus Hydro::RecvU_OA(Driver *pdrive, int stage) {
   TaskStatus tstat = TaskStatus::complete;
-  // only execute when (shearing box defined) AND (last stage) AND (3D OR 2d_r_phi)
-  if ((psrc->shearing_box) && (stage == pdrive->nexp_stages) &&
-      (pmy_pack->pmesh->three_d || psrc->shearing_box_r_phi)) {
-    Real qom = (psrc->qshear)*(psrc->omega0);
-    tstat = porb_u->RecvAndUnpackCC(u0, recon_method, qom);
+  if (porb_u != nullptr) {
+    // only execute if (last stage) AND (3D OR 2d_r_phi)
+    if ((stage == pdrive->nexp_stages) &&
+        (pmy_pack->pmesh->three_d || porb_u->shearing_box_r_phi)) {
+      tstat = porb_u->RecvAndUnpackCC(u0, recon_method);
+    }
   }
   return tstat;
 }
@@ -318,9 +356,11 @@ TaskStatus Hydro::RecvU(Driver *pdrive, int stage) {
 
 TaskStatus Hydro::SendU_Shr(Driver *pdrive, int stage) {
   TaskStatus tstat = TaskStatus::complete;
-  // only execute when (shearing box defined) AND (3D OR 2d_r_phi)
-  if ((psrc->shearing_box) && (pmy_pack->pmesh->three_d || psrc->shearing_box_r_phi)) {
-    tstat = psbox_u->PackAndSendCC(u0, recon_method);
+  if (psbox_u != nullptr) {
+    // only execute if (3D OR 2d_r_phi)
+    if (pmy_pack->pmesh->three_d || psbox_u->shearing_box_r_phi) {
+      tstat = psbox_u->PackAndSendCC(u0, recon_method);
+    }
   }
   return tstat;
 }
@@ -332,22 +372,26 @@ TaskStatus Hydro::SendU_Shr(Driver *pdrive, int stage) {
 
 TaskStatus Hydro::RecvU_Shr(Driver *pdrive, int stage) {
   TaskStatus tstat = TaskStatus::complete;
-  // only execute when (shearing box defined) AND (3D OR 2d_r_phi)
-  if ((psrc->shearing_box) && (pmy_pack->pmesh->three_d || psrc->shearing_box_r_phi)) {
-    tstat = psbox_u->RecvAndUnpackCC(u0);
+  if (psbox_u != nullptr) {
+    // only execute if (3D OR 2d_r_phi)
+    if (pmy_pack->pmesh->three_d || psbox_u->shearing_box_r_phi) {
+      tstat = psbox_u->RecvAndUnpackCC(u0);
+    }
   }
   return tstat;
 }
 
 //----------------------------------------------------------------------------------------
 //! \fn TaskList Hydro::ApplyPhysicalBCs
-//! \brief Wrapper task list function to call funtions that set physical and user BCs,
+//! \brief Wrapper task list function to call functions that set physical and user BCs,
 
 TaskStatus Hydro::ApplyPhysicalBCs(Driver *pdrive, int stage) {
   // do not apply BCs if domain is strictly periodic
   if (pmy_pack->pmesh->strictly_periodic) return TaskStatus::complete;
 
-  // physical BCs
+  // Step 3: apply physical BCs to the fine array. This is called *after* prolongation,
+  //         so that the corner ghost zones between a coarse neighbor and a physical
+  //         boundary read valid data.
   pbval_u->HydroBCs((pmy_pack), (pbval_u->u_in), u0);
 
   // user BCs
@@ -365,11 +409,19 @@ TaskStatus Hydro::ApplyPhysicalBCs(Driver *pdrive, int stage) {
 TaskStatus Hydro::Prolongate(Driver *pdrive, int stage) {
   if (pmy_pack->pmesh->multilevel) {  // only prolongate with SMR/AMR
     pbval_u->FillCoarseInBndryCC(u0, coarse_u0);
+
+    // Step 1: apply physical BCs to the coarse array, so the prolongation stencil
+    //         reads valid data in coarse ghost zones that sit at a physical boundary.
+    if (!(pmy_pack->pmesh->strictly_periodic)) {
+      pbval_u->HydroBCsCoarse(pmy_pack, pbval_u->u_in, coarse_u0);
+    }
+
     if (pmy_pack->pmesh->pmr->prolong_prims) {
       pbval_u->ConsToPrimCoarseBndry(coarse_u0, coarse_w0);
       pbval_u->ProlongateCC(w0, coarse_w0);
       pbval_u->PrimToConsFineBndry(w0, u0);
     } else {
+      // Step 2: prolongate fine ghost zones from the coarse array.
       pbval_u->ProlongateCC(u0, coarse_u0);
     }
   }
@@ -416,18 +468,22 @@ TaskStatus Hydro::ClearSend(Driver *pdrive, int stage) {
 
   // with orbital advection check sends of U complete
   // only execute when (shearing box defined) AND (last stage) AND (3D OR 2d_r_phi)
-  if ((psrc->shearing_box) && (stage == pdrive->nexp_stages) &&
-      (pmy_pack->pmesh->three_d || psrc->shearing_box_r_phi)) {
-    tstat = porb_u->ClearSend();
-    if (tstat != TaskStatus::complete) return tstat;
+  if (porb_u != nullptr) {
+    if ((stage == pdrive->nexp_stages) &&
+        (pmy_pack->pmesh->three_d || porb_u->shearing_box_r_phi)) {
+      tstat = porb_u->ClearSend();
+      if (tstat != TaskStatus::complete) return tstat;
+    }
   }
 
   // with shearing box boundaries check sends of U complete
   // only execute when (shearing box defined) AND (stage>=0 or -4) AND (3D OR 2d_r_phi)
-  if ((psrc->shearing_box) && ((stage >= 0) || (stage == -4)) &&
-      (pmy_pack->pmesh->three_d || psrc->shearing_box_r_phi)) {
-    tstat = psbox_u->ClearSend();
-    if (tstat != TaskStatus::complete) return tstat;
+  if (psbox_u != nullptr) {
+    if (((stage >= 0) || (stage == -4)) &&
+        (pmy_pack->pmesh->three_d || psbox_u->shearing_box_r_phi)) {
+      tstat = psbox_u->ClearSend();
+      if (tstat != TaskStatus::complete) return tstat;
+    }
   }
 
   return tstat;
@@ -459,18 +515,22 @@ TaskStatus Hydro::ClearRecv(Driver *pdrive, int stage) {
 
   // with orbital advection check receives of U complete
   // only execute when (shearing box defined) AND (last stage) AND (3D OR 2d_r_phi)
-  if ((psrc->shearing_box) && (stage == pdrive->nexp_stages) &&
-      (pmy_pack->pmesh->three_d || psrc->shearing_box_r_phi)) {
-    tstat = porb_u->ClearRecv();
-    if (tstat != TaskStatus::complete) return tstat;
+  if (porb_u != nullptr) {
+    if ((stage == pdrive->nexp_stages) &&
+        (pmy_pack->pmesh->three_d || porb_u->shearing_box_r_phi)) {
+      tstat = porb_u->ClearRecv();
+      if (tstat != TaskStatus::complete) return tstat;
+    }
   }
 
   // with shearing box boundaries check receives of U complete
   // only execute when (shearing box defined) AND (stage>=0 or -4) AND (3D OR 2d_r_phi)
-  if ((psrc->shearing_box) && ((stage >= 0) || (stage == -4)) &&
-      (pmy_pack->pmesh->three_d || psrc->shearing_box_r_phi)) {
-    tstat = psbox_u->ClearRecv();
-    if (tstat != TaskStatus::complete) return tstat;
+  if (psbox_u != nullptr) {
+    if (((stage >= 0) || (stage == -4)) &&
+        (pmy_pack->pmesh->three_d || psbox_u->shearing_box_r_phi)) {
+      tstat = psbox_u->ClearRecv();
+      if (tstat != TaskStatus::complete) return tstat;
+    }
   }
 
   return tstat;

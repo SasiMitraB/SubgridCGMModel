@@ -103,21 +103,21 @@ class PrimitiveSolver {
       //const Real rbarsq = rsq*xsq + (mux + muxsq)*rbsq;
       const Real rbarsq = x*(rsq*x + mu*(x + 1.0)*rbsq);
       //const Real qbar = q - 0.5*bsq - 0.5*musq*xsq*(bsq*rsq - rbsq);
-      const Real qbar = q - 0.5*bsq - 0.5*musq*xsq*fma(bsq, rsq, -rbsq);
+      const Real qbar = q - 0.5*bsq - 0.5*musq*xsq*Kokkos::fma(bsq, rsq, -rbsq);
       const Real mb = peos->GetBaryonMass();
 
       // Now we can estimate the velocity.
       //const Real v_max = peos->GetMaxVelocity();
       const Real h_min = peos->GetMinimumEnthalpy();
-      const Real vsq_max = fmin(rsq/(h_min*h_min + rsq),
+      const Real vsq_max = Kokkos::fmin(rsq/(h_min*h_min + rsq),
                                     peos->GetMaxVelocity()*peos->GetMaxVelocity());
-      const Real vhatsq = fmin(musq*rbarsq, vsq_max);
+      const Real vhatsq = Kokkos::fmin(musq*rbarsq, vsq_max);
 
       // Using the velocity estimate, predict the Lorentz factor.
       // NOTE: for extreme velocities, this alternative form of W may be more accurate:
       // Wsq = 1/(eps*(2 - eps)) = 1/(eps*(1 + v)), where eps = 1 - v.
       //const Real What = 1.0/std::sqrt(1.0 - vhatsq);
-      const Real iWhat = sqrt(1.0 - vhatsq);
+      const Real iWhat = Kokkos::sqrt(1.0 - vhatsq);
 
       // Now estimate the number density.
       Real rhohat = D*iWhat;
@@ -127,24 +127,22 @@ class PrimitiveSolver {
       // Estimate the energy density.
       Real eoverD = qbar - mu*rbarsq + 1.0;
       Real ehat = D*eoverD;
-      peos->ApplyEnergyLimits(ehat, nhat, Y);
-      //eoverD = ehat/D;
 
       // Now we can get an estimate of the temperature, and from that, the pressure and
       // enthalpy.
       Real That = peos->GetTemperatureFromE(nhat, ehat, Y);
       peos->ApplyTemperatureLimits(That);
-      //ehat = peos->GetEnergy(nhat, That, Y);
+      ehat = peos->GetEnergy(nhat, That, Y);
       Real Phat = peos->GetPressure(nhat, That, Y);
-      Real hhat = peos->GetEnthalpy(nhat, That, Y);
+      Real hhat = (ehat + Phat)/(mb*nhat);
 
       // Now we can get two different estimates for nu = h/W.
       Real nu_a = hhat*iWhat;
       //Real ahat = Phat / ehat;
-      Real nu_b = eoverD + Phat/D;
+      Real nu_b = (D*eoverD + Phat)/D;
       //Real nu_b = (1.0 + ahat)*eoverD;
       //Real nu_b = (1.0 + ahat)*eoverD;
-      Real nuhat = fmax(nu_a, nu_b);
+      Real nuhat = Kokkos::fmax(nu_a, nu_b);
 
       // Finally, we can get an estimate for muhat.
       Real muhat = 1.0/(nuhat + mu*rbarsq);
@@ -315,23 +313,6 @@ Error PrimitiveSolver<EOSPolicy, ErrorPolicy>::CheckDensityValid(Real& mul, Real
     if (f <= 0) {
       // W is not physical, so rho must be larger than rho_max.
       return Error::RHO_TOO_BIG;
-    } else {
-      MuFromW(f, df, mul, bsq, rsq, rbsq, W);
-      if (f < 0) {
-        Real mu;
-        Real mulc = mul;
-        Real muhc = muh;
-        // We can tighten up the bounds for mul.
-        // The derivative is zero at mu = 0, so we perturb it slightly.
-        /*if (mu <= root.tol) {
-          mu += root.tol;
-        }*/
-        bool result = root.NewtonSafe(MuFromW, mulc, muhc, mu, 1e-10, bsq, rsq, rbsq, W);
-        if (!result) {
-          return Error::BRACKETING_FAILED;
-        }
-        mul = (mu > mul) ? mu : mul;
-      }
     }
   }
   if (D < W_max*rho_min) {
@@ -341,19 +322,6 @@ Error PrimitiveSolver<EOSPolicy, ErrorPolicy>::CheckDensityValid(Real& mul, Real
     if (f >= 0) {
       // W is not physical, so rho must be smaller than rho_min.
       return Error::RHO_TOO_SMALL;
-    } else {
-      MuFromW(f, df, muh, bsq, rsq, rbsq, W);
-      if (f > 0) {
-        Real mu = muh;
-        Real mulc = mul;
-        Real muhc = muh;
-        // We can tighten up the bounds for muh.
-        bool result = root.NewtonSafe(MuFromW, mulc, muhc, mu, 1e-10, bsq, rsq, rbsq, W);
-        if (!result) {
-          return Error::BRACKETING_FAILED;
-        }
-        muh = (mu < muh) ? mu : muh;
-      }
     }
   }
   return Error::SUCCESS;
@@ -375,20 +343,31 @@ SolverResult PrimitiveSolver<EOSPolicy, ErrorPolicy>::ConToPrim(Real prim[NPRIM]
   // Extract the particle fractions.
   const int n_species = eos.GetNSpecies();
   Real Y[MAX_SPECIES] = {0.0};
-  for (int s = 0; s < n_species; s++) {
-    Y[s] = cons[CYD + s]/cons[CDN];
+  // Avoid division by zero.
+  if (cons[CDN] > 0 ) {
+    for (int s = 0; s < n_species; s++) {
+      Y[s] = cons[CYD + s]/cons[CDN];
+    }
   }
   // Apply limits to Y to ensure a physical state
-  eos.ApplySpeciesLimits(Y);
+  bool Y_adjusted = eos.ApplySpeciesLimits(Y);
+
+  const Real Bsq = SquareVector(B_u, g3d);
 
   // Check the conserved variables for consistency and do whatever
   // the EOSPolicy wants us to.
-  bool floored = eos.ApplyConservedFloor(D, S_d, tau, Y, SquareVector(B_u, g3d));
+  bool floored = eos.ApplyConservedFloor(D, S_d, tau, Y, Bsq);
   solver_result.cons_floor = floored;
   if (floored && eos.IsConservedFlooringFailure()) {
     HandleFailure(prim, cons, b, g3d);
     solver_result.error = Error::CONS_FLOOR;
     return solver_result;
+  }
+  // If a floor is applied or Y is adjusted, we need to propagate the changes back to DYe.
+  if (floored || Y_adjusted) {
+    for (int s = 0; s < n_species; s++) {
+      cons[CYD + s] = D*Y[s];
+    }
   }
 
   // Calculate some utility quantities.
@@ -429,10 +408,9 @@ SolverResult PrimitiveSolver<EOSPolicy, ErrorPolicy>::ConToPrim(Real prim[NPRIM]
     solver_result.cons_adjusted = true;
     // If b_u is rescaled, we also need to adjust D, which means we'll
     // have to adjust all our other rescalings, too.
-    Real Bsq = SquareVector(B_u, g3d);
     D = Bsq/bsqr;
     r_d[0] = S_d[0]/D; r_d[1] = S_d[1]/D; r_d[2] = S_d[2]/D;
-    RaiseForm(r_u, r_d, g3d);
+    RaiseForm(r_u, r_d, g3u);
     rb = Contract(b_u, r_d);
     rbsqr = rb*rb;
     q = tau/D;
@@ -548,7 +526,7 @@ SolverResult PrimitiveSolver<EOSPolicy, ErrorPolicy>::ConToPrim(Real prim[NPRIM]
     return solver_result;
   }
   solver_result.cons_adjusted = solver_result.cons_adjusted || floored ||
-                                solver_result.cons_floor;
+                                solver_result.cons_floor || Y_adjusted;
 
   prim[PRH] = n;
   prim[PPR] = P;
@@ -577,7 +555,7 @@ SolverResult PrimitiveSolver<EOSPolicy, ErrorPolicy>::ConToPrim(Real prim[NPRIM]
 template<typename EOSPolicy, typename ErrorPolicy>
 KOKKOS_INLINE_FUNCTION
 Error PrimitiveSolver<EOSPolicy, ErrorPolicy>::PrimToCon(Real prim[NPRIM],
-      Real cons[NCONS], Real bu[NMAG], Real g3d[NMETRIC]) const {
+      Real cons[NCONS], Real bu[NMAG], Real g3d[NSPMETRIC]) const {
   // Extract the primitive variables
   const Real &n = prim[PRH]; // number density
   const Real Wv_u[3] = {prim[PVX], prim[PVY], prim[PVZ]};

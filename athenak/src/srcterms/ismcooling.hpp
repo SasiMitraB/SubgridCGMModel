@@ -35,7 +35,7 @@ Real ISMCoolFn(Real temp) {
 
   Real logt = log10(temp);
 
-  // // turn off cooling below in the extreme ends
+  // // turn off cooling below in the extreme ends; Not there in the default implementation
   if (logt <= log10(1.05e4) || logt > log10(0.95e6)) {
     return 0.0;
   }

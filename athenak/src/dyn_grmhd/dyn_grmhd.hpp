@@ -16,7 +16,7 @@
 
 enum class DynGRMHD_RSolver {llf_dyngr, hlle_dyngr};   // Riemann solvers for dynamical GR
 enum class DynGRMHD_EOS {eos_ideal, eos_piecewise_poly,
-                      eos_compose};                    // EOS policies for dynamical GR
+                      eos_compose, eos_hybrid};        // EOS policies for dynamical GR
 enum class DynGRMHD_Error {reset_floor};               // Error policies for dynamical GR
 
 //----------------------------------------------------------------------------------------
@@ -100,12 +100,16 @@ class DynGRMHD {
   DynGRMHD_EOS eos_policy;
   DynGRMHD_Error error_policy;
 
+  // Storage for temperature
+  DvceArray5D<Real> temperature;
+
  protected:
   MeshBlockPack *pmy_pack;  // ptr to MeshBlockPack containing this Hydro
   int scratch_level;        // GPU scratch level for flux and source calculations
   bool enforce_maximum;     // enforce local maximum principle during FOFC
   Real dmp_M;               // threshold multiplier for discrete maximum principle.
   bool fixed_evolution;     // Disable mhd evolution
+  bool scalar_pplimiter;    // Apply positivity preserving limiter on scalar
 };
 
 template<class EOSPolicy, class ErrorPolicy>

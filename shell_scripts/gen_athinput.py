@@ -100,6 +100,8 @@ def main():
             "rsolver": params.get("rsolver"),
             "nscalars": params.get("nscalars"),
             "gamma": params.get("gamma"),
+        },
+        "hydro_srcterms": {
             "ism_cooling": "true" if params.get("ism_cooling") else "false",
             "hrate": params.get("hrate"),
         },

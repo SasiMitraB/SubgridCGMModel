@@ -32,7 +32,7 @@ namespace Primitive {
 #define MAX_PIECES 7
 
 class PiecewisePolytrope : public EOSPolicyInterface {
- private:
+ protected:
   /// Number of polytropes in the EOS
   int n_pieces;
 
@@ -87,12 +87,6 @@ class PiecewisePolytrope : public EOSPolicyInterface {
     int p = FindPiece(n);
 
     return GetColdPressure(n, p) + n*T;
-  }
-
-  /// Calculate the entropy per baryon using the ideal gas law.
-  KOKKOS_INLINE_FUNCTION Real Entropy(Real n, Real T, Real *Y) const {
-    // FIXME: Error message or abort
-    return 0.;
   }
 
   /// Calculate the enthalpy per baryon using the ideal gas law.
@@ -211,6 +205,8 @@ class PiecewisePolytrope : public EOSPolicyInterface {
     density_pieces[0] = densities[1]/mb;
     gamma_pieces[0] = gammas[0];
     pressure_pieces[0] = P0;
+    eps_pieces[0] = 0.0;
+
 
     for (int i = 1; i < n; i++) {
       density_pieces[i] = densities[i]/mb;

@@ -9,6 +9,7 @@
 #include <float.h>
 
 #include <iostream>
+#include <algorithm> // max
 #include <string>
 
 #include "athena.hpp"
@@ -27,11 +28,6 @@ namespace radiation {
 // constructor, initializes data structures and parameters
 
 Radiation::Radiation(MeshBlockPack *ppack, ParameterInput *pin) :
-    pmy_pack(ppack),
-    i0("i0",1,1,1,1,1),
-    i1("i1",1,1,1,1,1),
-    iflx("iflx",1,1,1,1,1),
-    divfa("divfa",1,1,1,1,1),
     nh_c("nh_c",1,1),
     nh_f("nh_f",1,1,1),
     tet_c("tet_c",1,1,1,1,1,1),
@@ -41,19 +37,15 @@ Radiation::Radiation(MeshBlockPack *ppack, ParameterInput *pin) :
     tet_d3_x3f("tet_d3_x3f",1,1,1,1,1),
     na("na",1,1,1,1,1,1),
     norm_to_tet("norm_to_tet",1,1,1,1,1,1),
-    beam_mask("beam_mask",1,1,1,1,1) {
+    i0("i0",1,1,1,1,1),
+    i1("i1",1,1,1,1,1),
+    iflx("iflx",1,1,1,1,1),
+    divfa("divfa",1,1,1,1,1),
+    pmy_pack(ppack) {
   // Check for general relativity
   if (!(pmy_pack->pcoord->is_general_relativistic)) {
     std::cout << "### FATAL ERROR in " << __FILE__ << " at line " << __LINE__
       << std::endl << "Radiation requires general relativity" << std::endl;
-    std::exit(EXIT_FAILURE);
-  }
-
-  // Check for AMR and exit if enabled.
-  // TODO(@user): Extend AMR and load balancing to work with radiation
-  if (pmy_pack->pmesh->adaptive) {
-    std::cout << "### FATAL ERROR in " << __FILE__ << " at line " << __LINE__
-      << std::endl << "Radiation does not yet work with AMR" << std::endl;
     std::exit(EXIT_FAILURE);
   }
 
@@ -105,9 +97,10 @@ Radiation::Radiation(MeshBlockPack *ppack, ParameterInput *pin) :
   // Check for fluid evolution
   fixed_fluid = pin->GetOrAddBoolean("radiation","fixed_fluid",false);
 
-  // Other rad source terms (constructor parses input file to init only srcterms needed)
-  beam_source = pin->GetOrAddBoolean("radiation","beam_source",false);
-  psrc = new SourceTerms("radiation", ppack, pin);
+  // Source terms (if needed)
+  if (pin->DoesBlockExist("rad_srcterms")) {
+    psrc = new SourceTerms("rad_srcterms", ppack, pin);
+  }
 
   // Setup angular mesh and radiation geometry data
   int nlevel = pin->GetInteger("radiation", "nlevel");
@@ -116,7 +109,8 @@ Radiation::Radiation(MeshBlockPack *ppack, ParameterInput *pin) :
   n_0_floor = pin->GetOrAddReal("radiation","n_0_floor",0.1);
   prgeo = new GeodesicGrid(nlevel, rotate_geo, angular_fluxes);
 
-  int nmb = ppack->nmb_thispack;
+  // Total number of MeshBlocks on this rank to be used in array dimensioning
+  int nmb = std::max((ppack->nmb_thispack), (ppack->pmesh->nmb_maxperrank));
   auto &indcs = pmy_pack->pmesh->mb_indcs;
   {
   int ncells1 = indcs.nx1 + 2*(indcs.ng);
@@ -171,6 +165,7 @@ Radiation::Radiation(MeshBlockPack *ppack, ParameterInput *pin) :
       recon_method = ReconstructionMethod::plm;
     } else if (xorder.compare("ppm4") == 0 ||
                xorder.compare("ppmx") == 0 ||
+               xorder.compare("teno") == 0 ||
                xorder.compare("wenoz") == 0) {
       // check that nghost > 2
       if (indcs.ng < 3) {
@@ -185,6 +180,8 @@ Radiation::Radiation(MeshBlockPack *ppack, ParameterInput *pin) :
         recon_method = ReconstructionMethod::ppmx;
       } else if (xorder.compare("wenoz") == 0) {
         recon_method = ReconstructionMethod::wenoz;
+      } else if (xorder.compare("teno") == 0) {
+        recon_method = ReconstructionMethod::teno;
       }
     } else {
       std::cout << "### FATAL ERROR in " << __FILE__ << " at line " << __LINE__
@@ -204,9 +201,6 @@ Radiation::Radiation(MeshBlockPack *ppack, ParameterInput *pin) :
     Kokkos::realloc(iflx.x3f,nmb,prgeo->nangles,ncells3,ncells2,ncells1);
     if (angular_fluxes) {
       Kokkos::realloc(divfa,nmb,prgeo->nangles,ncells3,ncells2,ncells1);
-    }
-    if (beam_source) {
-      Kokkos::realloc(beam_mask,nmb,prgeo->nangles,ncells3,ncells2,ncells1);
     }
   }
 }

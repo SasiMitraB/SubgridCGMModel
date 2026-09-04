@@ -37,10 +37,8 @@
 
 namespace z4c {
 
-CCE::CCE(Mesh *const pm, ParameterInput *const pin, int index):
-  pm(pm),
-  pin(pin),
-  index(index) {
+CCE::CCE(Mesh *const pm, ParameterInput *const pin, int indx):
+  index(indx) {
   // pointer to meshblockpack
   pmbp = pm->pmb_pack;
 
@@ -80,6 +78,14 @@ CCE::~CCE() {}
 // Interpolate all fields to Gauss-Legendre Sphere
 void CCE::InterpolateAndDecompose(MeshBlockPack *pmbp) {
   Real ylmR,ylmI;
+
+  // reinitialize interpolation indices and weights if AMR
+  if(pmbp->pmesh->adaptive) {
+    for (int k = 0; k < nr; ++k) {
+      grids[k]->SetInterpolationIndices();
+      grids[k]->SetInterpolationWeights();
+    }
+  }
 
   // raveled shape of array & counts for mpi
   int count = 10*nr*num_angular_modes;
@@ -159,11 +165,11 @@ void CCE::InterpolateAndDecompose(MeshBlockPack *pmbp) {
     fwrite(&rout, sizeof(Real), 1, cce_file);
     // Write the 4D array to the binary file
     size_t elementsWritten = fwrite(data_real, sizeof(Real), count, cce_file);
-    if (elementsWritten != count) {
+    if (elementsWritten != static_cast<size_t>(count)) {
       perror("Error writing to file");
     }
     elementsWritten = fwrite(data_imag, sizeof(Real), count, cce_file);
-    if (elementsWritten != count) {
+    if (elementsWritten != static_cast<size_t>(count)) {
       perror("Error writing to file");
     }
     // Close the file

@@ -33,8 +33,8 @@
 
 //----------------------------------------------------------------------------------------
 HorizonDump::HorizonDump(MeshBlockPack *pmbp, ParameterInput *pin, int n, int is_common):
-              common_horizon{is_common}, pos{NAN, NAN, NAN},
-              pmbp{pmbp}, horizon_ind{n} {
+              common_horizon{is_common}, horizon_ind{n},
+              pos{NAN, NAN, NAN}, pmbp{pmbp} {
   std::string nstr = std::to_string(n);
 
   pos[0] = pin->GetOrAddReal("z4c", "co_" + nstr + "_x", 0.0);
@@ -141,7 +141,7 @@ void HorizonDump::SetGridAndInterpolate(Real center[NDIM]) {
     fwrite(&pmbp->pmesh->time, sizeof(Real), 1, etk_output_file);
     // Write the 4D array to the binary file
     size_t elementsWritten = fwrite(data_out, sizeof(Real), count, etk_output_file);
-    if (elementsWritten != count) {
+    if (elementsWritten != static_cast<size_t>(count)) {
       perror("Error writing to file");
     }
     // Close the file
@@ -196,8 +196,8 @@ void HorizonDump::ETK_setup_parfile() {
           "ADMBase::metric_type = \"physical\"\n"
           "AHFinderDirect::find_every                             = 1\n"
           "AHFinderDirect::geometry_interpolator_name             ="
-          " \"Lagrange polynomial interpolation\"\n"
-          "AHFinderDirect::geometry_interpolator_pars             = \"order=4\"\n"
+          " \"Hermite polynomial interpolation\"\n"
+          "AHFinderDirect::geometry_interpolator_pars             = \"order=3\"\n"
           "AHFinderDirect::max_Newton_iterations__initial         = 100\n"
           "AHFinderDirect::max_Newton_iterations__subsequent      = 10\n"
           "AHFinderDirect::N_horizons                             = 1\n"
@@ -205,8 +205,8 @@ void HorizonDump::ETK_setup_parfile() {
           "AHFinderDirect::reset_horizon_after_not_finding[1]     = \"no\"\n"
           "AHFinderDirect::set_mask_for_individual_horizon[1]     = \"no\"\n"
           "AHFinderDirect::surface_interpolator_name              ="
-          " \"Lagrange polynomial interpolation\"\n"
-          "AHFinderDirect::surface_interpolator_pars              = \"order=4\"\n"
+          " \"Hermite polynomial interpolation\"\n"
+          "AHFinderDirect::surface_interpolator_pars              = \"order=3\"\n"
           "AHFinderDirect::verbose_level                          = \"physics details\"\n"
           "#AHFinderDirect::verbose_level                         ="
           " \"algorithm details\"\n"
@@ -215,12 +215,13 @@ void HorizonDump::ETK_setup_parfile() {
           "AHFinderDirect::run_at_CCTK_ANALYSIS = true\n"
           "\n"
           "# Parameters of thorn QuasiLocalMeasures (implementing QuasiLocalMeasures)\n"
-          "QuasiLocalMeasures::interpolator         ="
+          "#QuasiLocalMeasures::interpolator         ="
           " \"Lagrange polynomial interpolation\"\n"
-          "QuasiLocalMeasures::interpolator_options = \"order=4\"\n"
-          "# QuasiLocalMeasures::interpolator         ="
+          "#QuasiLocalMeasures::interpolator_options = \"order=4\"\n"
+          "QuasiLocalMeasures::interpolator         ="
           " \"Hermite polynomial interpolation\"\n"
-          "# QuasiLocalMeasures::interpolator_options = \"order=3\"\n"
+          "QuasiLocalMeasures::interpolator_options = \"order=3\"\n"
+          "QuasiLocalMeasures::killing_vector_method = axial \n"
           "QuasiLocalMeasures::num_surfaces         = 1\n"
           "QuasiLocalMeasures::spatial_order        = 2\n"
           "QuasiLocalMeasures::surface_index[0]     = 0\n"
@@ -264,11 +265,11 @@ void HorizonDump::ETK_setup_parfile() {
             "readBHaHdata::recent_ah_radius_max_filename = \"ah_radius_max_BH_1.txt\"\n");
 
   //if(commondata->time == 0) {
-    fprintf(etk_parfile,
-            "AHFinderDirect::initial_guess_method[1]"
-            "                = \"coordinate sphere\"\n"
-            "AHFinderDirect::initial_guess__coord_sphere__radius[1] = %e\n",
-            r_guess);
+  fprintf(etk_parfile,
+          "AHFinderDirect::initial_guess_method[1]"
+          "                = \"coordinate sphere\"\n"
+          "AHFinderDirect::initial_guess__coord_sphere__radius[1] = %e\n",
+          r_guess);
   /*} else {
     if(BH==LESSMASSIVE_BH_PREMERGER)
       fprintf(etk_parfile,

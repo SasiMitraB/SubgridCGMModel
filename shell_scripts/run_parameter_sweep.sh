@@ -155,6 +155,8 @@ rsolver     = hllc      # Riemann-solver to be used
 nscalars    = ${nscalars}         # number of passive scalars in hydro
 gamma       = 1.666667  # gamma = C_p/C_v
 #fofc        = true     # Enable first order flux correction
+
+<hydro_srcterms>
 ism_cooling = ${ism_cooling}
 hrate 	    = 0
 
