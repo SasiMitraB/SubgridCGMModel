@@ -35,8 +35,6 @@ Reproduces the full suite of diagnostic plots and animations from mock_sg.py:
 import os
 import sys
 import gc
-import shutil
-import tempfile
 import subprocess
 import argparse
 import csv
@@ -57,6 +55,7 @@ import matplotlib.pyplot as plt
 import matplotlib.colors as colors
 from matplotlib.colors import LogNorm
 from matplotlib.collections import LineCollection, PolyCollection
+from matplotlib.animation import FuncAnimation, FFMpegWriter
 from tqdm import tqdm
 import torch
 
@@ -181,50 +180,43 @@ def compute_color_limits(arr, use_log=False):
     return vmin, vmax, None
 
 
-def stitch_frames_with_ffmpeg(temp_dir, output_path, fps=10):
-    """Stitch PNG frames in temp_dir into an MP4 video using ffmpeg."""
-    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
+_VIDEO_CODEC = None
+
+
+def get_video_codec():
+    """Detect once whether ffmpeg has NVENC hardware encoding; fall back to mpeg4 otherwise."""
+    global _VIDEO_CODEC
+    if _VIDEO_CODEC is None:
+        try:
+            res = subprocess.run(["ffmpeg", "-hide_banner", "-encoders"], capture_output=True, text=True, timeout=10)
+            if "h264_nvenc" in res.stdout:
+                _VIDEO_CODEC = ("h264_nvenc", ["-preset", "p4", "-pix_fmt", "yuv420p"])
+            else:
+                _VIDEO_CODEC = ("mpeg4", ["-q:v", "2", "-pix_fmt", "yuv420p"])
+        except Exception:
+            _VIDEO_CODEC = ("mpeg4", ["-q:v", "2", "-pix_fmt", "yuv420p"])
+    return _VIDEO_CODEC
+
+
+def save_animation_funcanim(fig, update_func, frames, output_path, fps=10, blit=False):
+    """Render an animation with FuncAnimation, piping frames straight into ffmpeg (no PNG round-trip)."""
     vf_filter = "scale='min(4096,iw)':'min(4096,ih)':force_original_aspect_ratio=decrease,pad=ceil(iw/2)*2:ceil(ih/2)*2"
+    os.makedirs(os.path.dirname(os.path.abspath(output_path)), exist_ok=True)
 
-    cmd = [
-        "ffmpeg", "-y",
-        "-r", str(fps),
-        "-pattern_type", "glob",
-        "-i", os.path.join(temp_dir, "frame_*.png"),
-        "-vf", vf_filter,
-        "-c:v", "h264_nvenc",
-        "-preset", "p4",
-        "-pix_fmt", "yuv420p",
-        output_path,
-    ]
-    res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-    if res.returncode != 0:
-        cmd_fb = [
-            "ffmpeg", "-y",
-            "-r", str(fps),
-            "-pattern_type", "glob",
-            "-i", os.path.join(temp_dir, "frame_*.png"),
-            "-vf", vf_filter,
-            "-c:v", "mpeg4",
-            "-q:v", "2",
-            "-pix_fmt", "yuv420p",
-            output_path,
-        ]
-        res_fb = subprocess.run(cmd_fb, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-        if res_fb.returncode != 0:
-            print(f"Warning: ffmpeg failed for {output_path}: {res_fb.stderr.decode()[:200]}")
-
-
-def save_animation_serial(render_func, frames_list, output_path, fps=10):
-    """Render frames sequentially and stitch with ffmpeg."""
-    temp_dir = tempfile.mkdtemp()
+    codec, codec_args = get_video_codec()
+    anim = FuncAnimation(fig, update_func, frames=tqdm(list(frames), desc=f"Video {Path(output_path).name}"), blit=blit)
     try:
-        for f in tqdm(frames_list, desc=f"Video {Path(output_path).name}"):
-            render_func(f, temp_dir)
-        stitch_frames_with_ffmpeg(temp_dir, output_path, fps=fps)
-        print(f"  Saved video: {output_path}")
-    finally:
-        shutil.rmtree(temp_dir, ignore_errors=True)
+        writer = FFMpegWriter(fps=fps, codec=codec, extra_args=codec_args + ["-vf", vf_filter])
+        anim.save(str(output_path), writer=writer, dpi=100)
+    except Exception as e:
+        if codec != "mpeg4":
+            print(f"  Warning: {codec} failed ({e}); retrying with mpeg4")
+            writer = FFMpegWriter(fps=fps, codec="mpeg4", extra_args=["-q:v", "2", "-pix_fmt", "yuv420p", "-vf", vf_filter])
+            anim.save(str(output_path), writer=writer, dpi=100)
+        else:
+            raise
+    plt.close(fig)
+    print(f"  Saved video: {output_path}")
 
 
 def pdf_mass_in_active_range(pdf, T_edges, logt_start=LOGT_ACTIVE_START, logt_end=LOGT_ACTIVE_END):
@@ -331,6 +323,34 @@ def compute_pdf_panel_arrays(pdf, cmap_temp, norm_temp, log_temp_centers,
     col = np.repeat(np.where(lum[..., None] < 0.5, 1.0, 0.0), 3, axis=-1)
     colors = np.concatenate([col, np.ones((*lum.shape, 1))], axis=-1).reshape(-1, 4)
     return rgba, segs, colors
+
+
+def load_history_file(history_path):
+    """Load timestep data from Athena++ history file.
+
+    History files are opened in append mode by Athena, so re-running the same
+    simulation multiple times leaves earlier runs' rows in the file, each
+    restarting from t=0. Keep only the rows from the last (most recent) run.
+    """
+    try:
+        # Use usecols to avoid errors when column count changes mid-file
+        data = np.loadtxt(history_path, comments='#', usecols=(0, 1))
+        if data.ndim == 1:
+            data = data.reshape(1, -1)
+        times = data[:, 0]
+        dts = data[:, 1]
+
+        # Detect resets (time jumping backward) and keep only the last segment
+        resets = np.where(np.diff(times) < 0)[0]
+        if len(resets) > 0:
+            last_reset = resets[-1] + 1
+            times = times[last_reset:]
+            dts = dts[last_reset:]
+
+        return times, dts
+    except Exception as e:
+        print(f"  Warning: Could not load history file {history_path}: {e}")
+        return None, None
 
 
 def load_tiled_cnn_model(save_dir=None):
@@ -881,6 +901,60 @@ def main():
     print("  Saved cold_mass_evolution.png")
 
     # =========================================================================
+    # PLOT 5b: Timestep (dt) vs Time
+    # =========================================================================
+    print("\n[8b] Generating delta_t_vs_time.png...")
+
+    # Construct history file paths (history files are in parent dir of bin/)
+    hr_hist_path = Path(args.hr_bin).parent / "KH.hydro.hst"
+    sg_hist_path = Path(args.sg_bin).parent / "KH.hydro.hst"
+    lr_hist_path = Path(args.lr_bin).parent / "KH.hydro.hst"
+
+    # Load history data
+    hr_times_hist, hr_dts = load_history_file(hr_hist_path)
+    sg_times_hist, sg_dts = load_history_file(sg_hist_path)
+    lr_times_hist, lr_dts = load_history_file(lr_hist_path)
+
+    # For restarted simulations (SG and LR), shift times to physical time by adding restart time
+    if sg_times_hist is not None:
+        sg_times_hist = sg_times_hist + RESTART_TIME_MYR
+    if lr_times_hist is not None:
+        lr_times_hist = lr_times_hist + RESTART_TIME_MYR
+
+    # Show only from RESTART_TIME_MYR to simulation end for all lines
+    if hr_times_hist is not None:
+        mask = hr_times_hist >= RESTART_TIME_MYR
+        hr_times_hist, hr_dts = hr_times_hist[mask], hr_dts[mask]
+    if sg_times_hist is not None:
+        mask = sg_times_hist >= RESTART_TIME_MYR
+        sg_times_hist, sg_dts = sg_times_hist[mask], sg_dts[mask]
+    if lr_times_hist is not None:
+        mask = lr_times_hist >= RESTART_TIME_MYR
+        lr_times_hist, lr_dts = lr_times_hist[mask], lr_dts[mask]
+
+    fig, ax = plt.subplots(figsize=(10, 6))
+    ax.axvline(RESTART_TIME_MYR, color="gray", ls="--", lw=1.2, label=f"Restart @ {RESTART_TIME_MYR} Myr", alpha=0.7)
+
+    if hr_times_hist is not None and hr_dts is not None:
+        ax.plot(hr_times_hist, hr_dts * 1e3, label="HR (512x1024)", lw=2, marker="^", markersize=4, alpha=0.8)
+
+    if sg_times_hist is not None and sg_dts is not None:
+        ax.plot(sg_times_hist, sg_dts * 1e3, label=SG_LABEL, lw=2, marker="o", markersize=5, alpha=0.8)
+
+    if lr_times_hist is not None and lr_dts is not None:
+        ax.plot(lr_times_hist, lr_dts * 1e3, label=LR_LABEL, lw=2, marker="s", markersize=5, alpha=0.8)
+
+    ax.set_xlabel("Physical Time [Myr]", fontsize=13)
+    ax.set_ylabel(r"Timestep $\Delta t$ [ms (code units)]", fontsize=13)
+    ax.set_title(r"Timestep ($\Delta t$) vs Simulation Time", fontsize=14, weight="bold")
+    ax.grid(True, ls="--", alpha=0.5)
+    ax.legend(fontsize=11)
+    plt.tight_layout()
+    plt.savefig(out_dir / "delta_t_vs_time.png", dpi=200)
+    plt.close(fig)
+    print("  Saved delta_t_vs_time.png")
+
+    # =========================================================================
     # PLOT 6: Emissivity Profile vs Y & Integrated Sigma_c
     # =========================================================================
     print("\n[9] Generating emissivity_profile_vs_y.png...")
@@ -1064,6 +1138,8 @@ def main():
     # =========================================================================
     print("\n[11] Rendering full MP4 animation suite...")
 
+    anim_frames = range(0, nt, FRAME_STEP)
+
     # (A) temperature_field_evolution.mp4 (Temperature map with velocity streamlines)
     x_cg = np.linspace(x1min, x1max, nx_cg)
     y_cg = np.linspace(x2min, x2max, ny_cg)
@@ -1076,205 +1152,208 @@ def main():
     x_hr_sub = x_hr_full[sx_hr]
     y_hr_sub = y_hr_full[sy_hr]
 
-    def render_temperature_field_frame(frame, temp_dir):
-        fig, axs = plt.subplots(1, 4, figsize=(14, 4.5))
-        t_myr = t_restart_myr[frame]
+    fig_a, axs_a = plt.subplots(1, 4, figsize=(14, 4.5))
+    lbls_a = [
+        f"HR ({nx_hr_sim}x{ny_hr_sim}) Temperature",
+        f"CG HR ({CELL_LABEL}) Temperature",
+        f"SG ({CELL_LABEL}) Temperature",
+        f"LR ({CELL_LABEL}) Temperature",
+    ]
+    ims_a = []
+    stream_artists_a = [None, None, None, None]
+    for ax, lbl in zip(axs_a, lbls_a):
+        im = ax.imshow(np.zeros((2, 2)), origin="lower", extent=[x1min, x1max, x2min, x2max],
+                       cmap="inferno", vmin=3.0, vmax=7.0, aspect="auto")
+        ax.set_title(lbl)
+        plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        ims_a.append(im)
+    axs_a[0].set_ylabel(r"$y \ [\mathrm{pc}]$")
+    plt.tight_layout()
 
+    def update_temperature_field(frame):
         t_sims = [hr_temp[frame], cg_hr_temp[frame], sg_temp[frame], lr_temp[frame]]
         ux_sims = [hr_ux[frame], cg_hr_ux[frame], sg_ux[frame], lr_ux[frame]]
         uy_sims = [hr_uy[frame], cg_hr_uy[frame], sg_uy[frame], lr_uy[frame]]
-        lbls = [
-            f"HR ({nx_hr_sim}x{ny_hr_sim}) Temperature",
-            f"CG HR ({CELL_LABEL}) Temperature",
-            f"SG ({CELL_LABEL}) Temperature",
-            f"LR ({CELL_LABEL}) Temperature",
-        ]
-
-        for i, (ax, t_arr, ux_arr, uy_arr, lbl) in enumerate(zip(axs, t_sims, ux_sims, uy_sims, lbls)):
-            im = ax.imshow(
-                np.log10(t_arr),
-                origin="lower",
-                extent=[x1min, x1max, x2min, x2max],
-                cmap="inferno",
-                vmin=3.0,
-                vmax=7.0,
-                aspect="auto",
-            )
-
-            # Velocity streamlines overlay
+        for i, (ax, im, t_arr, ux_arr, uy_arr) in enumerate(zip(axs_a, ims_a, t_sims, ux_sims, uy_sims)):
+            im.set_data(np.log10(t_arr))
+            # streamplot has no incremental update API; the old artists must be removed and redrawn.
+            # StreamplotSet.arrows is a non-attached PatchCollection facade in this matplotlib
+            # version (NotImplementedError on .remove()) -- the actual arrow patches live in
+            # ax.patches, so they must be cleared from there instead.
+            if stream_artists_a[i] is not None:
+                stream_artists_a[i].lines.remove()
+                for patch in list(ax.patches):
+                    patch.remove()
             if i == 0:
-                ax.streamplot(
-                    x_hr_sub,
-                    y_hr_sub,
-                    ux_arr[sy_hr, sx_hr],
-                    uy_arr[sy_hr, sx_hr],
-                    color="white",
-                    density=0.7,
-                    linewidth=0.8,
-                    arrowsize=0.8,
-                )
+                sp = ax.streamplot(x_hr_sub, y_hr_sub, ux_arr[sy_hr, sx_hr], uy_arr[sy_hr, sx_hr],
+                                   color="white", density=0.7, linewidth=0.8, arrowsize=0.8)
             else:
-                ax.streamplot(
-                    x_cg,
-                    y_cg,
-                    ux_arr,
-                    uy_arr,
-                    color="white",
-                    density=0.7,
-                    linewidth=0.8,
-                    arrowsize=0.8,
-                )
-
+                sp = ax.streamplot(x_cg, y_cg, ux_arr, uy_arr,
+                                   color="white", density=0.7, linewidth=0.8, arrowsize=0.8)
+            stream_artists_a[i] = sp
             # Lock limits strictly to avoid streamplot autoscaling jitter across frames
             ax.set_xlim(x1min, x1max)
             ax.set_ylim(x2min, x2max)
-
-            ax.set_title(lbl)
-            plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
-
-        for ax in axs.flat:
             ax.set_xlabel(f"Timestep: {frame}")
-        axs[0].set_ylabel(r"$y \ [\mathrm{pc}]$")
+        return []
 
-        plt.tight_layout()
-        plt.savefig(os.path.join(temp_dir, f"frame_{frame:04d}.png"), dpi=100)
-        plt.close(fig)
-
-    save_animation_serial(render_temperature_field_frame, range(0, nt, FRAME_STEP), str(out_dir / "temperature_field_evolution.mp4"), fps=10)
+    save_animation_funcanim(fig_a, update_temperature_field, anim_frames,
+                            str(out_dir / "temperature_field_evolution.mp4"), fps=10, blit=False)
 
     # (B) density_evolution.mp4
-    def render_density_frame(frame, temp_dir):
-        fig, axs = plt.subplots(1, 4, figsize=(14, 4.5))
-        vmin_h, vmax_h = hr_rho[0][hr_rho[0] > 0].min(), hr_rho[0].max()
-        im0 = axs[0].imshow(hr_rho[frame], origin="lower", cmap="plasma", norm=LogNorm(vmin=vmin_h, vmax=vmax_h))
-        axs[0].set_title(f"HR ({hr_rho.shape[1]}x{hr_rho.shape[2]}) Density")
-        plt.colorbar(im0, ax=axs[0], fraction=0.046, pad=0.04)
+    vmin_h, vmax_h = hr_rho[0][hr_rho[0] > 0].min(), hr_rho[0].max()
+    arrs_b = [hr_rho, cg_hr_rho, sg_rho, lr_rho]
+    lbls_b = [
+        f"HR ({hr_rho.shape[1]}x{hr_rho.shape[2]}) Density",
+        f"CG HR ({CELL_LABEL}) Density",
+        f"SG ({CELL_LABEL}) Density",
+        f"LR ({CELL_LABEL}) Density",
+    ]
+    fig_b, axs_b = plt.subplots(1, 4, figsize=(14, 4.5))
+    ims_b, xlabels_b = [], []
+    for ax, arr, lbl in zip(axs_b, arrs_b, lbls_b):
+        im = ax.imshow(arr[0], origin="lower", cmap="plasma", norm=LogNorm(vmin=vmin_h, vmax=vmax_h), animated=True)
+        ax.set_title(lbl)
+        plt.colorbar(im, ax=ax, fraction=0.046, pad=0.04)
+        xlabel = ax.set_xlabel("Timestep: 0")
+        xlabel.set_animated(True)
+        ims_b.append(im)
+        xlabels_b.append(xlabel)
+    plt.tight_layout()
 
-        im1 = axs[1].imshow(cg_hr_rho[frame], origin="lower", cmap="plasma", norm=LogNorm(vmin=vmin_h, vmax=vmax_h))
-        axs[1].set_title(f"CG HR ({CELL_LABEL}) Density")
-        plt.colorbar(im1, ax=axs[1], fraction=0.046, pad=0.04)
+    def update_density(frame):
+        artists = []
+        for im, xlabel, arr in zip(ims_b, xlabels_b, arrs_b):
+            im.set_data(arr[frame])
+            xlabel.set_text(f"Timestep: {frame}")
+            artists.append(im)
+            artists.append(xlabel)
+        return artists
 
-        im2 = axs[2].imshow(sg_rho[frame], origin="lower", cmap="plasma", norm=LogNorm(vmin=vmin_h, vmax=vmax_h))
-        axs[2].set_title(f"SG ({CELL_LABEL}) Density")
-        plt.colorbar(im2, ax=axs[2], fraction=0.046, pad=0.04)
-
-        im3 = axs[3].imshow(lr_rho[frame], origin="lower", cmap="plasma", norm=LogNorm(vmin=vmin_h, vmax=vmax_h))
-        axs[3].set_title(f"LR ({CELL_LABEL}) Density")
-        plt.colorbar(im3, ax=axs[3], fraction=0.046, pad=0.04)
-
-        for ax in axs.flat:
-            ax.set_xlabel(f"Timestep: {frame}")
-        plt.tight_layout()
-        plt.savefig(os.path.join(temp_dir, f"frame_{frame:04d}.png"), dpi=100)
-        plt.close(fig)
-
-    save_animation_serial(render_density_frame, range(0, nt, FRAME_STEP), str(out_dir / "density_evolution.mp4"), fps=10)
+    save_animation_funcanim(fig_b, update_density, anim_frames,
+                            str(out_dir / "density_evolution.mp4"), fps=10, blit=True)
 
     # (C) cooling_rate_evolution.mp4
-    def render_cooling_frame(frame, temp_dir):
-        fig = plt.figure(figsize=(19, 5))
-        gs = fig.add_gridspec(1, 5, width_ratios=[1, 1, 1, 1, 0.04], wspace=0.25, top=0.86, bottom=0.15, left=0.05, right=0.94)
-        t_myr = t_restart_myr[frame]
-        fig.suptitle(rf"Cooling Rate Comparison | $t = {t_myr:.2f}$ Myr", fontsize=16, weight="bold", y=0.96)
+    fig_c = plt.figure(figsize=(19, 5))
+    gs_c = fig_c.add_gridspec(1, 5, width_ratios=[1, 1, 1, 1, 0.04], wspace=0.25, top=0.86, bottom=0.15, left=0.05, right=0.94)
+    norm_c = LogNorm(vmin=cool_vmin, vmax=cool_vmax)
+    cmap_c = plt.get_cmap("viridis")
+    suptitle_c = fig_c.suptitle("", fontsize=16, weight="bold", y=0.96)
+    suptitle_c.set_animated(True)
 
-        norm_c = LogNorm(vmin=cool_vmin, vmax=cool_vmax)
-        cmap_c = plt.get_cmap("viridis")
+    axes_c = [fig_c.add_subplot(gs_c[i]) for i in range(4)]
+    fields_c = [emis_hr, emis_cg_hr, emis_sg, emis_lr]
+    lbls_c = [f"HR ({hr_rho.shape[1]}x{hr_rho.shape[2]})", f"CG HR ({CELL_LABEL})", f"SG ({CELL_LABEL})", f"LR ({CELL_LABEL})"]
+    ims_c = []
+    for ax, fld, lbl in zip(axes_c, fields_c, lbls_c):
+        im = ax.imshow(np.clip(fld[0], cool_vmin, None), origin="lower", cmap=cmap_c, norm=norm_c, animated=True)
+        ax.set_title(lbl, fontsize=13)
+        ax.set_xlabel("Y (pixels)", fontsize=11)
+        ax.set_ylabel("X (pixels)", fontsize=11)
+        ims_c.append(im)
 
-        axes = [fig.add_subplot(gs[0]), fig.add_subplot(gs[1]), fig.add_subplot(gs[2]), fig.add_subplot(gs[3])]
-        fields = [emis_hr[frame], emis_cg_hr[frame], emis_sg[frame], emis_lr[frame]]
-        lbls = [f"HR ({hr_rho.shape[1]}x{hr_rho.shape[2]})", f"CG HR ({CELL_LABEL})", f"SG ({CELL_LABEL})", f"LR ({CELL_LABEL})"]
+    cbar_ax_c = fig_c.add_subplot(gs_c[4])
+    sm_c = plt.cm.ScalarMappable(cmap=cmap_c, norm=norm_c)
+    sm_c.set_array([])
+    cbar_c = fig_c.colorbar(sm_c, cax=cbar_ax_c)
+    cbar_c.set_label(r"Cooling Rate $n^2\Lambda(T)$ (erg / cm$^3$ / s)", fontsize=12)
 
-        for ax, fld, lbl in zip(axes, fields, lbls):
-            ax.imshow(np.clip(fld, cool_vmin, None), origin="lower", cmap=cmap_c, norm=norm_c)
-            ax.set_title(lbl, fontsize=13)
-            ax.set_xlabel("Y (pixels)", fontsize=11)
-            ax.set_ylabel("X (pixels)", fontsize=11)
+    def update_cooling(frame):
+        suptitle_c.set_text(rf"Cooling Rate Comparison | $t = {t_restart_myr[frame]:.2f}$ Myr")
+        for im, fld in zip(ims_c, fields_c):
+            im.set_data(np.clip(fld[frame], cool_vmin, None))
+        return ims_c + [suptitle_c]
 
-        cbar_ax = fig.add_subplot(gs[4])
-        sm = plt.cm.ScalarMappable(cmap=cmap_c, norm=norm_c)
-        sm.set_array([])
-        cbar = fig.colorbar(sm, cax=cbar_ax)
-        cbar.set_label(r"Cooling Rate $n^2\Lambda(T)$ (erg / cm$^3$ / s)", fontsize=12)
-
-        plt.savefig(os.path.join(temp_dir, f"frame_{frame:04d}.png"), dpi=100)
-        plt.close(fig)
-
-    save_animation_serial(render_cooling_frame, range(0, nt, FRAME_STEP), str(out_dir / "cooling_rate_evolution.mp4"), fps=10)
+    save_animation_funcanim(fig_c, update_cooling, anim_frames,
+                            str(out_dir / "cooling_rate_evolution.mp4"), fps=10, blit=True)
 
     # (D) temperature_pdf_evolution.mp4
     bins_p = np.logspace(4, 6, 150)
-    def render_temp_pdf_frame(frame, temp_dir):
-        fig, ax = plt.subplots(figsize=(7, 5))
-        ax.set_xscale("log")
-        ax.set_yscale("log")
-        ax.set_xlabel("Temperature [K]", fontsize=12)
-        ax.set_ylabel("PDF (volume-weighted)", fontsize=12)
-        ax.set_ylim(1e-7, 1e-3)
-        ax.set_xlim(bins_p[0], bins_p[-1])
-        ax.grid(True, which="both", ls="--", alpha=0.5)
-        ax.set_title(f"Temperature PDF | Time step {frame + 1} (t = {t_restart_myr[frame]:.2f} Myr)", fontsize=13, weight="bold")
+    x_centers_d = bins_p[:-1]
+    fig_d, ax_d = plt.subplots(figsize=(7, 5))
+    ax_d.set_xscale("log")
+    ax_d.set_yscale("log")
+    ax_d.set_xlabel("Temperature [K]", fontsize=12)
+    ax_d.set_ylabel("PDF (volume-weighted)", fontsize=12)
+    ax_d.set_ylim(1e-7, 1e-3)
+    ax_d.set_xlim(bins_p[0], bins_p[-1])
+    ax_d.grid(True, which="both", ls="--", alpha=0.5)
+    title_d = ax_d.set_title("", fontsize=13, weight="bold")
+    title_d.set_animated(True)
 
+    (line_hr_d,) = ax_d.plot([], [], lw=2.0, ls="-", marker="^", markersize=4, label="HR", animated=True)
+    (line_cg_d,) = ax_d.plot([], [], lw=2.0, ls=":", marker="d", markersize=4, label=CG_LABEL, animated=True)
+    (line_sg_d,) = ax_d.plot([], [], lw=2.0, ls="-.", marker="o", markersize=4, label=SG_LABEL, animated=True)
+    (line_lr_d,) = ax_d.plot([], [], lw=2.0, ls="--", marker="s", markersize=4, label=LR_LABEL, animated=True)
+    ax_d.legend(fontsize=10)
+    plt.tight_layout()
+
+    def update_temp_pdf(frame):
         h_hr, _ = np.histogram(hr_temp[frame].ravel(), bins=bins_p, density=True)
         h_cg, _ = np.histogram(cg_hr_temp[frame].ravel(), bins=bins_p, density=True)
         h_sg, _ = np.histogram(sg_temp[frame].ravel(), bins=bins_p, density=True)
         h_lr, _ = np.histogram(lr_temp[frame].ravel(), bins=bins_p, density=True)
+        line_hr_d.set_data(x_centers_d, h_hr)
+        line_cg_d.set_data(x_centers_d, h_cg)
+        line_sg_d.set_data(x_centers_d, h_sg)
+        line_lr_d.set_data(x_centers_d, h_lr)
+        title_d.set_text(f"Temperature PDF | Time step {frame + 1} (t = {t_restart_myr[frame]:.2f} Myr)")
+        return [line_hr_d, line_cg_d, line_sg_d, line_lr_d, title_d]
 
-        ax.plot(bins_p[:-1], h_hr, lw=2.0, ls="-",  marker="^", markersize=4, label="HR")
-        ax.plot(bins_p[:-1], h_cg, lw=2.0, ls=":", marker="d", markersize=4, label=CG_LABEL)
-        ax.plot(bins_p[:-1], h_sg, lw=2.0, ls="-.", marker="o", markersize=4, label=SG_LABEL)
-        ax.plot(bins_p[:-1], h_lr, lw=2.0, ls="--", marker="s", markersize=4, label=LR_LABEL)
-        ax.legend(fontsize=10)
-
-        plt.tight_layout()
-        plt.savefig(os.path.join(temp_dir, f"frame_{frame:04d}.png"), dpi=100)
-        plt.close(fig)
-
-    save_animation_serial(render_temp_pdf_frame, range(0, nt, FRAME_STEP), str(out_dir / "temperature_pdf_evolution.mp4"), fps=10)
+    save_animation_funcanim(fig_d, update_temp_pdf, anim_frames,
+                            str(out_dir / "temperature_pdf_evolution.mp4"), fps=10, blit=True)
 
     # (E) subgrid_predicted_pdf_evolution.mp4
-    def render_subgrid_pdf_frame(frame, temp_dir):
-        fig = plt.figure(figsize=(24, 10))
-        gs = fig.add_gridspec(1, 5, width_ratios=[1.1, 0.9, 0.9, 0.9, 0.9], wspace=0.22,
+    fig_e = plt.figure(figsize=(24, 10))
+    gs_e = fig_e.add_gridspec(1, 5, width_ratios=[1.1, 0.9, 0.9, 0.9, 0.9], wspace=0.22,
                               left=0.03, right=0.97, top=0.90, bottom=0.08)
 
-        # Mini PDF grid via LineCollection
-        ax_pdf_grid = fig.add_subplot(gs[0])
-        ax_pdf_grid.set_title("Predicted Subgrid PDFs", fontsize=14, weight="bold")
-        bg_im, lc = setup_tiled_pdf_panel(ax_pdf_grid, ny_cg=ny_cg, nx_cg=nx_cg, nb_bins=nb,
+    ax_pdf_grid_e = fig_e.add_subplot(gs_e[0])
+    ax_pdf_grid_e.set_title("Predicted Subgrid PDFs", fontsize=14, weight="bold")
+    bg_im_e, lc_e = setup_tiled_pdf_panel(ax_pdf_grid_e, ny_cg=ny_cg, nx_cg=nx_cg, nb_bins=nb,
                                           logt_start=LOGT_ACTIVE_START, logt_end=LOGT_ACTIVE_END,
                                           t_edges=T_edges)
-        rgba, segs, colors = compute_pdf_panel_arrays(pred_pdf_all[frame], cmap_temp, norm_temp,
-                                                      log_temp_centers, ny_cg=ny_cg, nx_cg=nx_cg, nb_bins=nb)
-        bg_im.set_data(rgba)
-        lc.set_segments(segs)
-        lc.set_colors(colors)
+    bg_im_e.set_animated(True)
+    lc_e.set_animated(True)
 
-        ax_temp = fig.add_subplot(gs[1])
-        im_temp = ax_temp.imshow(np.log10(sg_temp[frame]), origin="lower", cmap=cmap_temp, norm=norm_temp, aspect="auto")
-        ax_temp.set_title(r"Subgrid $\log_{10} T$", fontsize=14, weight="bold")
-        plt.colorbar(im_temp, ax=ax_temp, fraction=0.046, pad=0.04)
+    ax_temp_e = fig_e.add_subplot(gs_e[1])
+    im_temp_e = ax_temp_e.imshow(np.log10(sg_temp[0]), origin="lower", cmap=cmap_temp, norm=norm_temp, aspect="auto", animated=True)
+    ax_temp_e.set_title(r"Subgrid $\log_{10} T$", fontsize=14, weight="bold")
+    plt.colorbar(im_temp_e, ax=ax_temp_e, fraction=0.046, pad=0.04)
 
-        ax_cool = fig.add_subplot(gs[2])
-        im_cool = ax_cool.imshow(np.clip(emis_sg[frame], cool_vmin, None), origin="lower", cmap=cmap_cool, norm=norm_cool, aspect="auto")
-        ax_cool.set_title("Subgrid Cooling Rate", fontsize=14, weight="bold")
-        plt.colorbar(im_cool, ax=ax_cool, fraction=0.046, pad=0.04)
+    ax_cool_e = fig_e.add_subplot(gs_e[2])
+    im_cool_e = ax_cool_e.imshow(np.clip(emis_sg[0], cool_vmin, None), origin="lower", cmap=cmap_cool, norm=norm_cool, aspect="auto", animated=True)
+    ax_cool_e.set_title("Subgrid Cooling Rate", fontsize=14, weight="bold")
+    plt.colorbar(im_cool_e, ax=ax_cool_e, fraction=0.046, pad=0.04)
 
-        ax_gate = fig.add_subplot(gs[3])
-        im_gate = ax_gate.imshow(pred_gate_all[frame], origin="lower", cmap=cmap_gate, norm=norm_gate, aspect="auto")
-        ax_gate.set_title("Subgrid Gate Map", fontsize=14, weight="bold")
-        plt.colorbar(im_gate, ax=ax_gate, fraction=0.046, pad=0.04)
+    ax_gate_e = fig_e.add_subplot(gs_e[3])
+    im_gate_e = ax_gate_e.imshow(pred_gate_all[0], origin="lower", cmap=cmap_gate, norm=norm_gate, aspect="auto", animated=True)
+    ax_gate_e.set_title("Subgrid Gate Map", fontsize=14, weight="bold")
+    plt.colorbar(im_gate_e, ax=ax_gate_e, fraction=0.046, pad=0.04)
 
-        ax_active = fig.add_subplot(gs[4])
-        act_mass = pdf_mass_in_active_range(pred_pdf_all[frame], T_edges)
-        im_active = ax_active.imshow(act_mass, origin="lower", cmap=cmap_active, norm=norm_active, aspect="auto")
-        ax_active.set_title("Active PDF Mass", fontsize=14, weight="bold")
-        plt.colorbar(im_active, ax=ax_active, fraction=0.046, pad=0.04)
+    ax_active_e = fig_e.add_subplot(gs_e[4])
+    im_active_e = ax_active_e.imshow(pdf_mass_in_active_range(pred_pdf_all[0], T_edges), origin="lower", cmap=cmap_active, norm=norm_active, aspect="auto", animated=True)
+    ax_active_e.set_title("Active PDF Mass", fontsize=14, weight="bold")
+    plt.colorbar(im_active_e, ax=ax_active_e, fraction=0.046, pad=0.04)
 
-        fig.suptitle(f"Subgrid Predicted Temperature PDF Grid ({CELL_LABEL}), T, Cooling, Gate, & Active Mass | t = {t_restart_myr[frame]:.2f} Myr", fontsize=16, weight="bold")
-        plt.savefig(os.path.join(temp_dir, f"frame_{frame:04d}.png"), dpi=100)
-        plt.close(fig)
+    suptitle_e = fig_e.suptitle("", fontsize=16, weight="bold")
+    suptitle_e.set_animated(True)
 
-    save_animation_serial(render_subgrid_pdf_frame, range(0, nt, FRAME_STEP), str(out_dir / "subgrid_predicted_pdf_evolution.mp4"), fps=10)
+    def update_subgrid_pdf(frame):
+        rgba, segs, seg_colors = compute_pdf_panel_arrays(pred_pdf_all[frame], cmap_temp, norm_temp,
+                                                           log_temp_centers, ny_cg=ny_cg, nx_cg=nx_cg, nb_bins=nb)
+        bg_im_e.set_data(rgba)
+        lc_e.set_segments(segs)
+        lc_e.set_colors(seg_colors)
+        im_temp_e.set_data(np.log10(sg_temp[frame]))
+        im_cool_e.set_data(np.clip(emis_sg[frame], cool_vmin, None))
+        im_gate_e.set_data(pred_gate_all[frame])
+        im_active_e.set_data(pdf_mass_in_active_range(pred_pdf_all[frame], T_edges))
+        suptitle_e.set_text(f"Subgrid Predicted Temperature PDF Grid ({CELL_LABEL}), T, Cooling, Gate, & Active Mass | t = {t_restart_myr[frame]:.2f} Myr")
+        return [bg_im_e, lc_e, im_temp_e, im_cool_e, im_gate_e, im_active_e, suptitle_e]
+
+    save_animation_funcanim(fig_e, update_subgrid_pdf, anim_frames,
+                            str(out_dir / "subgrid_predicted_pdf_evolution.mp4"), fps=10, blit=True)
 
     print("\n" + "=" * 75)
     print(f" ALL DIAGNOSTICS & ANIMATIONS COMPLETED! Saved to: {out_dir}")
