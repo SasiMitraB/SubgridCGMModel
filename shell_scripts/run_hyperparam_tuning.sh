@@ -292,9 +292,10 @@ run_step 5 "subgrid_model_cnn_restart" \
         set -euo pipefail
         cd '${PROJECT_ROOT}/builds/subgrid_model/src'
 
-        source '${VENV_ACTIVATE}'
-        VENV='${PROJECT_ROOT}/venv'
-        SITE_PACKAGES=\"\$VENV/lib/python3.10/site-packages\"
+        if [[ -f '${VENV_ACTIVATE}' ]]; then
+            source '${VENV_ACTIVATE}'
+        fi
+        SITE_PACKAGES=\$(python3 -c 'import site; print(\":\".join(site.getsitepackages()))')
         export PYTHONPATH=\"\$PWD:\$SITE_PACKAGES\${PYTHONPATH:+:\$PYTHONPATH}\"
         export PDF_CNN_RESOLUTION='${PDF_CNN_RESOLUTION}'
         export PDF_CNN_DOWNSAMPLE='${PDF_CNN_DOWNSAMPLE}'
@@ -303,6 +304,7 @@ run_step 5 "subgrid_model_cnn_restart" \
         export CROP_H_CG='${CROP_H_CG}'
         export CROP_W_CG='${CROP_W_CG}'
         export MODEL_SAVES_DIR='${MODEL_SAVES_DIR}'
+        export CNN_TILING_MODE='single'
 
         ./athena \
             -i '${SG_ATHINPUT}' \

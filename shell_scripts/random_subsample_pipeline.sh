@@ -43,19 +43,29 @@ HR_TRAIN_OUTPUT="${HR_TRAIN_RUNS[0]}"
 HR_TRAIN_BIN_DIR="${HR_TRAIN_BIN_DIRS[0]}"
 HR_TRAIN_CACHE_DIR="${HR_TRAIN_CACHE_DIRS[0]}"
 
+# ---- Pipeline Mode Toggle ----
+# Option 1: Downsample to 32x16 (factor 64). Random subsamples of 16x8 are used to train.
+# Option 2: Downsample to 64x32 (factor 32). Random subsamples of 32x16 are used to train.
+export PIPELINE_MODE="${PIPELINE_MODE:-2}"
+
 # Full Fine-Grid Training Resolution (height H, width W)
 # Format: "H,W" -> e.g. "2048,1024"
 export PDF_CNN_RESOLUTION="${PDF_CNN_RESOLUTION:-2048,1024}"
 
-# Coarse-graining downsample factor
-# e.g., downsample=32 with 2048x1024 gives full coarse grid of 64x32
-#       downsample=64 with 2048x1024 gives full coarse grid of 32x16
-export PDF_CNN_DOWNSAMPLE="${PDF_CNN_DOWNSAMPLE:-64}"
-
-# Coarse Random Crop Dimensions (height H_cg, width W_cg in coarse cells)
-# 16x8 random crops drawn from the 32x16 coarse grid
-export CROP_H_CG="${CROP_H_CG:-16}"
-export CROP_W_CG="${CROP_W_CG:-8}"
+if [[ "${PIPELINE_MODE}" == "1" ]]; then
+    # Option 1: Full coarse grid 32x16, random crops of 16x8
+    export PDF_CNN_DOWNSAMPLE="${PDF_CNN_DOWNSAMPLE:-64}"
+    export CROP_H_CG="${CROP_H_CG:-16}"
+    export CROP_W_CG="${CROP_W_CG:-8}"
+elif [[ "${PIPELINE_MODE}" == "2" ]]; then
+    # Option 2: Full coarse grid 64x32, random crops of 32x16
+    export PDF_CNN_DOWNSAMPLE="${PDF_CNN_DOWNSAMPLE:-32}"
+    export CROP_H_CG="${CROP_H_CG:-32}"
+    export CROP_W_CG="${CROP_W_CG:-16}"
+else
+    echo "ERROR: Invalid PIPELINE_MODE='${PIPELINE_MODE}'. Must be 1 or 2." >&2
+    exit 1
+fi
 
 # Derived Fine Crop Dimensions (for random_snapshot_training.py)
 export CROP_H=$(( CROP_H_CG * PDF_CNN_DOWNSAMPLE ))
@@ -63,10 +73,10 @@ export CROP_W=$(( CROP_W_CG * PDF_CNN_DOWNSAMPLE ))
 
 # ---- 2. Low-Resolution Simulation Grid (Athena) ----
 # Mesh resolution for the LR simulation and restarts (nx2=height, nx1=width)
-export SIM_NX2="${SIM_NX2:-${CROP_H_CG}}"         # e.g., 16
-export SIM_NX1="${SIM_NX1:-${CROP_W_CG}}"         # e.g., 8
-export SIM_MB_NX2="${SIM_MB_NX2:-${SIM_NX2}}"     # MeshBlock height (e.g., 16)
-export SIM_MB_NX1="${SIM_MB_NX1:-${SIM_NX1}}"     # MeshBlock width  (e.g., 8)
+export SIM_NX2="${SIM_NX2:-${CROP_H_CG}}"
+export SIM_NX1="${SIM_NX1:-${CROP_W_CG}}"
+export SIM_MB_NX2="${SIM_MB_NX2:-${SIM_NX2}}"     # MeshBlock height
+export SIM_MB_NX1="${SIM_MB_NX1:-${SIM_NX1}}"     # MeshBlock width
 
 # Domain boundaries and problem configuration (matches 2xlength sweep domain)
 export DOMAIN_X1MIN="${DOMAIN_X1MIN:--5.0}"
@@ -455,9 +465,10 @@ run_step 5 "subgrid_model_cnn_restart" \
         set -euo pipefail
         cd '${PROJECT_ROOT}/builds/subgrid_model/src'
 
-        source '${VENV_ACTIVATE}'
-        VENV='${PROJECT_ROOT}/venv'
-        SITE_PACKAGES=\"\$VENV/lib/python3.14/site-packages\"
+        if [[ -f '${VENV_ACTIVATE}' ]]; then
+            source '${VENV_ACTIVATE}'
+        fi
+        SITE_PACKAGES=\$(python3 -c 'import site; print(\":\".join(site.getsitepackages()))')
         export PYTHONPATH=\"\$PWD:\$SITE_PACKAGES\${PYTHONPATH:+:\$PYTHONPATH}\"
         export PDF_CNN_RESOLUTION='${PDF_CNN_RESOLUTION}'
         export PDF_CNN_DOWNSAMPLE='${PDF_CNN_DOWNSAMPLE}'
@@ -466,6 +477,7 @@ run_step 5 "subgrid_model_cnn_restart" \
         export CROP_H_CG='${CROP_H_CG}'
         export CROP_W_CG='${CROP_W_CG}'
         export MODEL_SAVES_DIR='${MODEL_SAVES_DIR}'
+        export CNN_TILING_MODE='single'
 
         ./athena \
             -i '${SG_ATHINPUT}' \
@@ -505,6 +517,25 @@ run_step 6 "diagnostic_plots" \
     "
 
 # ===========================================================================
+# STEP 7 — dt vs time comparison plot
+#
+# Plots timestep size (dt) evolution for both LR and Subgrid simulations
+# ===========================================================================
+separator
+log "STEP 7: dt_vs_time_comparison"
+separator
+
+run_step 7 "dt_vs_time_plot" \
+    bash -c "
+        set -euo pipefail
+        export PROJECT_ROOT='${PROJECT_ROOT}'
+        export LR_OUTPUT_DIR='${LR_BUILD_OUTPUT_DIR}'
+        export SG_OUTPUT_DIR='${SG_OUTPUT_DIR}'
+        export SG_MOCKS_DIR='${SG_MOCKS_DIR}'
+        cd '${PROJECT_ROOT}/data/mocks' && python3 plot_dt_comparison.py
+    "
+
+# ===========================================================================
 # Done — summary
 # ===========================================================================
 separator
@@ -522,4 +553,8 @@ log "  subgrid_model (CNN)    : ${SG_OUTPUT_DIR}"
 log "  Model weights          : ${MODEL_SAVES_DIR}"
 log "  PDF mock               : ${PDF_MOCKS_DIR}"
 log "  SG mock                : ${SG_MOCKS_DIR}"
+log ""
+log "Generated plots:"
+log "  dt vs time comparison: ${SG_MOCKS_DIR}/dt_vs_time_comparison.png"
+log "  dt overlay plot:       ${SG_MOCKS_DIR}/dt_vs_time_overlay.png"
 separator

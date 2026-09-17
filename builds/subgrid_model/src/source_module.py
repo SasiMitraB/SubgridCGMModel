@@ -123,6 +123,7 @@ def _find_available_model(save_dir: str):
         candidates.append(cand_env)
 
     default_candidates = [
+        ((1024, 512), 32),
         ((2048, 1024), 32),
         ((1024, 512), 64),
         ((512, 256), 32),
@@ -286,36 +287,57 @@ def source_func(rho, pres, ux, uy, ps, fmcl, bdt=None):
     H, W = cg["rho"].shape  # e.g. (32, 16)
 
     # ------------------------------------------------------------------
-    # 2. Validate that the grid is a multiple of the tile size
     # ------------------------------------------------------------------
-    if H % TILE_ROWS != 0 or W % TILE_COLS != 0:
-        raise ValueError(
-            f"Grid shape ({H}, {W}) is not a multiple of tile size "
-            f"({TILE_ROWS}, {TILE_COLS}).  Check PDF_CNN_RESOLUTION and "
-            f"PDF_CNN_DOWNSAMPLE env vars."
-        )
-
-    n_tile_rows = H // TILE_ROWS
-    n_tile_cols = W // TILE_COLS
-
+    # 2. CNN Inference: Single tile vs Tiled grid
+    #    Controlled via CNN_TILING_MODE ("single" vs "tiled")
+    #    and TILE_GRID ("n_rows,n_cols", e.g. "4,4")
     # ------------------------------------------------------------------
-    # 3. Tiled inference: run CNN on each tile, stitch PDFs together
-    # ------------------------------------------------------------------
-    full_pdf = np.zeros((out_channels, H, W), dtype=np.float32)  # (40, H, W)
+    fields = [cg["rho"], cg["temp"], cg["ux"], cg["uy"], cg["ps"]]
+    tiling_mode = os.environ.get("CNN_TILING_MODE", "single").strip().lower()
 
-    for ti in range(n_tile_rows):
-        for tj in range(n_tile_cols):
-            r0, r1 = ti * TILE_ROWS, (ti + 1) * TILE_ROWS
-            c0, c1 = tj * TILE_COLS, (tj + 1) * TILE_COLS
+    if tiling_mode == "tiled":
+        grid_str = os.environ.get("TILE_GRID", "4,4").split(",")
+        n_tile_rows = int(grid_str[0].strip())
+        n_tile_cols = int(grid_str[1].strip()) if len(grid_str) > 1 else n_tile_rows
 
-            tile_pdf = _predict_tile(
-                rho_tile  = cg["rho" ][r0:r1, c0:c1],
-                temp_tile = cg["temp"][r0:r1, c0:c1],
-                ux_tile   = cg["ux"  ][r0:r1, c0:c1],
-                uy_tile   = cg["uy"  ][r0:r1, c0:c1],
-                ps_tile   = cg["ps"  ][r0:r1, c0:c1],
+        if H % n_tile_rows != 0 or W % n_tile_cols != 0:
+            raise ValueError(
+                f"Grid shape ({H}, {W}) is not divisible by TILE_GRID "
+                f"({n_tile_rows}, {n_tile_cols})."
             )
-            full_pdf[:, r0:r1, c0:c1] = tile_pdf  # (40, tile_rows, tile_cols)
+
+        tile_h = H // n_tile_rows
+        tile_w = W // n_tile_cols
+
+        tiles = []
+        coords = []
+        for ti in range(n_tile_rows):
+            for tj in range(n_tile_cols):
+                r0, r1 = ti * tile_h, (ti + 1) * tile_h
+                c0, c1 = tj * tile_w, (tj + 1) * tile_w
+                tiles.append(np.stack([f[r0:r1, c0:c1] for f in fields], axis=0))
+                coords.append((r0, r1, c0, c1))
+
+        batch = torch.from_numpy(np.stack(tiles, axis=0)).float().to(device)  # (N_tiles, 5, tile_h, tile_w)
+        batch_norm = (batch - _input_mean_cache) / (_input_std_cache + 1e-8)
+
+        with torch.no_grad():
+            logits, gate = _model_cache(batch_norm)
+            pdf_tiles = _model_cache.pdf_activation(logits, gate).cpu().numpy()  # (N_tiles, 40, tile_h, tile_w)
+
+        full_pdf = np.zeros((out_channels, H, W), dtype=np.float32)  # (40, H, W)
+        for idx, (r0, r1, c0, c1) in enumerate(coords):
+            full_pdf[:, r0:r1, c0:c1] = pdf_tiles[idx]
+
+    else:
+        # Default / "single": pass entire coarse snapshot directly through CNN
+        single_tile = np.stack(fields, axis=0)  # (5, H, W)
+        batch = torch.from_numpy(single_tile).unsqueeze(0).float().to(device)  # (1, 5, H, W)
+        batch_norm = (batch - _input_mean_cache) / (_input_std_cache + 1e-8)
+
+        with torch.no_grad():
+            logits, gate = _model_cache(batch_norm)
+            full_pdf = _model_cache.pdf_activation(logits, gate).cpu().numpy()[0]  # (40, H, W)
 
     # ------------------------------------------------------------------
     # 4. Compute cooling rate from stitched PDFs

@@ -39,11 +39,11 @@ This document records the upstream AthenaK base version used in this repository,
 ---
 
 ### 2. Physics & Source Terms
-- **Cooling Function ([`src/srcterms/ismcooling.hpp`](file:///home/sasi/Projects/SubgridCGMModel/athenak/src/srcterms/ismcooling.hpp)):**
+- **Cooling Function ([`src/srcterms/ismcooling.hpp`](./src/srcterms/ismcooling.hpp)):**
   - Added temperature cutoffs in `ISMCoolFn(Real temp)` to turn off cooling at extreme temperatures:
     ```cpp
     // turn off cooling below in the extreme ends; Not there in the default implementation
-    if (logt <= log10(1.05e4) || logt > log10(0.95e6)) {
+    if (logt <= 4.1 || logt > 5.9) {
       return 0.0;
     }
     ```

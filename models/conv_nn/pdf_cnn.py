@@ -160,17 +160,21 @@ T_centers = np.sqrt(T_edges[:-1] * T_edges[1:])
 
 logT_centers = torch.log10(torch.tensor(T_centers, dtype=torch.float32))
 
-LOGT_ACTIVE_START = float(os.environ.get("LOGT_ACTIVE_START", "4.021189299069938"))
-LOGT_ACTIVE_END = float(os.environ.get("LOGT_ACTIVE_END", "5.977723605288848"))
+LOGT_ACTIVE_START = float(os.environ.get("LOGT_ACTIVE_START", "4.1"))
+LOGT_ACTIVE_END = float(os.environ.get("LOGT_ACTIVE_END", "5.9"))
 
 
-# New Version that truncates to 10^4.5 to 10^5.5
-def lambda_cool(temp, mask=False, LOGT_ACTIVE_START=LOGT_ACTIVE_START, LOGT_ACTIVE_END=LOGT_ACTIVE_END):
+def lambda_cool(temp, mask=False, LOGT_ACTIVE_START=None, LOGT_ACTIVE_END=None):
     """
     Cooling function ISMCoolFn translated from AthenaK C++.
     Works on scalars or numpy arrays (any shape).
     Returns Λ(T) in erg cm^3 / s.
     """
+    if LOGT_ACTIVE_START is None:
+        LOGT_ACTIVE_START = globals().get("LOGT_ACTIVE_START", float(os.environ.get("LOGT_ACTIVE_START", "4.1")))
+    if LOGT_ACTIVE_END is None:
+        LOGT_ACTIVE_END = globals().get("LOGT_ACTIVE_END", float(os.environ.get("LOGT_ACTIVE_END", "5.9")))
+
     logt = np.log10(temp)
 
     lhd = np.array(
@@ -600,7 +604,10 @@ def snapshot_pred_16x8(
     gate : np.ndarray, shape (16, 8) [only if return_gate is True]
         Predicted gate value per coarse cell ∈ (0, 1).
     """
-
+    np.random.seed(HYPERPARAMS["seed"])
+    torch.manual_seed(HYPERPARAMS["seed"])
+    if torch.cuda.is_available():   
+        torch.cuda.manual_seed_all(HYPERPARAMS["seed"])
     # ---- 1. Shape check -------------------------------------------------
     fields = {"rho": rho, "temp": temp, "ux": ux, "uy": uy, "ps": ps}
     expected_shape = rho.shape

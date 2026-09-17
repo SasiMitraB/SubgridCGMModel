@@ -348,11 +348,13 @@ run_step 5 "subgrid_model_cnn" \
         set -euo pipefail
         cd '${PROJECT_ROOT}/builds/subgrid_model/src'
 
-        # Activate venv and set PYTHONPATH for the embedded Python source module
-        source '${VENV_ACTIVATE}'
-        VENV='${PROJECT_ROOT}/venv'
-        SITE_PACKAGES=\"\$VENV/lib/python3.14/site-packages\"
+        # Activate venv if present, otherwise rely on active conda/system environment
+        if [[ -f '${VENV_ACTIVATE}' ]]; then
+            source '${VENV_ACTIVATE}'
+        fi
+        SITE_PACKAGES=\$(python3 -c 'import site; print(\":\".join(site.getsitepackages()))')
         export PYTHONPATH=\"\$PWD:\$SITE_PACKAGES\${PYTHONPATH:+:\$PYTHONPATH}\"
+        export CNN_TILING_MODE="single"
 
         ./athena \
             -i '${SG_ATHINPUT}' \
@@ -376,6 +378,24 @@ run_step 6 "diagnostic_plots" \
         export SIM_NX1='${SIM_NX1}'
         export SIM_NX2='${SIM_NX2}'
         cd '${PROJECT_ROOT}/data/mocks' && python3 mock_sg.py
+    "
+
+# ===========================================================================
+# STEP 7 — dt vs time comparison plot
+#
+# Plots timestep size (dt) evolution for both LR and Subgrid simulations
+# ===========================================================================
+separator
+log "STEP 7: dt_vs_time_comparison"
+separator
+
+run_step 7 "dt_vs_time_plot" \
+    bash -c "
+        export PROJECT_ROOT='${PROJECT_ROOT}'
+        export LR_OUTPUT_DIR='${LR_BUILD_OUTPUT_DIR}'
+        export SG_OUTPUT_DIR='${SG_OUTPUT_DIR}'
+        export SG_MOCKS_DIR='${SG_MOCKS_DIR}'
+        cd '${PROJECT_ROOT}/data/mocks' && python3 plot_dt_comparison.py
     "
 
 # ===========================================================================
@@ -408,4 +428,8 @@ log "  subgrid_model (CNN)    : ${SG_OUTPUT_DIR}"
 log "  Model weights          : ${MODEL_SAVES_DIR}"
 log "  PDF mock               : ${PDF_MOCKS_DIR}"
 log "  SG mock                : ${SG_MOCKS_DIR}"
+log ""
+log "Generated plots:"
+log "  dt vs time comparison: ${SG_MOCKS_DIR}/dt_vs_time_comparison.png"
+log "  dt overlay plot:       ${SG_MOCKS_DIR}/dt_vs_time_overlay.png"
 separator

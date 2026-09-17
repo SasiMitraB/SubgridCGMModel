@@ -50,8 +50,8 @@ PROJECT_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BUILD_SRC="${PROJECT_ROOT}/builds/hr_build_gpu/src"
 ATHENA="${BUILD_SRC}/athena"
 
-# Reference athinput (128×256 baseline kept in hr_build/src)
-REF_ATHINPUT="${PROJECT_ROOT}/builds/hr_build/src/kh_radiative_128.athinput"
+# Reference athinput (128×256 baseline kept in shell_scripts folder)
+REF_ATHINPUT="/home/sasi/Projects/SubgridCGMModel/shell_scripts/ref_athinput.athinp"
 
 SIM_OUTPUTS="${PROJECT_ROOT}/simulation_outputs"
 

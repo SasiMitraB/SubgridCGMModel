@@ -4,7 +4,7 @@ plot_profiles.py (formerly cooling_rate_animation.py)
 Computes and plots y-profiles for all four HR MPI simulations:
   - Log Number Density: log10(n_H)    [log10(cm⁻³)]
   - Log Temperature:  log10(T)      [log10(K)]
-  - Cooling rate:     q_cool        [erg s⁻¹ cm⁻³]
+  - Cooling rate:     normalized <n_H^2 Lambda(T)> / (p_0 / t_0) [dimensionless]
   - Pressure:         P             [dyn cm⁻²]
   - Velocity X:       v_x           [km s⁻¹]
   - Velocity Y:       v_y           [km s⁻¹]
@@ -50,6 +50,7 @@ RESOLUTIONS = [
     (["512x1024", "1024x512"],  r"$1024 \times 512$"),
 ]
 
+
 # ── Simulation configurations (Auto-discover GPU runs, fallback to MPI/build) ─
 simulations = []
 seen_folders = set()
@@ -88,11 +89,13 @@ CM_PER_KM       = 1.0e5               # cm per km
 SECONDS_PER_MYR = 3.15576e13          # seconds per Myr
 M_H             = 1.6726219e-24       # proton mass [g]
 MU              = 0.62                # mean molecular weight
+GAMMA           = 5.0 / 3.0           # adiabatic index
 
 # ── Active-temperature mask bounds for cooling ────────────────────────────────
-LOGT_ACTIVE_START = np.log10(1.1e4)   # ~ 4.041
-LOGT_ACTIVE_END   = np.log10(0.9e6)   # ~ 5.954
-
+LOGT_ACTIVE_START = 4.1 # 10^4.1 ~ 1.26e4 K
+LOGT_ACTIVE_END   = 5.9 # 10^5.9 ~ 7.94e5 K
+# LOGT_ACTIVE_START = np.log10(1.05e4)
+# LOGT_ACTIVE_END = np.log10(0.95e6)
 
 # ── Cooling function (from pdf_cnn.py lambda_cool) ───────────────────────────
 
@@ -160,6 +163,11 @@ def lambda_cool(temp: np.ndarray, mask: bool = True) -> np.ndarray:
     return lam[0] if scalar_input else lam
 
 
+# Characteristic intermediate temperature T_mid = sqrt(10^4 * 10^6) = 10^5 K
+T_MID = float(np.sqrt(1.0e4 * 1.0e6))
+LAMBDA_T_MID = float(lambda_cool(T_MID, mask=False))
+
+
 # ── Coarse-graining helper ────────────────────────────────────────────────────
 
 def coarse_grain_2d(arr: np.ndarray, ds: int = 32) -> np.ndarray:
@@ -172,19 +180,66 @@ def coarse_grain_2d(arr: np.ndarray, ds: int = 32) -> np.ndarray:
     return arr[:ny_cg * ds, :nx_cg * ds].reshape(ny_cg, ds, nx_cg, ds).mean(axis=(1, 3))
 
 
+def compute_cooling_normalization(athinp_path: str | Path, units: ergane.Units | None = None) -> tuple[float, float, float]:
+    """
+    Compute equilibrium pressure p_0, cooling time t_0 at geometric mean temperature T_0,
+    and normalization scale p_0 / t_0 in CGS.
+
+    p_0: Initial equilibrium pressure in CGS [dyn cm⁻²] from athinput 'press'.
+    t_0: Cooling time at geometric mean temperature T_0 = sqrt(T_cold * T_hot) [s],
+         t_0 = p_0 / ((gamma - 1) * n_0^2 * Lambda(T_0)).
+    norm: p_0 / t_0 = (gamma - 1) * n_0^2 * Lambda(T_0) [erg s⁻¹ cm⁻³].
+    """
+    params = ergane.parse_athinput(athinp_path)
+
+    # AthenaK code unit conversions to CGS
+    if units is not None and getattr(units, "pressure", None) is not None:
+        p_unit = float(units.pressure)
+        rho_unit = float(units.density)
+    else:
+        length_cgs = float(params.get("units", {}).get("length_cgs", CM_PER_PC))
+        time_cgs   = float(params.get("units", {}).get("time_cgs",   SECONDS_PER_MYR))
+        mass_cgs   = float(params.get("units", {}).get("mass_cgs",   4.91417e31))
+        rho_unit   = mass_cgs / (length_cgs ** 3)
+        v_unit     = length_cgs / time_cgs
+        p_unit     = rho_unit * (v_unit ** 2)
+
+    press_code    = float(params.get("problem", {}).get("press", 14.02645))
+    rho_cold_code = float(params.get("problem", {}).get("rho_cold", 0.1))
+    rho_hot_code  = float(params.get("problem", {}).get("rho_hot", 0.001))
+    gamma         = float(params.get("hydro", {}).get("gamma", GAMMA))
+
+    # CGS initial equilibrium pressure
+    p0_cgs = press_code * p_unit
+
+    # Geometric mean density at pressure equilibrium: rho_0 = sqrt(rho_cold * rho_hot)
+    rho0_cgs = np.sqrt(rho_cold_code * rho_hot_code) * rho_unit
+    n0_cgs   = rho0_cgs / (MU * M_H)
+
+    # Cooling rate at geometric mean temperature T_0:
+    # Lambda(T_0) evaluated at T_MID = sqrt(10^4 * 10^6) = 10^5 K
+    lam_t0 = LAMBDA_T_MID
+
+    # Cooling timescale: t_0 = p_0 / ((gamma - 1) * n_0^2 * Lambda(T_0))
+    t0_cgs = p0_cgs / ((gamma - 1.0) * (n0_cgs ** 2) * lam_t0)
+    p0_over_t0 = p0_cgs / t0_cgs
+
+    return p0_cgs, t0_cgs, p0_over_t0
+
+
 # ── Field extractors ─────────────────────────────────────────────────────────
 
-def compute_physical_fields(frame: ergane.Frame) -> dict[str, np.ndarray]:
+def compute_physical_fields(frame: ergane.Frame, p0_over_t0: float = 1.0) -> dict[str, np.ndarray]:
     """
-    Extract all 8 physical fields for a single snapshot:
+    Extract physical fields for a single snapshot:
       - log10_number_density: log10(n_H) [log10(cm⁻³)]
       - log10_temperature:    log10(T)   [log10(K)]
-      - cooling:              q_cool     [erg s⁻¹ cm⁻³]
+      - cooling:              n_H² Λ(T) / (p_0 / t_0) [dimensionless]
       - pressure:             P          [dyn cm⁻²]
       - velx:                 v_x        [km s⁻¹]
       - vely:                 v_y        [km s⁻¹]
-      - mass_flux_x:          ρ v_x      [g cm⁻² s⁻¹]
-      - mass_flux_y:          ρ v_y      [g cm⁻² s⁻¹]
+      - flux_x:               n_H v_x    [cm⁻² s⁻¹]
+      - flux_y:               n_H v_y    [cm⁻² s⁻¹]
     """
     rho_cgs = frame.density              # [g cm⁻³]
     P_cgs   = frame.pressure             # [dyn cm⁻²]
@@ -199,9 +254,14 @@ def compute_physical_fields(frame: ergane.Frame) -> dict[str, np.ndarray]:
     log10_nH = np.log10(np.maximum(n_H, 1e-30))
     log10_T  = np.log10(np.maximum(temp_K, 1.0))
 
-    # Physical volumetric cooling rate: n_H² Λ(T)
+    # Normalized cooling rate: n_H² Λ(T) / (p_0 / t_0)
     lam    = lambda_cool(temp_K, mask=True) # [erg cm³ s⁻¹]
-    q_cool = (n_H ** 2) * lam               # [erg s⁻¹ cm⁻³]
+    q_cool_norm = ((n_H ** 2) * lam) / p0_over_t0
+
+    # Dimensionless cooling time ratio:
+    # t_cool / t_0 = lambda(T_0) / lambda(T), where T_0 = sqrt(10^4 * 10^6)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        tcool_ratio = np.where(lam > 0, LAMBDA_T_MID / lam, np.nan)
 
     # Fluxes using number density in CGS: n_H * v (with v in cm/s) -> [cm⁻² s⁻¹]
     flux_x = n_H * (vx_kms * CM_PER_KM) # [cm⁻² s⁻¹]
@@ -210,7 +270,8 @@ def compute_physical_fields(frame: ergane.Frame) -> dict[str, np.ndarray]:
     return {
         "log10_number_density": log10_nH,
         "log10_temperature":    log10_T,
-        "cooling":              q_cool,
+        "cooling":              q_cool_norm,
+        "tcool_ratio":          tcool_ratio,
         "pressure":             P_cgs,
         "velx":                 vx_kms,
         "vely":                 vy_kms,
@@ -219,11 +280,11 @@ def compute_physical_fields(frame: ergane.Frame) -> dict[str, np.ndarray]:
     }
 
 
-def compute_coarse_grained_fields(frame: ergane.Frame, ds: int = 32) -> dict[str, np.ndarray]:
+def compute_coarse_grained_fields(frame: ergane.Frame, ds: int = 32, p0_over_t0: float = 1.0) -> dict[str, np.ndarray]:
     """
     Compute coarse-grained versions of physical fields matching mock_sg.py:
       - Primitive fields (rho, P, T, vx, vy) are coarse-grained by factor ds.
-      - Cooling rate emis_cg is the coarse-grained fine cooling rate n_H^2 Lambda(T).
+      - Cooling rate emis_cg is the coarse-grained fine normalized cooling rate.
       - Fluxes are coarse-grained fine fluxes.
     """
     rho_cgs = frame.density
@@ -234,7 +295,9 @@ def compute_coarse_grained_fields(frame: ergane.Frame, ds: int = 32) -> dict[str
 
     n_H = rho_cgs / (MU * M_H)
     lam = lambda_cool(temp_K, mask=True)
-    q_cool = (n_H ** 2) * lam
+    q_cool_norm = ((n_H ** 2) * lam) / p0_over_t0
+    with np.errstate(divide="ignore", invalid="ignore"):
+        tcool_ratio = np.where(lam > 0, LAMBDA_T_MID / lam, np.nan)
     flux_x = n_H * (vx_kms * CM_PER_KM)
     flux_y = n_H * (vy_kms * CM_PER_KM)
 
@@ -245,7 +308,8 @@ def compute_coarse_grained_fields(frame: ergane.Frame, ds: int = 32) -> dict[str
         return {
             "log10_number_density": log10_nH,
             "log10_temperature":    log10_T,
-            "cooling":              q_cool,
+            "cooling":              q_cool_norm,
+            "tcool_ratio":          tcool_ratio,
             "pressure":             P_cgs,
             "velx":                 vx_kms,
             "vely":                 vy_kms,
@@ -261,10 +325,11 @@ def compute_coarse_grained_fields(frame: ergane.Frame, ds: int = 32) -> dict[str
     vx_cg   = coarse_grain_2d(vx_kms, ds)
     vy_cg   = coarse_grain_2d(vy_kms, ds)
 
-    # Cooling rate: coarse-grained fine emissivity (matching mock_sg.py emis_cg_hr)
-    q_cool_cg = coarse_grain_2d(q_cool, ds)
-    flux_x_cg = coarse_grain_2d(flux_x, ds)
-    flux_y_cg = coarse_grain_2d(flux_y, ds)
+    # Cooling rate: coarse-grained fine normalized emissivity
+    q_cool_cg      = coarse_grain_2d(q_cool_norm, ds)
+    tcool_ratio_cg = coarse_grain_2d(tcool_ratio, ds)
+    flux_x_cg      = coarse_grain_2d(flux_x, ds)
+    flux_y_cg      = coarse_grain_2d(flux_y, ds)
 
     log10_nH_cg = np.log10(np.maximum(n_H_cg, 1e-30))
     log10_T_cg  = np.log10(np.maximum(temp_cg, 1.0))
@@ -273,6 +338,7 @@ def compute_coarse_grained_fields(frame: ergane.Frame, ds: int = 32) -> dict[str
         "log10_number_density": log10_nH_cg,
         "log10_temperature":    log10_T_cg,
         "cooling":              q_cool_cg,
+        "tcool_ratio":          tcool_ratio_cg,
         "pressure":             P_cg,
         "velx":                 vx_cg,
         "vely":                 vy_cg,
@@ -318,8 +384,8 @@ FIELD_CONFIGS = [
     },
     {
         "key":       "cooling",
-        "title":     r"Mean Cooling Rate Profile vs $y$",
-        "ylabel":    r"$\langle n^2 \Lambda(T) \rangle \ [\mathrm{erg} \ \mathrm{cm}^{-3} \ \mathrm{s}^{-1}]$",
+        "title":     r"Normalized Cooling Rate $\langle n^2 \Lambda(T) \rangle / (p_0 / t_0)$ vs $y$",
+        "ylabel":    r"$\langle n^2 \Lambda(T) \rangle / (p_0 / t_0)$",
         "filename":  "profile_cooling_rate",
         "yscale":    "log",
     },
@@ -387,6 +453,9 @@ def main():
                 datafolder=str(sim["datafolder"]),
             )
 
+            p0_cgs, t0_cgs, p0_over_t0 = compute_cooling_normalization(sim["athinp"], sim_data.units)
+            print(f"  Cooling normalization: p0={p0_cgs:.3e} dyn/cm^2, t0={t0_cgs:.3e} s ({t0_cgs / SECONDS_PER_MYR:.4f} Myr), p0/t0={p0_over_t0:.3e} erg s^-1 cm^-3")
+
             n_frames   = sim_data.n_frames
             frame_nums = sim_data.frame_numbers
             if n_frames == 0:
@@ -396,7 +465,7 @@ def main():
             print(f"  {n_frames} frames available (#{frame_nums[0]}–#{frame_nums[-1]})")
 
             # Use last 500 snapshots
-            n_avg       = min(500, n_frames)
+            n_avg       = min(250, n_frames)
             avg_indices = frame_nums[-n_avg:]
             print(f"  Time-averaging over last {n_avg} snapshots …")
 
@@ -411,7 +480,7 @@ def main():
 
             for idx, fn in enumerate(tqdm(avg_indices, desc=f"  [{name}] Snapshots", unit="frame")):
                 f = sim_data.get_frame(fn)
-                fields_raw = compute_physical_fields(f)
+                fields_raw = compute_physical_fields(f, p0_over_t0=p0_over_t0)
 
                 for key in FIELD_CONFIGS:
                     k = key["key"]
@@ -452,12 +521,14 @@ def main():
     print("\nPlotting consolidated 8-panel profile comparison figure …")
 
     palette = plt.cm.tab10.colors
-    fig, axes = plt.subplots(4, 2, figsize=(14, 18), sharex=True)
+    nrows, ncols = 4, 2
+    fig, axes = plt.subplots(nrows, ncols, figsize=(14, 16), sharex=True)
     axes_flat = axes.flatten()
 
     trapz_fn = getattr(np, "trapezoid", getattr(np, "trapz", None))
 
-    for ax, cfg in zip(axes_flat, FIELD_CONFIGS):
+    for idx_field, cfg in enumerate(FIELD_CONFIGS):
+        ax     = axes_flat[idx_field]
         key    = cfg["key"]
         ylabel = cfg["ylabel"]
         title  = cfg["title"]
@@ -502,13 +573,17 @@ def main():
         if is_log:
             ax.set_yscale("log")
             all_m = [profile_results[s["name"]][f"{key}_mean"] for s in valid_simulations]
-            all_vals = np.concatenate([v[v > 0] for v in all_m if len(v[v > 0]) > 0], axis=0) if all_m else []
+            all_vals = np.concatenate([v[np.isfinite(v) & (v > 0)] for v in all_m if len(v[np.isfinite(v) & (v > 0)]) > 0], axis=0) if all_m else []
             if len(all_vals) > 0:
                 ax.set_ylim(bottom=max(all_vals.min() * 0.5, 1e-30))
         ax.legend(title="Resolution", fontsize=9, loc="best")
 
-    axes[3, 0].set_xlabel(r"$y \ [\mathrm{pc}]$", fontsize=12)
-    axes[3, 1].set_xlabel(r"$y \ [\mathrm{pc}]$", fontsize=12)
+    # Hide any unused axes if number of fields < total subplot panels
+    for ax in axes_flat[len(FIELD_CONFIGS):]:
+        ax.set_visible(False)
+
+    for col in range(ncols):
+        axes[nrows - 1, col].set_xlabel(r"$y \ [\mathrm{pc}]$", fontsize=12)
 
     fig.suptitle(
         "Mean Vertical Profiles vs y across Resolutions\n"
@@ -584,9 +659,11 @@ def main():
         if is_log:
             ax_single.set_yscale("log")
             all_m = [profile_results[s["name"]][f"{key}_mean"] for s in valid_simulations]
-            all_vals = np.concatenate([v[v > 0] for v in all_m if len(v[v > 0]) > 0], axis=0) if all_m else []
+            all_vals = np.concatenate([v[np.isfinite(v) & (v > 0)] for v in all_m if len(v[np.isfinite(v) & (v > 0)]) > 0], axis=0) if all_m else []
             if len(all_vals) > 0:
                 ax_single.set_ylim(bottom=max(all_vals.min() * 0.5, 1e-30))
+            # if key == "cooling":
+            #     ax_single.set_ylim(bottom=1e-26)
         ax_single.legend(title="Resolution", fontsize=10, loc="best")
         fig_single.tight_layout()
 
@@ -602,5 +679,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-

@@ -56,9 +56,9 @@
     "user_srcs": false
   },
   "lr": {
-    "downsample_factor": 32,
-    "mb_nx1": 8,
-    "mb_nx2": 16,
+    "downsample_factor": 16,
+    "mb_nx1": 16,
+    "mb_nx2": 32,
     "ndiag": 100,
     "nscalars": 2,
     "ism_cooling": true,
