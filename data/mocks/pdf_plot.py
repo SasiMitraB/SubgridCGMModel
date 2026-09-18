@@ -15,7 +15,13 @@ from tqdm import tqdm
 
 sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(os.path.join(os.path.dirname(__file__), "../.."))
-from models.conv_nn.pdf_cnn import snapshot_pred, snapshot_pred_with_gate, lambda_cool, compute_cooling_rate
+from models.conv_nn.pdf_cnn import (
+    snapshot_pred,
+    snapshot_pred_with_gate,
+    lambda_cool,
+    compute_cooling_rate,
+    compute_isobaric_cooling_rate,
+)
 
 # Set PyTorch device
 if torch.backends.mps.is_available():
@@ -823,6 +829,26 @@ if __name__ == '__main__':
     cg_uy = cg_inputs[:, 3]
     cg_ps = cg_inputs[:, 4]
 
+    # NOTE: `ps` (loaded from the "s_00" passive-scalar tracer, see
+    # data_preprocess.py) is NOT gas pressure despite the name. Using it as
+    # pressure below would make e_int_cgs collapse to ~0 wherever the tracer
+    # is near 0, producing spurious near-zero cooling times. Load the actual
+    # physical pressure field ((gamma-1)*eint) and coarse-grain it separately
+    # for the e_int_cgs calculation instead.
+    pressure_path = f"{folder_path}/pressure.npy"
+    if os.path.exists(pressure_path):
+        print("Loading fine-grid pressure for e_int_cgs (physical pressure, not the 's_00' tracer)...")
+        pressure_full = np.load(pressure_path, mmap_mode="r")
+        _nbx, _nby = pressure_full.shape[1] // downsample, pressure_full.shape[2] // downsample
+        cg_pressure = np.zeros((nt, _nbx, _nby), dtype=np.float32)
+        for t in range(nt):
+            _blk = np.asarray(pressure_full[t])[: _nbx * downsample, : _nby * downsample]
+            cg_pressure[t] = _blk.reshape(_nbx, downsample, _nby, downsample).mean(axis=(1, 3))
+    else:
+        print(f"WARNING: {pressure_path} not found; falling back to the 's_00' tracer for e_int_cgs "
+              "(NOT physically correct pressure -- cooling times will include spurious near-zero outliers).")
+        cg_pressure = cg_ps
+
     # --- Predict CNN temperature PDFs, gate, and vorticity (optimized batch) ---
     conv_temp_pdf, cnn_gate_maps, cnn_vort_maps = batch_predict_with_gate(
         cg_inputs, downsample, resolution, device
@@ -985,9 +1011,13 @@ if __name__ == '__main__':
     _RHO_cgs = _M_cgs / _L_cgs**3 # code density unit [g/cm^3]  (~1.67262e-24 g/cm^3)
     n_to_cm3 = _RHO_cgs / (mu * m_H)  # cmâ»³ per code density unit (~1.6129 cmâ»³)
     
-    # Factor that converts compute_cooling_rate output (code units) -> erg/cm^3/s
-    # compute_cooling_rate already returns n_code^2 * sum(PDF*Lambda) * unit_fix
-    # Since n_code = rho_code/mu == n_H (in cm^-3), dividing by unit_fix gives physical CGS emissivity.
+    # Factor that converts a code-unit cooling rate -> erg/cm^3/s.
+    # unit_fix = T_cgs / P_cgs is the general code-rate -> physical-rate
+    # conversion (energy-density-unit / time-unit ratio); it applies to both
+    # compute_cooling_rate (isochoric, n_code = rho_code/mu) and
+    # compute_isobaric_cooling_rate (isobaric, n_i = P/(kB T_i)) since each
+    # already bakes in its own density definition via its own unit_fix
+    # constant (unit_fix / unit_fix_isobaric respectively) before this step.
     _code_to_cgs = 1.0 / unit_fix
     
     # ---- PDF bin centres (geometric mean of edges) ----
@@ -1000,30 +1030,28 @@ if __name__ == '__main__':
     active_bin_end = np.searchsorted(temp_centers, 10**logT_active_end)
     
     # ------------------------------------------------------------------
-    # (C) Cool_True_PDF : use TRUE PDF, n = rho_cg / mu  (no isobaric assumption)
-    #     n^2 Ã— sum_i PDF(T_i) Î›(T_i)
+    # (C) Cool_True_PDF : use TRUE PDF, isobaric per-bin density n_i = P/(kB T_i)
+    #     (P/kB)^2 x sum_i PDF(T_i) Lambda(T_i) / T_i^2
     # ------------------------------------------------------------------
-    print("  (C) True PDF cooling (using simulation PDF)...")
+    print("  (C) True PDF cooling (using simulation PDF, isobaric)...")
     true_iso_cool = np.zeros((nt, nx, ny))
     for t in tqdm(range(nt), desc="True PDF cooling"):
-        true_iso_cool[t] = compute_cooling_rate(
-            temp_pdf[t],   # (nb, nx, ny)  â€“ true PDF
-            temp_centers,  # (nb,)
-            is_pdf=True,
-            rho_cg=cg_rho[t],  # (nx, ny) - coarse-grained code density
+        true_iso_cool[t] = compute_isobaric_cooling_rate(
+            temp_pdf[t],       # (nb, nx, ny) - true PDF
+            temp_centers,      # (nb,)
+            cg_pressure[t],    # (nx, ny) - coarse-grained code-unit pressure
         )
-    # (D) Cool_CNN_PDF : use CNN PDF, n = rho_cg / mu  (no isobaric assumption)
-    #     n^2 Ã— sum_i CNN_PDF(T_i) Î›(T_i)
+    # (D) Cool_CNN_PDF : use CNN PDF, isobaric per-bin density n_i = P/(kB T_i)
+    #     (P/kB)^2 x sum_i CNN_PDF(T_i) Lambda(T_i) / T_i^2
     #     Compared to (C) this isolates the CNN's contribution only.
     # ------------------------------------------------------------------
-    print("  (D) CNN PDF cooling (using CNN PDF)...")
+    print("  (D) CNN PDF cooling (using CNN PDF, isobaric)...")
     cnn_cool = np.zeros((nt, nx, ny))
     for t in tqdm(range(nt), desc="CNN PDF cooling"):
-        cnn_cool[t] = compute_cooling_rate(
-            conv_temp_pdf[t],  # (nb, nx, ny)  â CNN PDF
+        cnn_cool[t] = compute_isobaric_cooling_rate(
+            conv_temp_pdf[t],  # (nb, nx, ny) - CNN PDF
             temp_centers,      # (nb,)
-            is_pdf=True,
-            rho_cg=cg_rho[t],  # (nx, ny)  â coarse-grained code density
+            cg_pressure[t],    # (nx, ny) - coarse-grained code-unit pressure
         )
     
     # ------------------------------------------------------------------
@@ -1051,7 +1079,26 @@ if __name__ == '__main__':
     cg_resolved_cool *= _code_to_cgs
     print("  Conversion done.")
 
-    
+    # ------------------------------------------------------------------
+    # Cooling time: t_cool = e_int / emissivity, with e_int = P / (gamma - 1)
+    # Pressure is converted to physical energy density (erg/cm^3) using the
+    # same code-unit definitions as above; t_cool is reported in Myr since
+    # _T_cgs is defined as 1 Myr in seconds.
+    # ------------------------------------------------------------------
+    print("  Computing cooling times (True PDF, CNN PDF, Coarse-Grain)...")
+    gamma = 5.0 / 3.0
+    _V_cgs = _L_cgs / _T_cgs               # code velocity unit [cm/s]
+    _P_cgs = _RHO_cgs * _V_cgs**2          # code pressure/energy-density unit [erg/cm^3]
+
+    e_int_cgs = cg_pressure * _P_cgs / (gamma - 1.0)  # (nt, nx, ny) internal energy density [erg/cm^3]
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        t_cool_true = np.where(true_iso_cool > 0, e_int_cgs / true_iso_cool, np.nan) / _T_cgs
+        t_cool_cnn  = np.where(cnn_cool > 0, e_int_cgs / cnn_cool, np.nan) / _T_cgs
+        t_cool_cg   = np.where(cg_resolved_cool > 0, e_int_cgs / cg_resolved_cool, np.nan) / _T_cgs
+    print("  Cooling time computation done.")
+
+
     # =========================
     # METRICS
     # =========================
@@ -1241,7 +1288,189 @@ if __name__ == '__main__':
         plt.show()
         plt.close(fig_sc)
         print("Saved cooling diagnostic plot.")
-    
+
+        # ============================================================
+        # COOLING TIME SCATTER: t_cool = e_int / emissivity
+        # ============================================================
+        print("Creating cooling time diagnostic plots...")
+
+        flat_t_true = t_cool_true.flatten()
+        flat_t_cnn = t_cool_cnn.flatten()
+        flat_t_cg = t_cool_cg.flatten()
+
+        fig_tc, axes_tc = plt.subplots(2, 2, figsize=(15, 11))
+
+        # Row 1: CNN cooling-time error & residuals (True PDF vs CNN PDF)
+        ax_tc_pred_cnn = axes_tc[0, 0]
+        ax_tc_resid_cnn = axes_tc[0, 1]
+
+        mask_tc2 = np.isfinite(flat_t_true) & np.isfinite(flat_t_cnn) & (flat_t_true > 0) & (flat_t_cnn > 0)
+        xt2, yt2 = flat_t_true[mask_tc2], flat_t_cnn[mask_tc2]
+
+        hbt2 = ax_tc_pred_cnn.hexbin(
+            xt2, yt2,
+            xscale="log", yscale="log",
+            gridsize=60,
+            bins="log",
+            cmap="viridis",
+            mincnt=1,
+            rasterized=True,
+        )
+        if len(xt2):
+            _lim_t2 = [min(xt2.min(), yt2.min()), max(xt2.max(), yt2.max())]
+            ax_tc_pred_cnn.plot(_lim_t2, _lim_t2, "r--", lw=1)
+        ax_tc_pred_cnn.set_xscale("log")
+        ax_tc_pred_cnn.set_yscale("log")
+        ax_tc_pred_cnn.set_xlabel(r"True PDF Cooling Time $t_{\rm cool}$ [Myr]", fontsize=10)
+        ax_tc_pred_cnn.set_ylabel(r"CNN PDF Cooling Time $t_{\rm cool}$ [Myr]", fontsize=10)
+        ax_tc_pred_cnn.set_title(f"CNN Cooling-Time Error (True PDF vs CNN PDF)\n({mask_tc2.sum():,} / {len(flat_t_true):,} points)", fontsize=11)
+        plt.colorbar(hbt2, ax=ax_tc_pred_cnn, label="log$_{10}$(count)")
+        add_running_median(ax_tc_pred_cnn, xt2, yt2)
+
+        yt2_resid = np.log10(yt2 / xt2)
+        hbt4 = ax_tc_resid_cnn.hexbin(
+            xt2, yt2_resid,
+            xscale="log",
+            gridsize=60,
+            bins="log",
+            cmap="viridis",
+            mincnt=1,
+            rasterized=True,
+        )
+        ax_tc_resid_cnn.axhline(0, color="r", linestyle="--", lw=1)
+        ax_tc_resid_cnn.set_xscale("log")
+        ax_tc_resid_cnn.set_xlabel(r"True PDF Cooling Time $t_{\rm cool}$ [Myr]", fontsize=10)
+        ax_tc_resid_cnn.set_ylabel(r"$\log_{10}(\mathrm{CNN / True}\ t_{\rm cool})$", fontsize=10)
+        ax_tc_resid_cnn.set_title(f"CNN Cooling-Time Residuals\n({mask_tc2.sum():,} / {len(flat_t_true):,} points)", fontsize=11)
+        plt.colorbar(hbt4, ax=ax_tc_resid_cnn, label="log$_{10}$(count)")
+        add_running_median(ax_tc_resid_cnn, xt2, yt2_resid)
+
+        # Row 2: Coarse-Grain cooling-time error & residuals (True PDF vs Coarse-Grain n_bar^2 Lambda(T_bar))
+        ax_tc_pred_cg = axes_tc[1, 0]
+        ax_tc_resid_cg = axes_tc[1, 1]
+
+        mask_tc_cg = np.isfinite(flat_t_true) & np.isfinite(flat_t_cg) & (flat_t_true > 0) & (flat_t_cg > 0)
+        xt_cg, yt_cg = flat_t_true[mask_tc_cg], flat_t_cg[mask_tc_cg]
+
+        hbt_cg = ax_tc_pred_cg.hexbin(
+            xt_cg, yt_cg,
+            xscale="log", yscale="log",
+            gridsize=60,
+            bins="log",
+            cmap="viridis",
+            mincnt=1,
+            rasterized=True,
+        )
+        if len(xt_cg):
+            _lim_tcg = [min(xt_cg.min(), yt_cg.min()), max(xt_cg.max(), yt_cg.max())]
+            ax_tc_pred_cg.plot(_lim_tcg, _lim_tcg, "r--", lw=1)
+        ax_tc_pred_cg.set_xscale("log")
+        ax_tc_pred_cg.set_yscale("log")
+        ax_tc_pred_cg.set_xlabel(r"True PDF Cooling Time $t_{\rm cool}$ [Myr]", fontsize=10)
+        ax_tc_pred_cg.set_ylabel(r"Coarse-Grain Cooling Time $t_{\rm cool}$ [Myr]", fontsize=10)
+        ax_tc_pred_cg.set_title(f"Coarse-Grain Cooling-Time Error (True PDF vs $\\bar{{n}}^2 \\Lambda(\\bar{{T}})$)\n({mask_tc_cg.sum():,} / {len(flat_t_true):,} points)", fontsize=11)
+        plt.colorbar(hbt_cg, ax=ax_tc_pred_cg, label="log$_{10}$(count)")
+        add_running_median(ax_tc_pred_cg, xt_cg, yt_cg)
+
+        yt_cg_resid = np.log10(yt_cg / xt_cg)
+        hbt_cg_res = ax_tc_resid_cg.hexbin(
+            xt_cg, yt_cg_resid,
+            xscale="log",
+            gridsize=60,
+            bins="log",
+            cmap="viridis",
+            mincnt=1,
+            rasterized=True,
+        )
+        ax_tc_resid_cg.axhline(0, color="r", linestyle="--", lw=1)
+        ax_tc_resid_cg.set_xscale("log")
+        ax_tc_resid_cg.set_xlabel(r"True PDF Cooling Time $t_{\rm cool}$ [Myr]", fontsize=10)
+        ax_tc_resid_cg.set_ylabel(r"$\log_{10}(\mathrm{Coarse\text{-}Grain / True}\ t_{\rm cool})$", fontsize=10)
+        ax_tc_resid_cg.set_title(f"Coarse-Grain Cooling-Time Residuals\n({mask_tc_cg.sum():,} / {len(flat_t_true):,} points)", fontsize=11)
+        plt.colorbar(hbt_cg_res, ax=ax_tc_resid_cg, label="log$_{10}$(count)")
+        add_running_median(ax_tc_resid_cg, xt_cg, yt_cg_resid)
+
+        fig_tc.suptitle(r"Cooling Time Comparisons ($t_{\rm cool} = e_{\rm int}/\dot{e}_{\rm cool}$, All Pixels, All Timesteps)", fontsize=15)
+        fig_tc.tight_layout()
+        fig_tc.savefig(
+            os.path.join(PDF_MOCKS_DIR, "pdf_cooling_time_scatter_twoway.png"), dpi=200
+        )
+        plt.show()
+        plt.close(fig_tc)
+        print("Saved cooling time diagnostic plot.")
+
+        # ============================================================
+        # COOLING TIME DRIVERS: what conditions cause absurdly low t_cool?
+        # Rows: True PDF, CNN PDF, Coarse-Grain resolved
+        # Columns: CG Temperature [K] | e_int [erg/cm^3] | Cooling value (emissivity) [erg/cm^3/s]
+        # ============================================================
+        print("Creating cooling time driver diagnostic plots...")
+
+        def _diag_hexbin(ax, xv, yv, xlabel, ylabel, title):
+            mask = np.isfinite(xv) & np.isfinite(yv) & (xv > 0) & (yv > 0)
+            xv, yv = xv[mask], yv[mask]
+            hb = ax.hexbin(
+                xv, yv,
+                xscale="log", yscale="log",
+                gridsize=60,
+                bins="log",
+                cmap="viridis",
+                mincnt=1,
+                rasterized=True,
+            )
+            ax.set_xscale("log")
+            ax.set_yscale("log")
+            ax.set_xlabel(xlabel, fontsize=9)
+            ax.set_ylabel(ylabel, fontsize=9)
+            ax.set_title(f"{title}\n({mask.sum():,} pts)", fontsize=10)
+            plt.colorbar(hb, ax=ax, label="log$_{10}$(count)")
+            if len(xv):
+                add_running_median(ax, xv, yv)
+            return hb
+
+        flat_cg_temp = cg_temp.flatten()
+        flat_e_int = e_int_cgs.flatten()
+
+        _tcool_rows = [
+            ("True PDF", flat_t_true, true_iso_cool.flatten()),
+            ("CNN PDF", flat_t_cnn, cnn_cool.flatten()),
+            ("Coarse-Grain", flat_t_cg, cg_resolved_cool.flatten()),
+        ]
+
+        fig_drv, axes_drv = plt.subplots(3, 3, figsize=(16, 14))
+
+        for row_i, (label, flat_tcool, flat_cool_val) in enumerate(_tcool_rows):
+            _diag_hexbin(
+                axes_drv[row_i, 0],
+                flat_cg_temp, flat_tcool,
+                r"Coarse-Grain Temperature $T$ [K]",
+                rf"{label} $t_{{\rm cool}}$ [Myr]",
+                f"{label}: Temperature vs Cooling Time",
+            )
+            _diag_hexbin(
+                axes_drv[row_i, 1],
+                flat_e_int, flat_tcool,
+                r"$e_{\rm int}\;[\mathrm{erg\,cm^{-3}}]$",
+                rf"{label} $t_{{\rm cool}}$ [Myr]",
+                f"{label}: Internal Energy vs Cooling Time",
+            )
+            _diag_hexbin(
+                axes_drv[row_i, 2],
+                flat_cool_val, flat_tcool,
+                r"Cooling Rate $[\mathrm{erg\,cm^{-3}\,s^{-1}}]$",
+                rf"{label} $t_{{\rm cool}}$ [Myr]",
+                f"{label}: Emissivity vs Cooling Time",
+            )
+
+        fig_drv.suptitle("Cooling Time Drivers (All Pixels, All Timesteps)", fontsize=16)
+        fig_drv.tight_layout()
+        fig_drv.savefig(
+            os.path.join(PDF_MOCKS_DIR, "pdf_cooling_time_drivers.png"), dpi=200
+        )
+        plt.show()
+        plt.close(fig_drv)
+        print("Saved cooling time driver diagnostic plot.")
+
     # ============================================================
     # HISTOGRAM: Zero-Fraction + Positive-Only log10 (Change #5)
     # ============================================================

@@ -190,6 +190,11 @@ def patch_athinput(text, is_subgrid=False, is_hr_build=False):
                 line = "ism_cooling = true"
 
         new_lines.append(line)
+        # subgrid model reports its own cooling-limited dt via psrc->dtnew
+        # (set directly in UserSourceTerm()), so tell SourceTerms to trust it
+        # instead of resetting dtnew to float_max every cycle.
+        if in_hydro_src and is_subgrid and re.match(r'^\s*ism_cooling\s*=', line):
+            new_lines.append("user_cooling = true")
 
     # In problem block, set iprob = 2, init_file = ic_file, and user_srcs
     final_lines = []

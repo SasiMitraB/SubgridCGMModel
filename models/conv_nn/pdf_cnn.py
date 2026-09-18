@@ -379,6 +379,71 @@ def compute_cooling_rate(
         return (n_cg**2) * lambda_sum * unit_fix  # (nx, ny)
 
 
+# =========================
+# ISOBARIC (per-bin density) COOLING FUNCTIONS
+# =========================
+# Code-unit constants, matching kh_radiative.athinput:
+#   L_cgs = 3.08568e18 cm (1 pc), T_cgs = 3.15576e13 s (1 Myr), M_cgs = 4.91417e31 g
+_L_cgs = 3.08568e18
+_T_cgs = 3.15576e13
+_M_cgs = 4.91417e31
+_RHO_cgs = _M_cgs / _L_cgs**3
+_V_cgs = _L_cgs / _T_cgs
+_P_cgs = _RHO_cgs * _V_cgs**2          # code pressure/energy-density unit [erg/cm^3]
+_KB_cgs = 1.3807e-16                    # Boltzmann constant [erg/K]
+
+# P/kB in physical [K cm^-3] per unit of code pressure.
+P_over_kB_to_K_cm3 = _P_cgs / _KB_cgs
+
+# Converts (pressure_code)^2 * sum_i pdf_i Lambda(T_i)/T_i^2 into a code-unit
+# cooling rate, i.e. the isobaric analogue of `unit_fix` above:
+#   eps_code = eps_phys * (T_cgs / P_cgs)
+#            = (pressure_code * P_over_kB_to_K_cm3)^2 * lambda_sum * (T_cgs / P_cgs)
+#            = pressure_code^2 * (P_cgs * T_cgs / kB^2) * lambda_sum
+unit_fix_isobaric = _P_cgs * _T_cgs / _KB_cgs**2
+
+
+def compute_isobaric_cooling_rate(pdf, T_centers, pressure_cg, code_units=True):
+    """
+    Isobaric-PDF emissivity: each temperature bin's density is derived from
+    pressure balance, n_i = P / (kB * T_i), instead of assuming a single
+    constant n across the whole PDF (see `compute_cooling_rate`).
+
+        Emissivity = (P/kB)^2 x Sum_i PDF(T_i) x Lambda(T_i) / T_i^2
+
+    Lambda(T_i) is evaluated with mask=True so only the active cooling
+    window (LOGT_ACTIVE_START - LOGT_ACTIVE_END) contributes.
+
+    Parameters
+    ----------
+    pdf : ndarray, shape (nb, ...)
+        Normalized temperature PDF (leading axis is the temperature bin).
+    T_centers : ndarray, shape (nb,)
+        Temperature bin centers [K].
+    pressure_cg : ndarray or scalar, shape matching pdf's trailing dims
+        Coarse-grained pressure. In code units by default (code_units=True);
+        pass physical pressure [erg/cm^3] with code_units=False.
+    code_units : bool
+        If True (default), `pressure_cg` is code-unit pressure and the
+        returned rate is in code units (matching `compute_cooling_rate`'s
+        `is_pdf=True` output, so it can be used as a drop-in replacement).
+        If False, `pressure_cg` is already physical [erg/cm^3] and the
+        returned rate is physical CGS [erg cm^-3 s^-1].
+
+    Returns
+    -------
+    ndarray, shape matching pressure_cg
+    """
+    lam = lambda_cool(T_centers, mask=True)   # (nb,)
+    weight = lam / T_centers**2                # (nb,)
+    lambda_sum = np.tensordot(weight, pdf, axes=(0, 0))  # pdf.shape[1:]
+
+    if code_units:
+        return (pressure_cg**2) * lambda_sum * unit_fix_isobaric
+    else:
+        return ((pressure_cg / _KB_cgs) ** 2) * lambda_sum
+
+
 lambda_vals = lambda_cool(T_centers)
 
 # take log safely
@@ -444,6 +509,10 @@ def nn_data(resolution: tuple, downsample: int) -> tuple:
     )
     fields = ["rho", "temp", "ux", "uy", "ps"]
     cg = {f"cg_{field}": np.zeros(shape) for field in fields}
+    # Pressure is coarse-grained separately from the 5 CNN input channels
+    # (rho, temp, ux, uy, ps) -- it's only needed for the isobaric
+    # emissivity loss, not as a model input.
+    cg_pressure = np.zeros(shape)
 
     for i in range(sim_data.rho.shape[0]):
         for field in fields:
@@ -451,6 +520,7 @@ def nn_data(resolution: tuple, downsample: int) -> tuple:
                 cg[f"cg_{field}"][i] = sim_data.coarse_grain(
                     getattr(sim_data, field)[i]
                 )
+        cg_pressure[i] = sim_data.coarse_grain(sim_data.pressure[i])
     temp_pdf = sim_data.calc_pixel_pdf(bins=out_channels)
     temp_pdf /= temp_pdf.sum(axis=1, keepdims=True)
 
@@ -463,9 +533,10 @@ def nn_data(resolution: tuple, downsample: int) -> tuple:
     # ]
     input_tensor = torch.cat(input_tensors, dim=1)
     output_tensor = torch.from_numpy(temp_pdf).float()
+    pressure_tensor = torch.from_numpy(cg_pressure).unsqueeze(1).float()
     # output_tensor = torch.from_numpy(source_term[100:]).unsqueeze(1).float()
 
-    return input_tensor, output_tensor
+    return input_tensor, output_tensor, pressure_tensor
 
 
 def snapshot_pred(
@@ -1231,17 +1302,64 @@ def emissivity_from_pdf(
     return emiss
 
 
-# Alias for backwards compatibility
-isobaric_emissivity_from_pdf = emissivity_from_pdf
+def isobaric_emissivity_from_pdf(
+    pdf,
+    pressure,
+    T_centers_tensor=None,
+    lambda_tensor=None,
+    unit_fix=unit_fix_isobaric,
+):
+    """
+    Torch counterpart of `compute_isobaric_cooling_rate`: per-bin density
+    n_i = P / (kB * T_i) instead of a single constant n across the PDF.
+
+        Emissivity = (P/kB)^2 x Sum_i PDF(T_i) x Lambda(T_i) / T_i^2
+
+    Parameters
+    ----------
+    pdf : torch.Tensor of shape (B, bins, H, W)
+        Normalized temperature PDF.
+    pressure : torch.Tensor of shape (B, 1, H, W)
+        Coarse-grained CODE-unit pressure.
+    T_centers_tensor : torch.Tensor of shape (bins,), optional
+        Temperature bin centers (in K). Defaults to the module-level T_centers.
+    lambda_tensor : torch.Tensor of shape (bins,), optional
+        Cooling curve Lambda(T) in erg cm^3/s, pre-masked to the active window.
+    unit_fix : float
+        Code-unit conversion factor (default: `unit_fix_isobaric`, the
+        isobaric analogue of the isochoric `unit_fix` used elsewhere).
+
+    Returns
+    -------
+    emiss : torch.Tensor of shape (B, 1, H, W)
+        Cell emissivity in code units.
+    """
+    tc = (
+        T_centers_tensor
+        if T_centers_tensor is not None
+        else torch.tensor(T_centers, dtype=torch.float32)
+    )
+    tc = tc.to(pdf.device)
+
+    if lambda_tensor is None:
+        lam_np = lambda_cool(tc.cpu().numpy(), mask=True)
+        lambda_tensor = torch.tensor(lam_np, dtype=torch.float32, device=pdf.device)
+
+    # weight_i = Lambda(T_i) / T_i^2  ->  (1, bins, 1, 1)
+    weight = (lambda_tensor.to(pdf.device) / (tc**2)).view(1, -1, 1, 1)
+    lambda_sum = torch.sum(pdf * weight, dim=1, keepdim=True)  # (B, 1, H, W)
+
+    return (pressure**2) * lambda_sum * unit_fix
 
 
 class EmissivityLoss(nn.Module):
     """
     Emissivity Matching Loss:
-    Enforces consistency between predicted and true cell-averaged radiative cooling emissivity:
-        Emissivity = n² × Σᵢ PDF(Tᵢ) × Λ(Tᵢ) × unit_fix
-
-    where n = rho / mu.
+    Enforces consistency between predicted and true cell-averaged radiative
+    cooling emissivity, using the isobaric per-bin density n_i = P/(kB T_i)
+    (matching the evaluation-time formula in pdf_plot.py, mock_sg.py,
+    mock_sg_tiled.py, and source_module.py):
+        Emissivity = (P/kB)² × Σᵢ PDF(Tᵢ) × Λ(Tᵢ) / Tᵢ² × unit_fix
 
     In log10 space:
         loss = MSE(log10(emiss_pred + eps), log10(emiss_true + eps))
@@ -1251,8 +1369,7 @@ class EmissivityLoss(nn.Module):
         self,
         T_centers_input=None,
         lambda_tensor_input=None,
-        mu=0.62,
-        unit_fix=1.975e27,
+        unit_fix=unit_fix_isobaric,
         eps=1e-6,
     ):
         super().__init__()
@@ -1271,24 +1388,24 @@ class EmissivityLoss(nn.Module):
         else:
             lam_t = torch.tensor(lambda_tensor_input, dtype=torch.float32)
 
+        self.register_buffer("t_centers_tensor", tc)
         self.register_buffer("lambda_tensor", lam_t)
-        self.mu = mu
         self.unit_fix = unit_fix
         self.eps = eps
 
-    def forward(self, pred_pdf, true_pdf, rho=None):
-        emiss_pred = emissivity_from_pdf(
+    def forward(self, pred_pdf, true_pdf, pressure=None):
+        emiss_pred = isobaric_emissivity_from_pdf(
             pdf=pred_pdf,
-            rho=rho,
+            pressure=pressure,
+            T_centers_tensor=self.t_centers_tensor,
             lambda_tensor=self.lambda_tensor,
-            mu=self.mu,
             unit_fix=self.unit_fix,
         )
-        emiss_true = emissivity_from_pdf(
+        emiss_true = isobaric_emissivity_from_pdf(
             pdf=true_pdf,
-            rho=rho,
+            pressure=pressure,
+            T_centers_tensor=self.t_centers_tensor,
             lambda_tensor=self.lambda_tensor,
-            mu=self.mu,
             unit_fix=self.unit_fix,
         )
 
@@ -1418,8 +1535,7 @@ class GatedPDFLoss(nn.Module):
         logT_centers=None,
         T_centers=None,
         lambda_tensor=None,
-        mu=0.62,
-        unit_fix=1.975e27,
+        unit_fix=unit_fix_isobaric,
         active_bin_mask=None,  # NEW: accept an external mask
     ):
         super().__init__()
@@ -1451,7 +1567,6 @@ class GatedPDFLoss(nn.Module):
         self.emiss_loss = EmissivityLoss(
             T_centers_input=T_centers,
             lambda_tensor_input=lambda_tensor,
-            mu=mu,
             unit_fix=unit_fix,
         )
         self.leak_loss = LeakageLoss()
@@ -1470,7 +1585,7 @@ class GatedPDFLoss(nn.Module):
         # (1, bins, 1, 1) so it broadcasts against (B, bins, nx, ny)
         self.register_buffer("active_mask", active_bin_mask.view(1, -1, 1, 1).float())
 
-    def forward(self, logits, gate, true_pdf, rho=None, T_coarse=None, return_components=False):
+    def forward(self, logits, gate, true_pdf, pressure=None, T_coarse=None, return_components=False):
         pred_pdf = self.activation(logits, gate)
 
         # 1. Zoned Wasserstein-1 distance (replaces KL divergence)
@@ -1495,7 +1610,7 @@ class GatedPDFLoss(nn.Module):
 
         # 4. Emissivity matching loss
         emiss_loss = (
-            self.emiss_loss(pred_pdf, true_pdf, rho=rho)
+            self.emiss_loss(pred_pdf, true_pdf, pressure=pressure)
             if self.alpha_emiss > 0
             else torch.tensor(0.0, device=true_pdf.device)
         )
@@ -1633,7 +1748,7 @@ def train_gate_branch(
                 val_loader.dataset.set_norm_stats(train_loader.dataset.input_mean, train_loader.dataset.input_std)
 
         cnn_model.gate_branch.train()
-        for inputs, labels, rho, temp in train_loader:
+        for inputs, labels, _pressure, _temp in train_loader:
             inputs = inputs.to(device)
             labels = labels.to(device)
 
@@ -1975,10 +2090,11 @@ if __name__ == "__main__":
 
     # Load dataset
     cnn_data = nn_data(resolution, downsample)
-    input_tensor, output_tensor = cnn_data
+    input_tensor, output_tensor, pressure_tensor = cnn_data
 
     input_tensor = input_tensor.to(device)
     output_tensor = output_tensor.to(device)
+    pressure_tensor = pressure_tensor.to(device)
 
     # Numerical stability for PDFs
     output_tensor = torch.clamp(output_tensor, min=1e-12)
@@ -2001,11 +2117,10 @@ if __name__ == "__main__":
 
     input_tensor_norm = (input_tensor - input_mean) / input_std
 
-    # Store raw (un-normalized) rho and temp as tensors so the loss functions
-    # always receive physical quantities, not z-scored ones.
-    rho_tensor = input_tensor[:, 0:1]   # (N, 1, nx, ny), un-normalized density
+    # Store raw (un-normalized) temp and pressure as tensors so the loss
+    # functions always receive physical quantities, not z-scored ones.
     temp_tensor = input_tensor[:, 1:2]  # (N, 1, nx, ny), un-normalized coarse-grain temp
-    dataset = TensorDataset(input_tensor_norm, output_tensor, rho_tensor, temp_tensor)
+    dataset = TensorDataset(input_tensor_norm, output_tensor, pressure_tensor, temp_tensor)
 
     num_samples = len(dataset)
     print("Number of samples:", num_samples)
@@ -2107,32 +2222,32 @@ if __name__ == "__main__":
 
         cnn_model.train()
 
-        for inputs, labels, rho, temp in train_loader:
+        for inputs, labels, pressure, temp in train_loader:
 
             # 1. Random horizontal flip (50% chance)
             if torch.rand(1).item() > 0.5:
                 inputs = torch.flip(inputs, [3])
                 labels = torch.flip(labels, [3])
-                rho = torch.flip(rho, [3])
+                pressure = torch.flip(pressure, [3])
                 temp = torch.flip(temp, [3])
                 # ux (ch 2) points along x; negate after flipping x-axis
                 inputs = inputs.clone()
                 inputs[:, 2] = -inputs[:, 2]
-                
+
             # 2. Random vertical flip (50% chance)
             if torch.rand(1).item() > 0.5:
                 inputs = torch.flip(inputs, [2])
                 labels = torch.flip(labels, [2])
-                rho = torch.flip(rho, [2])
+                pressure = torch.flip(pressure, [2])
                 temp = torch.flip(temp, [2])
                 # uy (ch 3) points along y; negate after flipping y-axis
                 inputs = inputs.clone()
                 inputs[:, 3] = -inputs[:, 3]
-            
+
             logits, gate = cnn_model(inputs)
 
-            # Pass logits, gate, labels, rho, and temp to the gated loss
-            loss = criterion(logits, gate, labels, rho, temp)
+            # Pass logits, gate, labels, pressure, and temp to the gated loss
+            loss = criterion(logits, gate, labels, pressure, temp)
 
             optimizer.zero_grad()
             loss.backward()
@@ -2146,10 +2261,10 @@ if __name__ == "__main__":
 
         with torch.no_grad():
             train_totals = {k: 0.0 for k in train_history}
-            for x_batch, y_batch, rho_batch, temp_batch in train_loader:
+            for x_batch, y_batch, pressure_batch, temp_batch in train_loader:
                 logits_b, gate_b = cnn_model(x_batch)
                 _, comp = criterion(
-                    logits_b, gate_b, y_batch, rho_batch, temp_batch, return_components=True
+                    logits_b, gate_b, y_batch, pressure_batch, temp_batch, return_components=True
                 )
                 for k, v in comp.items():
                     train_totals[k] += v
@@ -2159,10 +2274,10 @@ if __name__ == "__main__":
                 train_history[k].append(train_totals[k] / n_train_batches)
 
             val_totals = {k: 0.0 for k in val_history}
-            for x_batch, y_batch, rho_batch, temp_batch in validation_loader:
+            for x_batch, y_batch, pressure_batch, temp_batch in validation_loader:
                 logits_b, gate_b = cnn_model(x_batch)
                 _, comp = criterion(
-                    logits_b, gate_b, y_batch, rho_batch, temp_batch, return_components=True
+                    logits_b, gate_b, y_batch, pressure_batch, temp_batch, return_components=True
                 )
                 for k, v in comp.items():
                     val_totals[k] += v
@@ -2199,10 +2314,10 @@ if __name__ == "__main__":
 
     with torch.no_grad():
         test_totals = {k: 0.0 for k in train_history}
-        for x_batch, y_batch, rho_batch, temp_batch in test_loader:
+        for x_batch, y_batch, pressure_batch, temp_batch in test_loader:
             logits_b, gate_b = cnn_model(x_batch)
             _, comp = criterion(
-                logits_b, gate_b, y_batch, rho_batch, temp_batch, return_components=True
+                logits_b, gate_b, y_batch, pressure_batch, temp_batch, return_components=True
             )
             for k, v in comp.items():
                 test_totals[k] += v

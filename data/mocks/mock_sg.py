@@ -14,7 +14,7 @@ sys.path.append(os.path.join(os.path.dirname(__file__), ".."))
 sys.path.append(os.path.join(os.path.dirname(__file__), "../.."))
 
 from models.conv_nn.pdf_cnn import (
-    compute_cooling_rate,
+    compute_isobaric_cooling_rate,
     lambda_cool,
     out_channels,
     snapshot_pred_16x8,
@@ -1547,12 +1547,12 @@ for t in tqdm(range(rho.shape[0])):
     )
     pred_pdf_all[t] = pdf_t
     pred_gate_all[t] = gate_t
-    cool_code = compute_cooling_rate(
-        pdf_t, T_centers,
-        is_pdf=True, rho_cg=rho[t]
+    # Isobaric per-bin density n_i = P/(kB T_i):
+    #   Emissivity = (P/kB)^2 x sum_i PDF(T_i) Lambda(T_i) / T_i^2
+    cool_code = compute_isobaric_cooling_rate(
+        pdf_t, T_centers, pres[t]
     )
     # Convert code units cooling rate back to CGS emissivity (erg cm^-3 s^-1)
-    # compute_cooling_rate already computes n_code^2 * sum(PDF*Lambda) * unit_fix
     emis_sg[t] = cool_code / unit_fix
 
 all_pos_cool = np.concatenate([

@@ -163,3 +163,56 @@ $$
 where $\Delta t_\mathrm{other}$ covers MHD/diffusion/radiation/z4c/particles (all inactive for pure hydro + ISM cooling runs), and the $2\Delta t_\mathrm{prev}$ term just prevents $\Delta t$ from more than doubling in one cycle after a narrow dip.
 
 The ratio $\Delta t_\mathrm{cool}/\Delta t_\mathrm{CFL}$ tells you which constraint is binding at a given point in the run: when it drops below 1, cooling — not wave-crossing — is what's limiting the step, which is exactly what you see as the sharp dt dips in the `hr_build` runs (a cell cooling rapidly through the SPEX curve's steep region).
+
+## The subgrid (CNN) run has no cooling-timestep constraint by default
+
+The subgrid run's athinput sets `ism_cooling = false` (the CNN model replaces the ISM cooling curve) and `user_srcs = true`, so the CNN's predicted cooling is applied through [`UserSourceTerm()`](../athenak/src/pgen/subgrid.cpp#L442-L560), registered as `pgen->user_srcs_func` and invoked from the `HydroSrcTerms` task. Since neither `ism_cooling` nor `rel_cooling` is set, [`SourceTerms::NewTimeStep()`](../athenak/src/srcterms/srcterms_newdt.cpp) never populates `dtnew` for this run — it's stuck at `float_max`, so **the CNN's cooling rate placed no constraint on $\Delta t$ at all**. If the model predicts a very fast local cooling rate, nothing stops the step from overshooting.
+
+### Where the rate is already sitting, for free
+
+Rather than adding a second, redundant CNN inference call just to estimate a cooling timestep, [`source_module.py`](../builds/subgrid_model/src/source_module.py)'s `source_func` already computes the internal energy and cooling rate it needs for the energy-source row (`source_term[3] = -cool_rate`). Since `cool_rate` comes from [`emissivity_from_pdf`](../models/conv_nn/pdf_cnn.py#L1169-L1231),
+$$
+\texttt{cool\_rate} = n^2 \sum_i \mathrm{PDF}(T_i)\,\Lambda(T_i)\;\times\;\texttt{unit\_fix}, \qquad n = \rho/\mu
+$$
+it is **non-negative by construction** — $n^2 \geq 0$, the PDF weights are $\geq 0$, and $\Lambda(T) \geq 0$ (or exactly $0$ outside the active cooling window) — so there is no "heating" case to guard against. But non-negative isn't the same as *bounded*: a dense, actively-cooling cell in a TRML can have a genuinely very short local cooling time, and the raw (uncapped) rate can be many orders of magnitude larger than what's needed for a sane step.
+
+**First attempt (wrong):** compute $\Delta t_\mathrm{subgrid}$ straight from the raw rate and drop the old temperature-floor clip entirely, reasoning that "non-negative ⟹ no clip needed." In practice this deadlocks the simulation: one cell with a very fast predicted cooling rate drives $\Delta t_\mathrm{subgrid}$ down to $\sim 10^{-14}$, the state then barely evolves each cycle, the CNN sees nearly the same input next stage and predicts the same enormous rate again — `time` gets stuck indefinitely instead of crashing.
+
+**Fix:** keep the floor-clip (it's the standard trick for source terms stiffer than an explicit scheme can resolve — cap how much a single substep of size $bdt$ is allowed to cool a cell, rather than trying to resolve the true, possibly intractably short, cooling time), and compute $\Delta t_\mathrm{subgrid}$ from the *same, capped* rate that was actually applied:
+$$
+\texttt{cool\_max} = \frac{\max(e_\mathrm{int} - e_\mathrm{floor},\, 0)}{bdt}, \qquad \texttt{cool\_rate} \leftarrow \min(\texttt{cool\_rate}, \texttt{cool\_max})
+$$
+$$
+\Delta t_\mathrm{subgrid} = \min_{i,j} \frac{e_\mathrm{int}^{(i,j)}}{\texttt{cool\_rate}^{(i,j)} + \epsilon}
+$$
+For a capped cell this simplifies to $\Delta t_\mathrm{subgrid} \approx bdt \cdot e_\mathrm{int}/(e_\mathrm{int}-e_\mathrm{floor}) \approx bdt$ — i.e. it reports back "the step you just took was fine," instead of an unboundedly small number, so a single stiff cell can no longer collapse the global timestep. Cells that aren't capped still constrain $\Delta t_\mathrm{subgrid}$ normally. Both quantities are computed directly in Python and returned to C++ as an extra element of a tuple, alongside the source-term array.
+
+### Wiring it into `SourceTerms::dtnew`
+
+`Mesh::NewTimeStep()` already reads `pmb_pack->phydro->psrc->dtnew` at [mesh.cpp:613](../athenak/src/mesh/mesh.cpp#L613) — so instead of adding a new framework-level hook, `UserSourceTerm()` just writes directly into it:
+```cpp
+py::tuple result = (*psource_func)(dens_h, press_h, vx_h, vy_h, tracer_h, fmclrho_h, bdt);
+py::array_t<double> S_arr = result[0].cast<py::array_t<double>>();
+Real dt_cool = static_cast<Real>(result[1].cast<double>());
+if (pmbp->phydro->psrc != nullptr) {
+  pmbp->phydro->psrc->dtnew = dt_cool;
+}
+```
+The catch: `SourceTerms::NewTimeStep()` unconditionally reset `dtnew = float_max` at the top before checking `ism_cooling`/`rel_cooling` — which would immediately wipe out the value `UserSourceTerm()` just wrote, since `HydroSrcTerms` (→ `UserSourceTerm`) runs *before* `NewTimeStep` in the same stage's task list. A new `user_cooling` flag (parsed like `ism_cooling`, set via `<hydro_srcterms> user_cooling = true` for the subgrid athinput) guards this:
+```cpp
+void SourceTerms::NewTimeStep(const DvceArray5D<Real> &w0, const EOS_Data &eos_data) {
+  if (user_cooling) {
+    return;   // dtnew already populated this stage by the pgen's user_srcs_func
+  }
+  dtnew = static_cast<Real>(std::numeric_limits<float>::max());
+  if (ism_cooling) { ... }
+  if (rel_cooling) { ... }
+}
+```
+`dtnew` is also given a sane default (`float_max`) in the `SourceTerms` constructor now, so it's never read uninitialized before the first `UserSourceTerm()` call.
+
+This reuses the exact same `Mesh::NewTimeStep()` combination logic described above — `dt_cycle = std::min(dt_cycle, cfl_no * psrc->dtnew)` — with zero changes to `mesh.cpp` itself, so the combined formula becomes
+$$
+\Delta t = \min\Big\{\,2\Delta t_\mathrm{prev},\;\; \mathcal{C}\cdot\Delta t_\mathrm{CFL},\;\; \mathcal{C}\cdot\Delta t_\mathrm{subgrid}\,\Big\}
+$$
+for the subgrid run, exactly mirroring the ISM-cooling case but with the rate supplied by the CNN instead of the SPEX curve.

@@ -9,6 +9,7 @@
 #  - The tile size is the CNN's native coarse-grid size: 16 rows × 8 cols.
 #  - Hard-cut tiling (no overlap blending) is used for simplicity.
 
+import csv
 import os
 import sys
 import types
@@ -106,6 +107,62 @@ T_centers = np.sqrt(T_edges[:-1] * T_edges[1:])
 _model_cache = None  # ConvNN instance
 _input_mean_cache = None  # torch.Tensor, shape (1, 5, 1, 1)
 _input_std_cache = None   # torch.Tensor, shape (1, 5, 1, 1)
+
+# ---------------------------------------------------------------------------
+# Cooling-rate clip tracking
+#
+# The temperature-floor cap in source_func() (see below) is a safety valve,
+# not something that should be triggering constantly. We log every clipped
+# cell -- sim time, grid position, physical position, and the local field
+# values -- to a CSV so a run can be audited after the fact for how often
+# and where the cap is actually engaging.
+#
+# There is no simulation clock available here (UserSourceTerm only passes
+# bdt, not pm->time), so elapsed time is reconstructed by accumulating bdt
+# across calls; this is exact as long as a multi-stage integrator's per-stage
+# bdt values sum to the full timestep, which is the case for AthenaK's
+# integrators. CLIP_LOG_START_TIME lets this be offset to match a restart.
+#
+# This assumes a single-process run (no MPI), matching the subgrid run
+# scripts in shell_scripts/ -- concurrent writers would need file locking.
+# ---------------------------------------------------------------------------
+CLIP_LOG_PATH = os.environ.get(
+    "CLIP_LOG_PATH", os.path.join(PROJECT_ROOT, "outputs", "clip_events.csv")
+)
+_clip_log_header_written = False
+_sim_time_accum = float(os.environ.get("CLIP_LOG_START_TIME", "0.0"))
+
+_CLIP_LOG_FIELDS = [
+    "time", "row", "col", "x2_pc", "x1_pc",
+    "rho", "temp_K", "cool_rate_raw", "cool_max", "bdt",
+]
+
+
+def _log_clip_events(time_now, bdt, rows, cols, x2min, dx2, x1min, dx1,
+                      rho_hw, temp_hw, cool_raw_hw, cool_max_hw):
+    """Append one CSV row per clipped cell to CLIP_LOG_PATH."""
+    global _clip_log_header_written
+
+    os.makedirs(os.path.dirname(CLIP_LOG_PATH), exist_ok=True)
+    write_header = not _clip_log_header_written and not os.path.isfile(CLIP_LOG_PATH)
+
+    with open(CLIP_LOG_PATH, "a", newline="") as f:
+        writer = csv.writer(f)
+        if write_header:
+            writer.writerow(_CLIP_LOG_FIELDS)
+        for r, c in zip(rows, cols):
+            writer.writerow([
+                time_now,
+                int(r), int(c),
+                x2min + (r + 0.5) * dx2,
+                x1min + (c + 0.5) * dx1,
+                float(rho_hw[r, c]),
+                float(temp_hw[r, c]),
+                float(cool_raw_hw[r, c]),
+                float(cool_max_hw[r, c]),
+                bdt,
+            ])
+    _clip_log_header_written = True
 
 
 def _find_available_model(save_dir: str):
@@ -282,6 +339,7 @@ def source_func(rho, pres, ux, uy, ps, fmcl, bdt=None):
         "ux":   ux_arr.T.copy(),
         "uy":   uy_arr.T.copy(),
         "ps":   ps_arr.T.copy(),
+        "pres": pres_arr.T.copy(),  # code-unit gas pressure, for isobaric cooling only
     }
 
     H, W = cg["rho"].shape  # e.g. (32, 16)
@@ -341,65 +399,80 @@ def source_func(rho, pres, ux, uy, ps, fmcl, bdt=None):
 
     # ------------------------------------------------------------------
     # 4. Compute cooling rate from stitched PDFs
-    #    emissivity = n² × Σᵢ PDF(Tᵢ) Λ(Tᵢ) × unit_fix   (code units)
+    #    Isobaric per-bin density n_i = P/(kB T_i):
+    #    emissivity = (P/kB)^2 x Sum_i PDF(T_i) Lambda(T_i) / T_i^2   (code units)
     # ------------------------------------------------------------------
     lambda_tensor = torch.tensor(
         lambda_cool(T_centers, mask=True), dtype=torch.float32
     )
     pdf_tensor  = torch.from_numpy(full_pdf).unsqueeze(0).float()   # (1, 40, H, W)
-    rho_tensor  = torch.from_numpy(cg["rho"].astype(np.float32)).unsqueeze(0).unsqueeze(0)  # (1,1,H,W)
-    temp_tensor = torch.from_numpy(cg["temp"].astype(np.float32)).unsqueeze(0).unsqueeze(0) # (1,1,H,W)
+    pres_tensor = torch.from_numpy(cg["pres"].astype(np.float32)).unsqueeze(0).unsqueeze(0)  # (1,1,H,W)
     t_centers_tensor = torch.tensor(T_centers, dtype=torch.float32)
 
     emiss = isobaric_emissivity_from_pdf(
         pdf=pdf_tensor,
-        rho=rho_tensor,
-        T_coarse=temp_tensor,
+        pressure=pres_tensor,
         T_centers_tensor=t_centers_tensor,
         lambda_tensor=lambda_tensor,
-        mu=mu,
-        unit_fix=1.975e27,
     )
     cool_rate = emiss.squeeze().cpu().numpy()  # (H, W)
-    # ------------------------------------------------------------------
-    # 4b. Temperature floor: clip the sink so applying
-    #     source[3] = -cool_rate for one timestep cannot push the gas
-    #     below T_TARGET (default 1e4 K; override via COOL_TFLOOR env var).
+    # cool_rate is a pure sink by construction (see isobaric_emissivity_from_pdf
+    # in pdf_cnn.py: emiss = (P/kB)^2 * sum(pdf * lambda / T^2) * unit_fix, and
+    # both the PDF weights and Lambda(T) are non-negative) -- there is no heating
+    # case to guard against. However, it is NOT bounded in magnitude: a
+    # dense, actively-cooling cell in a TRML can have a genuinely very
+    # short local cooling time. Applying that raw rate unconditionally for
+    # one substep of size bdt could overshoot straight through any
+    # physical temperature floor, and (worse) feeding the raw rate into
+    # dt_cool below would peg the timestep to that one cell's cooling
+    # time forever: dt shrinks, the state barely evolves each step, so
+    # the model keeps seeing ~the same input and keeps predicting the
+    # same huge rate -- an explicit-integration deadlock, not a crash.
     #
-    #     `pres` is code-unit pressure (subgrid.cpp passes w0(IEN)*gm1),
-    #     so E_int = pres / (gamma - 1) in code units.
-    #     The source returned is dE_int/dt, so:
-    #         E_new = E_old - cool_rate * bdt
-    #     We require E_new >= E_floor, with
-    #         p_floor = rho * k_B * T_TARGET / (mu * P_unit)   (code units)
-    #         E_floor = p_floor / (gamma - 1)
-    #     =>  cool_rate <= (E_old - E_floor) / bdt
-    #     Cells already at/below the floor get cool_max = 0 (no further
-    #     cooling). Heating (cool_rate < 0) is left untouched.
+    # Standard fix (same idea as radiative-cooling papers this model is
+    # based on): cap the sink so this stage's update can cool a cell to
+    # the floor temperature but no further. A capped cell's own dt_cool
+    # then comes out to ~bdt (see below), so it stops driving the global
+    # timestep down without limit; uncapped cells still constrain dt_cool
+    # normally.
     # ------------------------------------------------------------------
+    global _sim_time_accum
+    e_curr = pres_arr.T / (gamma - 1.0)  # (H, W), code-unit internal energy
     T_TARGET = float(os.environ.get("COOL_TFLOOR", "1.0e4"))  # K
     if bdt is not None and float(bdt) > 0.0 and T_TARGET > 0.0:
-        # Code-unit pressure corresponding to T_TARGET (same layout as rho_arr/pres_arr)
-        p_floor = (rho_arr * kb * T_TARGET) / (mu * P_unit)
+        p_floor = (rho_arr.T * kb * T_TARGET) / (mu * P_unit)
+        e_floor = p_floor / (gamma - 1.0)
+        cool_max = np.maximum(e_curr - e_floor, 0.0) / float(bdt)
 
-        e_curr  = pres_arr  / (gamma - 1.0)
-        e_floor = p_floor   / (gamma - 1.0)
+        clip_mask = cool_rate > cool_max
+        if np.any(clip_mask):
+            rows, cols = np.nonzero(clip_mask)
+            dx2 = total_length / H
+            dx1 = total_width / W
+            _log_clip_events(
+                _sim_time_accum, float(bdt), rows, cols,
+                -total_length / 2.0, dx2, -total_width / 2.0, dx1,
+                cg["rho"], cg["temp"], cool_rate, cool_max,
+            )
 
-        # Max permissible cooling rate (per unit time) for this step.
-        cool_max = np.maximum(e_curr - e_floor, 0.0) / float(bdt)  # (Ni, Nj) = (nx1, nx2)
+        cool_rate = np.minimum(cool_rate, cool_max)
 
-        # cool_rate is in (H, W) = (rows, cols) = (nx2, nx1) layout;
-        # transpose cool_max to match before clipping.
-        cool_max_py = np.ascontiguousarray(cool_max.T)              # (H, W)
+    if bdt is not None:
+        _sim_time_accum += float(bdt)
 
-        # Clip the sink. np.minimum preserves negative (heating) values.
-        cool_rate = np.minimum(cool_rate, cool_max_py)
     # ------------------------------------------------------------------
     # 5. Build source term array
     # ------------------------------------------------------------------
-    
     source_term = np.zeros((5, H, W), dtype=np.float64)
     source_term[3] = -cool_rate  # energy sink
+
+    # ------------------------------------------------------------------
+    # 5b. Cooling timestep: dt_cool = min_cell( E_int / cool_rate ), using
+    #     the same (capped) cool_rate that was actually applied above, so
+    #     a capped cell reports back ~bdt (the step just taken) instead of
+    #     an unboundedly small number.
+    # ------------------------------------------------------------------
+    dt_cool = float(np.min(e_curr / (cool_rate + 1e-30)))
 
     # ------------------------------------------------------------------
     # 6. Return shape expected by subgrid.cpp:
@@ -410,4 +483,4 @@ def source_func(rho, pres, ux, uy, ps, fmcl, bdt=None):
     # source_term[ch] has shape (H, W) = (rows, cols) = (nx2, nx1)
     # C++ expects layout (nx1, nx2) — i.e. transposed.
     final_term = np.transpose(source_term, axes=(0, 2, 1))  # (5, W, H) = (5, nx1, nx2)
-    return final_term.reshape(5, -1)
+    return final_term.reshape(5, -1), dt_cool

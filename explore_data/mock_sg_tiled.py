@@ -106,6 +106,8 @@ unit_fix = 1.975e27
 LOGT_ACTIVE_START = float(os.environ.get("LOGT_ACTIVE_START", "4.1"))
 LOGT_ACTIVE_END   = float(os.environ.get("LOGT_ACTIVE_END", "5.9"))
 LAMBDA_CENTERS = lambda_cool(T_centers, mask=True, LOGT_ACTIVE_START=LOGT_ACTIVE_START, LOGT_ACTIVE_END=LOGT_ACTIVE_END)
+# Isobaric per-bin weight: Lambda(T_i) / T_i^2, used with n_i = P/(kB T_i)
+ISOBARIC_WEIGHT = LAMBDA_CENTERS / T_centers**2
 
 RESTART_TIME_MYR = float(os.environ.get("RESTART_TIME_MYR", "5.0"))
 BIN_DT_MYR       = 0.01
@@ -331,26 +333,124 @@ def load_history_file(history_path):
     History files are opened in append mode by Athena, so re-running the same
     simulation multiple times leaves earlier runs' rows in the file, each
     restarting from t=0. Keep only the rows from the last (most recent) run.
+
+    Newer history files also carry dt_cfl (columns [2]) and dt_cool ([3]) --
+    the per-component candidate timesteps that Mesh::NewTimeStep() combines
+    into dt (see codebase_notes/dynamic_dt_calculation.md). Older history
+    files without these columns still load fine; dt_cfl/dt_cool come back as
+    None in that case.
     """
+    # Check the header comment for the real column names -- every hydro .hst
+    # file has >=4 columns (time, dt, mass, 1-mom, ...), so a bare column-count
+    # check would silently misread "mass"/"1-mom" as dt_cfl/dt_cool for older
+    # history files that predate those columns.
+    # History files opened in append mode can contain several header blocks
+    # (one per re-run), each possibly with a different column layout -- e.g.
+    # older runs predating the dt_cfl/dt_cool columns, followed by a newer
+    # run that has them. Scan the whole file and keep the verdict from the
+    # *last* header block, since that's the one describing the data that
+    # survives the reset-trimming below.
+    has_components = False
+    in_header_block = False
+    block_has_components = False
     try:
-        # Use usecols to avoid errors when column count changes mid-file
-        data = np.loadtxt(history_path, comments='#', usecols=(0, 1))
-        if data.ndim == 1:
-            data = data.reshape(1, -1)
-        times = data[:, 0]
-        dts = data[:, 1]
+        with open(history_path) as f:
+            for line in f:
+                if line.startswith('#'):
+                    if not in_header_block:
+                        in_header_block = True
+                        block_has_components = False
+                    if 'dt_cfl' in line and 'dt_cool' in line:
+                        block_has_components = True
+                elif in_header_block:
+                    has_components = block_has_components
+                    in_header_block = False
+            if in_header_block:
+                has_components = block_has_components
+    except Exception as e:
+        print(f"  Warning: Could not read header of {history_path}: {e}")
+        return None, None, None, None
 
-        # Detect resets (time jumping backward) and keep only the last segment
-        resets = np.where(np.diff(times) < 0)[0]
-        if len(resets) > 0:
-            last_reset = resets[-1] + 1
-            times = times[last_reset:]
-            dts = dts[last_reset:]
-
-        return times, dts
+    try:
+        cols = (0, 1, 2, 3) if has_components else (0, 1)
+        data = np.loadtxt(history_path, comments='#', usecols=cols)
     except Exception as e:
         print(f"  Warning: Could not load history file {history_path}: {e}")
-        return None, None
+        return None, None, None, None
+
+    if data.ndim == 1:
+        data = data.reshape(1, -1)
+    times = data[:, 0]
+    dts = data[:, 1]
+    dt_cfl = data[:, 2] if has_components else None
+    dt_cool = data[:, 3] if has_components else None
+
+    # Detect resets (time jumping backward) and keep only the last segment
+    resets = np.where(np.diff(times) < 0)[0]
+    if len(resets) > 0:
+        last_reset = resets[-1] + 1
+        times = times[last_reset:]
+        dts = dts[last_reset:]
+        if has_components:
+            dt_cfl = dt_cfl[last_reset:]
+            dt_cool = dt_cool[last_reset:]
+
+    return times, dts, dt_cfl, dt_cool
+
+
+def load_clip_log(path):
+    """Load the cooling-rate clip-event CSV written by source_module.py.
+
+    source_module.py's live source_func() logs one row per cell where the
+    temperature-floor cap actually engaged (time, grid position, physical
+    position, and local rho/temp/cool_rate/cool_max). Returns a dict of
+    numpy arrays keyed by column name, or None if no log file exists yet
+    (e.g. this run never invoked the subgrid CNN source term).
+    """
+    if not os.path.isfile(path):
+        return None
+    with open(path, newline="") as f:
+        reader = csv.reader(f)
+        header = next(reader, None)
+        rows = list(reader)
+    if not header or not rows:
+        return None
+    data = np.array(rows, dtype=np.float64)
+    return {name: data[:, i] for i, name in enumerate(header)}
+
+
+def plot_clip_diagnostics(clip_data, out_dir):
+    """Scatter of clipped-cell positions (colored by time) + a time histogram.
+
+    Lets a clip event be cross-referenced directly against the logged
+    rho/temp/cool_rate/cool_max at that cell without re-opening snapshots.
+    """
+    n_events = clip_data["time"].size
+    cells = set(zip(clip_data["row"].astype(int), clip_data["col"].astype(int)))
+    t_min, t_max = clip_data["time"].min(), clip_data["time"].max()
+    print(f"  {n_events} clip events across {len(cells)} unique cells, "
+          f"t = [{t_min:.3f}, {t_max:.3f}] Myr")
+
+    fig, (ax_scatter, ax_hist) = plt.subplots(1, 2, figsize=(16, 6))
+
+    sc = ax_scatter.scatter(clip_data["x1_pc"], clip_data["x2_pc"], c=clip_data["time"],
+                             cmap="viridis", s=12, alpha=0.7)
+    ax_scatter.set_xlabel(r"$x_1 \ [\mathrm{pc}]$", fontsize=12)
+    ax_scatter.set_ylabel(r"$x_2 \ [\mathrm{pc}]$", fontsize=12)
+    ax_scatter.set_title(f"Clip Event Positions ({n_events} events)", fontsize=13, weight="bold")
+    ax_scatter.grid(True, ls="--", alpha=0.4)
+    plt.colorbar(sc, ax=ax_scatter, label="time [Myr]")
+
+    ax_hist.hist(clip_data["time"], bins=min(50, max(1, n_events)), color="tab:red", alpha=0.75)
+    ax_hist.set_xlabel("time [Myr]", fontsize=12)
+    ax_hist.set_ylabel("clip events", fontsize=12)
+    ax_hist.set_title("Clip Events vs Time", fontsize=13, weight="bold")
+    ax_hist.grid(True, ls="--", alpha=0.4)
+
+    plt.tight_layout()
+    plt.savefig(out_dir / "clip_diagnostics.png", dpi=200)
+    plt.close(fig)
+    print("  Saved clip_diagnostics.png")
 
 
 def load_tiled_cnn_model(save_dir=None):
@@ -385,9 +485,14 @@ def load_tiled_cnn_model(save_dir=None):
     return model, input_mean, input_std
 
 
-def predict_tiled_subgrid_pdf_and_cooling(rho_code, temp_K, ux_code, uy_code, ps_val, model, input_mean, input_std):
+def predict_tiled_subgrid_pdf_and_cooling(rho_code, temp_K, ux_code, uy_code, ps_val, pres_code, model, input_mean, input_std):
     """
     Run tiled batched inference on (H, W) fields (default 4x4 grid).
+
+    Cooling uses the isobaric per-bin density n_i = P/(kB T_i) instead of a
+    single constant n across the PDF:
+        Emissivity = (P/kB)^2 x sum_i PDF(T_i) x Lambda(T_i) / T_i^2
+
     Returns:
       cool_cgs:  (H, W) [erg cm^-3 s^-1]
       pdf:       (40, H, W)
@@ -432,8 +537,8 @@ def predict_tiled_subgrid_pdf_and_cooling(rho_code, temp_K, ux_code, uy_code, ps
         pdf[:, r0:r1, c0:c1] = pdf_tiles[idx]
         gate_map[r0:r1, c0:c1] = gate_tiles[idx]
 
-    n_cgs = (rho_code * RHO_cgs) / (MU * M_H)
-    cooling = (n_cgs ** 2) * np.tensordot(LAMBDA_CENTERS, pdf, axes=(0, 0))
+    p_over_kB = pres_code * P_over_kB_to_K_cm3  # physical P/kB [K cm^-3]
+    cooling = (p_over_kB ** 2) * np.tensordot(ISOBARIC_WEIGHT, pdf, axes=(0, 0))
 
     return cooling, pdf, gate_map
 
@@ -616,7 +721,7 @@ def main():
 
     for t in tqdm(range(nt), desc="Tiled CNN Inference"):
         c_sg, p_sg, g_sg = predict_tiled_subgrid_pdf_and_cooling(
-            sg_rho[t], sg_temp[t], sg_ux[t], sg_uy[t], sg_ps[t],
+            sg_rho[t], sg_temp[t], sg_ux[t], sg_uy[t], sg_ps[t], sg_pres[t],
             model, input_mean, input_std
         )
         emis_sg[t] = c_sg
@@ -910,10 +1015,11 @@ def main():
     sg_hist_path = Path(args.sg_bin).parent / "KH.hydro.hst"
     lr_hist_path = Path(args.lr_bin).parent / "KH.hydro.hst"
 
-    # Load history data
-    hr_times_hist, hr_dts = load_history_file(hr_hist_path)
-    sg_times_hist, sg_dts = load_history_file(sg_hist_path)
-    lr_times_hist, lr_dts = load_history_file(lr_hist_path)
+    # Load history data (dt_cfl/dt_cool are None for older history files that
+    # predate these columns)
+    hr_times_hist, hr_dts, hr_dt_cfl, hr_dt_cool = load_history_file(hr_hist_path)
+    sg_times_hist, sg_dts, sg_dt_cfl, sg_dt_cool = load_history_file(sg_hist_path)
+    lr_times_hist, lr_dts, lr_dt_cfl, lr_dt_cool = load_history_file(lr_hist_path)
 
     # For restarted simulations (SG and LR), shift times to physical time by adding restart time
     if sg_times_hist is not None:
@@ -921,16 +1027,18 @@ def main():
     if lr_times_hist is not None:
         lr_times_hist = lr_times_hist + RESTART_TIME_MYR
 
-    # Show only from RESTART_TIME_MYR to simulation end for all lines
-    if hr_times_hist is not None:
-        mask = hr_times_hist >= RESTART_TIME_MYR
-        hr_times_hist, hr_dts = hr_times_hist[mask], hr_dts[mask]
-    if sg_times_hist is not None:
-        mask = sg_times_hist >= RESTART_TIME_MYR
-        sg_times_hist, sg_dts = sg_times_hist[mask], sg_dts[mask]
-    if lr_times_hist is not None:
-        mask = lr_times_hist >= RESTART_TIME_MYR
-        lr_times_hist, lr_dts = lr_times_hist[mask], lr_dts[mask]
+    def _mask_run(times, *component_arrays):
+        """Restrict `times` and any number of same-length arrays to
+        [RESTART_TIME_MYR, end], passing None arrays through unchanged."""
+        if times is None:
+            return (times, *component_arrays)
+        mask = times >= RESTART_TIME_MYR
+        masked = tuple(arr[mask] if arr is not None else None for arr in component_arrays)
+        return (times[mask], *masked)
+
+    hr_times_hist, hr_dts, hr_dt_cfl, hr_dt_cool = _mask_run(hr_times_hist, hr_dts, hr_dt_cfl, hr_dt_cool)
+    sg_times_hist, sg_dts, sg_dt_cfl, sg_dt_cool = _mask_run(sg_times_hist, sg_dts, sg_dt_cfl, sg_dt_cool)
+    lr_times_hist, lr_dts, lr_dt_cfl, lr_dt_cool = _mask_run(lr_times_hist, lr_dts, lr_dt_cfl, lr_dt_cool)
 
     fig, ax = plt.subplots(figsize=(10, 6))
     ax.axvline(RESTART_TIME_MYR, color="gray", ls="--", lw=1.2, label=f"Restart @ {RESTART_TIME_MYR} Myr", alpha=0.7)
@@ -953,6 +1061,56 @@ def main():
     plt.savefig(out_dir / "delta_t_vs_time.png", dpi=200)
     plt.close(fig)
     print("  Saved delta_t_vs_time.png")
+
+    # =========================================================================
+    # PLOT 5c: Timestep components (CFL vs cooling-limited) vs Time
+    # =========================================================================
+    print("\n[8c] Generating delta_t_components_vs_time.png...")
+
+    # dt_cool reports as float_max*cfl_no ("no constraint") when a run has no
+    # active cooling source term; drop those points rather than let them blow
+    # out the y-axis.
+    _DT_SENTINEL = 1.0e30
+
+    def _clip_sentinel(arr):
+        if arr is None:
+            return None
+        return np.where(arr > _DT_SENTINEL, np.nan, arr)
+
+    hr_dt_cool_c = _clip_sentinel(hr_dt_cool)
+    sg_dt_cool_c = _clip_sentinel(sg_dt_cool)
+    lr_dt_cool_c = _clip_sentinel(lr_dt_cool)
+
+    fig, axes = plt.subplots(1, 3, figsize=(18, 5.5), sharey=True)
+    runs = [
+        (axes[0], "HR (512x1024)", hr_times_hist, hr_dts, hr_dt_cfl, hr_dt_cool_c),
+        (axes[1], SG_LABEL, sg_times_hist, sg_dts, sg_dt_cfl, sg_dt_cool_c),
+        (axes[2], LR_LABEL, lr_times_hist, lr_dts, lr_dt_cfl, lr_dt_cool_c),
+    ]
+    for ax_i, label, times, dts, dt_cfl, dt_cool in runs:
+        ax_i.axvline(RESTART_TIME_MYR, color="gray", ls="--", lw=1.0, alpha=0.7)
+        if times is None or dts is None:
+            ax_i.set_title(f"{label}\n(no history data)", fontsize=12)
+            continue
+        ax_i.plot(times, dts * 1e3, label=r"$\Delta t$ (used)", lw=2, color="black", alpha=0.85)
+        if dt_cfl is not None:
+            ax_i.plot(times, dt_cfl * 1e3, label=r"$\Delta t_\mathrm{CFL}$", lw=1.5,
+                      ls="--", marker="^", markersize=3, alpha=0.8)
+        if dt_cool is not None:
+            ax_i.plot(times, dt_cool * 1e3, label=r"$\Delta t_\mathrm{cool}$", lw=1.5,
+                      ls="--", marker="o", markersize=3, alpha=0.8)
+        ax_i.set_yscale("log")
+        ax_i.set_xlabel("Physical Time [Myr]", fontsize=12)
+        ax_i.set_title(label, fontsize=13, weight="bold")
+        ax_i.grid(True, ls="--", alpha=0.4)
+        ax_i.legend(fontsize=9)
+
+    axes[0].set_ylabel(r"Timestep [ms (code units)]", fontsize=13)
+    fig.suptitle(r"CFL-limited vs Cooling-limited Timestep Components", fontsize=15, weight="bold")
+    plt.tight_layout()
+    plt.savefig(out_dir / "delta_t_components_vs_time.png", dpi=200)
+    plt.close(fig)
+    print("  Saved delta_t_components_vs_time.png")
 
     # =========================================================================
     # PLOT 6: Emissivity Profile vs Y & Integrated Sigma_c
@@ -1354,6 +1512,18 @@ def main():
 
     save_animation_funcanim(fig_e, update_subgrid_pdf, anim_frames,
                             str(out_dir / "subgrid_predicted_pdf_evolution.mp4"), fps=10, blit=True)
+
+    # =========================================================================
+    # CLIPPING DIAGNOSTICS: where/when the cooling-rate floor cap engaged
+    # =========================================================================
+    print("\n[7] Checking for cooling-rate clip log...")
+    clip_log_path = os.environ.get("CLIP_LOG_PATH", str(PROJECT_ROOT / "outputs" / "clip_events.csv"))
+    clip_data = load_clip_log(clip_log_path)
+    if clip_data is None:
+        print(f"  No clip log found at {clip_log_path} -- skipping "
+              f"(only the live source_module.py sim path writes this).")
+    else:
+        plot_clip_diagnostics(clip_data, out_dir)
 
     print("\n" + "=" * 75)
     print(f" ALL DIAGNOSTICS & ANIMATIONS COMPLETED! Saved to: {out_dir}")
