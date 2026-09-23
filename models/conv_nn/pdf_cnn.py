@@ -91,7 +91,7 @@ HYPERPARAMS = {
     "dropout_rate": 0.2,
     "alpha_gate": float(os.environ.get("PDF_CNN_ALPHA_GATE", "0.0")),
     "alpha_mean_temp": 10,
-    "alpha_emiss": float(os.environ.get("PDF_CNN_ALPHA_EMISS", "10.0")),
+    "alpha_emiss": float(os.environ.get("PDF_CNN_ALPHA_EMISS", "100.0")),
     "alpha_leak": float(os.environ.get("PDF_CNN_ALPHA_LEAK", "10.0")),
     "alpha_active_wasserstein": float(
         os.environ.get(
@@ -1027,26 +1027,30 @@ class GatedThresholdedSoftmax(nn.Module):
                    (Acts like a Delta function, but preserves gradients!)
     When gate ≈ 1: PDF remains a broad multiphase distribution.
     """
-    def __init__(self, threshold=5e-3, sharp_temp=0.02, eps=1e-12):
+    def __init__(self, threshold=5e-3, sharp_temp=0.02, eps=1e-12, logit_clamp=50.0):
         super().__init__()
         self.threshold = threshold
         self.sharp_temp = sharp_temp # Controls how "sharp" the delta function is
         self.eps = eps
+        self.logit_clamp = logit_clamp  # Prevent softmax overflow
 
     def forward(self, logits, gate):
+        # Clamp logits to prevent softmax overflow/underflow
+        logits_safe = torch.clamp(logits, min=-self.logit_clamp, max=self.logit_clamp)
+
         # --- 1. Multiphase (Broad) Branch ---
-        p_broad = F.softmax(logits, dim=1)
+        p_broad = F.softmax(logits_safe, dim=1)
         
         # Hard thresholding is bad for gradients. Only do it during evaluation/inference.
         if not self.training:
             p_broad = p_broad * (p_broad >= self.threshold).float()
-            
+
         p_broad = p_broad / (p_broad.sum(dim=1, keepdim=True) + self.eps)
 
         # --- 2. Single-Phase (Sharp) Branch ---
-        # Replaces torch.argmax() with a low-temperature Softmax.
-        # This creates a differentiable Delta function!
-        p_sharp = F.softmax(logits / self.sharp_temp, dim=1)
+        # Use log-softmax for numerical stability with temperature scaling
+        log_p_sharp = F.log_softmax(logits_safe / self.sharp_temp, dim=1)
+        p_sharp = torch.exp(log_p_sharp)
 
         # --- 3. Gated Interpolation ---
         # gate=0 -> relies entirely on the differentiable sharp peak
@@ -1556,7 +1560,7 @@ class GatedPDFLoss(nn.Module):
             else alpha_inactive_kl
         )
 
-        self.activation = GatedThresholdedSoftmax()
+        self.activation = GatedThresholdedSoftmax(logit_clamp=50.0)
         self.zoned_wasserstein = ZonedWassersteinLoss(
             alpha_active=alpha_act,
             alpha_inactive=alpha_inact,
