@@ -209,7 +209,7 @@ def render_frame_all_fields(frame, temp_dir):
         ax.set_xlabel(f"Timestep: {frame}")
 
     plt.tight_layout()
-    plt.savefig(os.path.join(temp_dir, f"frame_{frame:04d}.png"), dpi=200)
+    plt.savefig(os.path.join(temp_dir, f"frame_{frame:04d}.png"), dpi=120)
     plt.close(fig)
 
 
@@ -252,7 +252,7 @@ def render_frame_cons_fields(frame, temp_dir):
         ax.set_xlabel(f"Timestep: {frame}")
 
     plt.tight_layout()
-    plt.savefig(os.path.join(temp_dir, f"frame_{frame:04d}.png"), dpi=200)
+    plt.savefig(os.path.join(temp_dir, f"frame_{frame:04d}.png"), dpi=120)
     plt.close(fig)
 
 
@@ -295,7 +295,7 @@ def render_frame_rho(frame, temp_dir):
         ax.set_xlabel(f"Timestep: {frame}")
 
     plt.tight_layout()
-    plt.savefig(os.path.join(temp_dir, f"frame_{frame:04d}.png"), dpi=200)
+    plt.savefig(os.path.join(temp_dir, f"frame_{frame:04d}.png"), dpi=120)
     plt.close(fig)
 
 
@@ -329,7 +329,7 @@ def render_frame_temp_pdf(frame, temp_dir):
     ax.legend()
 
     plt.tight_layout()
-    plt.savefig(os.path.join(temp_dir, f"frame_{frame:04d}.png"), dpi=200)
+    plt.savefig(os.path.join(temp_dir, f"frame_{frame:04d}.png"), dpi=120)
     plt.close(fig)
 
 
@@ -401,7 +401,7 @@ def render_frame_cooling_rate(frame, temp_dir):
     cbar_cool.set_label(r"Cooling Rate $n^2\Lambda(T)$ (erg / cm$^3$ / s)", fontsize=12)
     cbar_cool.ax.tick_params(labelsize=10)
 
-    plt.savefig(os.path.join(temp_dir, f"frame_{frame:04d}.png"), dpi=150)
+    plt.savefig(os.path.join(temp_dir, f"frame_{frame:04d}.png"), dpi=120)
     plt.close(fig)
 
 
@@ -658,7 +658,7 @@ def worker_render_subgrid_pdf(frames_list, temp_dir):
         title_text.set_text(rf"Subgrid Predicted Temperature PDF Grid (${nx} \times {ny}$), $T$, Cooling, Gate, & Active Mass | $t = {t_myr_cur:.2f}$ Myr")
         
         frame_out = os.path.join(temp_dir, f"frame_{frame_idx:04d}.png")
-        fig.savefig(frame_out, dpi=120)
+        fig.savefig(frame_out, dpi=150)
 
         if frame_idx == 0:
             fig.savefig(save_path + "subgrid_predicted_pdf_snapshot_t0.png", dpi=200)

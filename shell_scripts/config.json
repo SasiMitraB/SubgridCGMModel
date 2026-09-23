@@ -76,6 +76,7 @@
     "ndiag": 5,
     "nscalars": 2,
     "ism_cooling": false,
+    "user_cooling": true,
     "user_srcs": true,
     "tlim": 10.0
   }

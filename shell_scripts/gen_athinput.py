@@ -133,6 +133,12 @@ def main():
     if "user_srcs" in params:
         blocks["problem"]["user_srcs"] = "true" if params["user_srcs"] else "false"
 
+    # user_cooling: the pgen's user_srcs_func (subgrid.cpp -> source_module.py) supplies
+    # dt_cool directly. Without this flag SourceTerms leaves dtnew at float_max, so the
+    # subgrid run is CFL-limited only and the history file's dt_cool column is a sentinel.
+    if "user_cooling" in params:
+        blocks["hydro_srcterms"]["user_cooling"] = "true" if params["user_cooling"] else "false"
+
     with open(args.output, "w") as f:
         f.write("# Athena++ (Kokkos version) input file generated from config.json\n\n")
         f.write("<comment>\nproblem   = Kelvin-Helmholtz instability\n\n")

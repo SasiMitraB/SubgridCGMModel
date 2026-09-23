@@ -4,14 +4,15 @@ downsample_ic.py: Downsamples an AthenaK simulation snapshot to a coarse resolut
 and exports a raw binary file for AthenaK pgen initial condition loading.
 
 Output binary format:
-A contiguous 1D/3D float64 array of shape (7, Nx2, Nx1):
+A contiguous 1D/3D float64 array of shape (8, Nx2, Nx1):
   Channel 0: Density (dens)
   Channel 1: Internal energy density (eint = P / (gamma - 1))
-  Channel 2: Velocity X (velx)
-  Channel 3: Velocity Y (vely)
-  Channel 4: Velocity Z (velz)
-  Channel 5: Passive scalar 1 (s_00 / tracer)
-  Channel 6: Passive scalar 2 (s_01 / cold gas mass fraction)
+  Channel 2: Velocity X (velx, mass-weighted average)
+  Channel 3: Velocity Y (vely, mass-weighted average)
+  Channel 4: Velocity Z (velz, mass-weighted average)
+  Channel 5: Passive scalar 1 (s_00 / tracer, mass-weighted average)
+  Channel 6: Passive scalar 2 (s_01 / cold gas mass fraction, mass-weighted average)
+  Channel 7: Temperature (derived from coarse-grained P and rho via EOS)
 """
 
 import os
@@ -28,6 +29,15 @@ try:
     from ergane.bin_reader import read_binary, make_2D_array
 except (ModuleNotFoundError, ImportError):
     from ergane.ergane.bin_reader import read_binary, make_2D_array
+
+try:
+    from coarse_grain_utils import block_mean as block_mean_util
+except (ModuleNotFoundError, ImportError):
+    def block_mean_util(f, b):
+        ny, nx = f.shape
+        if ny % b != 0 or nx % b != 0:
+            raise ValueError(f"Grid ({ny}, {nx}) not divisible by block size {b}")
+        return f.reshape(ny // b, b, nx // b, b).mean(axis=(1, 3))
 
 
 def block_average_2d(arr_2d, target_ny, target_nx):
@@ -132,22 +142,31 @@ def downsample_snapshot(
     s1_mass_lr = block_average_2d(dens_hr * s1_hr, target_nx2, target_nx1)
     s1_lr = s1_mass_lr / np.maximum(dens_lr, 1e-30)
 
-    # Stack channels: [dens, eint, velx, vely, velz, s0, s1]
-    # Shape: (7, target_nx2, target_nx1)
-    payload = np.stack([dens_lr, eint_lr, velx_lr, vely_lr, velz_lr, s0_lr, s1_lr], axis=0).astype(np.float64)
+    # Compute temperature from coarse-grained fields using equation of state
+    # T_cg = (P * P_unit / rho) * (mu / k_b) where P = (gamma - 1) * eint
+    P_unit = 1.59916e-14  # Code unit conversion
+    mu = 0.62             # Mean molecular weight
+    k_b = 1.3807e-16      # Boltzmann constant (erg/K)
+    pressure_lr = (gamma - 1.0) * eint_lr
+    temp_lr = (pressure_lr * P_unit / dens_lr) * (mu / k_b)
+
+    # Stack channels: [dens, eint, velx, vely, velz, s0, s1, temp]
+    # Shape: (8, target_nx2, target_nx1)
+    payload = np.stack([dens_lr, eint_lr, velx_lr, vely_lr, velz_lr, s0_lr, s1_lr, temp_lr], axis=0).astype(np.float64)
 
     os.makedirs(os.path.dirname(os.path.abspath(output_bin)), exist_ok=True)
     payload.tofile(output_bin)
 
     print(f"Successfully saved downsampled initial condition:")
     print(f"  File: {output_bin}")
-    print(f"  Shape: {payload.shape} (Nvars=7, Nx2={target_nx2}, Nx1={target_nx1})")
+    print(f"  Shape: {payload.shape} (Nvars=8, Nx2={target_nx2}, Nx1={target_nx1})")
     print(f"  Size: {os.path.getsize(output_bin)} bytes")
     print(f"  Density range: [{dens_lr.min():.4e}, {dens_lr.max():.4e}]")
     print(f"  Internal energy range: [{eint_lr.min():.4e}, {eint_lr.max():.4e}]")
     print(f"  Velx range: [{velx_lr.min():.4e}, {velx_lr.max():.4e}]")
     print(f"  Vely range: [{vely_lr.min():.4e}, {vely_lr.max():.4e}]")
     print(f"  Cold fraction range: [{s1_lr.min():.4f}, {s1_lr.max():.4f}]")
+    print(f"  Temperature range: [{temp_lr.min():.4e}, {temp_lr.max():.4e}]")
 
 
 def main():

@@ -73,6 +73,8 @@ export SIM_MB_NX1="${SIM_MB_NX1:-${SIM_NX1}}"
 export SIM_MB_NX2="${SIM_MB_NX2:-${SIM_NX2}}"
 export SIM_TLIM="${SIM_TLIM:-5.0}"
 export RESTART_TIME_MYR="${RESTART_TIME_MYR:-5.0}"
+# Cooling-rate cap in source_module.py (1 = on; COOL_CLIP=0 for a no-clip test run)
+export COOL_CLIP="${COOL_CLIP:-1}"
 
 # ---- Output Directories ----
 LR_BUILD_OUTPUT_DIR="${PROJECT_ROOT}/simulation_outputs/lr_build_ism"
@@ -217,6 +219,7 @@ MANIFEST="${RUN_DIR}/manifest.txt"
     echo "Simulation tlim    : ${SIM_TLIM} Myr"
     echo ""
     echo "--- Active Window Bounds ---"
+    echo "COOL_CLIP          : ${COOL_CLIP}"
     echo "LOGT_ACTIVE_START  : ${LOGT_ACTIVE_START}"
     echo "LOGT_ACTIVE_END    : ${LOGT_ACTIVE_END}"
     echo ""
@@ -355,6 +358,8 @@ run_step 5 "subgrid_model_cnn" \
         SITE_PACKAGES=\$(python3 -c 'import site; print(\":\".join(site.getsitepackages()))')
         export PYTHONPATH=\"\$PWD:\$SITE_PACKAGES\${PYTHONPATH:+:\$PYTHONPATH}\"
         export CNN_TILING_MODE="single"
+        export CLIP_LOG_PATH='${RUN_DIR}/clip_events.csv'
+        export DT_COOL_LOG_PATH='${RUN_DIR}/dt_cool_log.csv'
 
         ./athena \
             -i '${SG_ATHINPUT}' \
@@ -394,6 +399,11 @@ run_step 7 "dt_vs_time_plot" \
         export PROJECT_ROOT='${PROJECT_ROOT}'
         export LR_OUTPUT_DIR='${LR_BUILD_OUTPUT_DIR}'
         export SG_OUTPUT_DIR='${SG_OUTPUT_DIR}'
+        export LR_LOG='${LOG_DIR}/step4_lr_build_ism.log'
+        export SG_LOG='${LOG_DIR}/step5_subgrid_model_cnn.log'
+        export DT_COOL_LOG_PATH='${RUN_DIR}/dt_cool_log.csv'
+        export HR_OUTPUT_DIR='${HR_SIM_OUTPUT}'
+        export RESTART_TIME_MYR='${RESTART_TIME_MYR}'
         export SG_MOCKS_DIR='${SG_MOCKS_DIR}'
         cd '${PROJECT_ROOT}/data/mocks' && python3 plot_dt_comparison.py
     "

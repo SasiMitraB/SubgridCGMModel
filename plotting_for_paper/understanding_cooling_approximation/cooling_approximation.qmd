@@ -1,0 +1,696 @@
+---
+title: "Radiative Cooling on Coarse-Grained TRML Fields"
+subtitle: "$\\mathcal{C}_{\\rm cg}$, $\\mathcal{B}[n^2\\Lambda(T)]$ and the Isobaric PDF Estimator $\\mathcal{C}_{\\rm iso}$"
+format:
+  html:
+    toc: true
+    number-sections: true
+    html-math-method: katex
+  pdf:
+    documentclass: article
+    pdf-engine: pdflatex
+    fontsize: 11pt
+    geometry: margin=1in
+    number-sections: true
+    include-in-header:
+      text: |
+        \usepackage{booktabs}
+        \emergencystretch=2em
+jupyter: python3
+execute:
+  cache: true
+---
+
+\newcommand{\B}{\mathcal{B}}
+\newcommand{\Leff}{\Lambda_{\rm eff}}
+\newcommand{\Ctrue}{\mathcal{C}_{\rm true}}
+\newcommand{\Ccg}{\mathcal{C}_{\rm cg}}
+\newcommand{\Ciso}{\mathcal{C}_{\rm iso}}
+\newcommand{\Cbin}{\mathcal{C}_{\rm iso}^{\rm bin}}
+\newcommand{\Tcg}{T_{\rm cg}}
+
+# Setup and notation
+
+The fine simulation is a 2D turbulent radiative mixing layer (TRML) at $512\times1024$ on a $10\times20$ pc box, following the setup of Sharma et al. (2025) but in 2D. The fine cell size is $\delta x = 10\,{\rm pc}/512 = 0.0195$ pc. Coarse-graining by a factor $\Delta$ (in cells) gives coarse cells of physical size $\ell=\Delta\,\delta x$; $\Delta=32$ gives a $16\times32$ grid with $\ell=0.625$ pc, and $\Delta=64$ gives $8\times16$ with $\ell=1.25$ pc. In 2D, "volume" means area throughout.
+
+## Block mean 
+
+For a field $f$,
+$$
+\B[f]_{ij} \equiv \mathrm{BlockMean}(f,\Delta) = \frac{1}{\Delta^2}\sum_{n=0}^{\Delta-1}\sum_{m=0}^{\Delta-1} f(i\Delta+n,\,j\Delta+m).
+$$
+$\B$ is linear and conserves integrals: $\sum_{ij}\B[f]_{ij}\,\ell^2=\int f\,dA$.
+
+## Coarse fields
+
+Conserved and extensive quantities are volume averaged; specific quantities are mass (Favre) averaged:
+$$
+\begin{aligned}
+\bar\rho &= \B[\rho], &
+\bar u_i &= \B[\rho u_i]/\bar\rho, &
+\bar P &= \B[P], &
+\bar s &= \B[\rho s]/\bar\rho .
+\end{aligned}
+$$
+The internal energy density $P/(\gamma-1)$ is extensive, so volume averaging it is correct, but it is not separately conserved. The coarse state therefore satisfies $\B[E]=\bar E_{\rm int}+\tfrac12\bar\rho|\bar u|^2+k_{\rm sgs}$, with subgrid kinetic energy $k_{\rm sgs}=\tfrac12(\B[\rho|u|^2]-\bar\rho|\bar u|^2)\ge0$. Averaging $P$ directly keeps $k_{\rm sgs}$ out of the temperature; reconstructing $P$ from $\B[E]$ would raise $\Tcg$ by $(\gamma-1)\mu m_p k_{\rm sgs}/(k_B\bar\rho)$.
+
+## Coarse temperature
+
+From the equation of state applied to coarse fields,
+$$
+\Tcg = \frac{\mu m_p\,\bar P}{k_B\,\bar\rho} = \frac{\B[\rho T]}{\B[\rho]},
+$$
+i.e. $\Tcg$ is the Favre (mass-weighted) temperature, biased toward the cold phase. By contrast $\B[T]$ is volume weighted and biased toward the hot phase. If the block is isobaric, $\Tcg$ is exactly the harmonic volume mean,
+$$
+\Tcg^{-1} = \B[T^{-1}] \qquad (P=\text{const in block}).
+$$ {#eq-harmonic}
+
+## Cooling function. 
+
+As in the reference setup, cooling is switched off in both stable phases:
+$$
+\Leff(T)=\Lambda(T)\,\Theta(T-1.05\,T_c)\,\Theta(0.95\,T_h-T).
+$$
+For $T_c=10^4$ K and $T_h=10^6$ K ($\chi=T_h/T_c=100$) the window is $4.021<\log_{10}T<5.978$. Throughout, $n=\rho/(\mu m_p)$ with constant $\mu$, and the kernel must use exactly the simulation's $\Lambda$ table, interpolation, density convention ($n^2$ vs. $n_en_H$) and cutoffs. @fig-cooling-function shows $\Lambda$ and $\Leff$ for this setup.
+
+```{python}
+#| label: fig-cooling-function
+#| fig-cap: "The AthenaK `ISMCoolFn` cooling function. Grey: the original $\\Lambda(T)$, using the Koyama & Inutsuka (2002) fit for $\\log_{10}T\\le4.2$ and `lambda_cool` (`models/conv_nn/pdf_cnn.py`) above. Blue: $\\Lambda_{\\rm eff}(T)$, with cooling switched off outside $[1.05\\,T_c,\\,0.95\\,T_h]$ (shaded). Black dashed, right axis: the cooling kernel $g(T)=\\Lambda_{\\rm eff}(T)/T^2$ that weights the temperature PDF in $\\mathcal{C}_{\\rm iso}$."
+#| echo: false
+
+import contextlib
+import io
+import sys
+
+import matplotlib.pyplot as plt
+import numpy as np
+
+sys.path.insert(0, "../../models/conv_nn")
+with contextlib.redirect_stdout(io.StringIO()):  # silence device/setup prints on import
+    from pdf_cnn import lambda_cool
+
+
+def lambda_ki02(temp):
+    """Koyama & Inutsuka (2002) branch of ISMCoolFn (athenak/src/srcterms/ismcooling.hpp)."""
+    return 2.0e-19 * np.exp(-1.184e5 / (temp + 1.0e3)) + 2.8e-28 * np.sqrt(temp) * np.exp(-92.0 / temp)
+
+
+T_c, T_h = 1e4, 1e6
+logT_lo, logT_hi = np.log10(1.05 * T_c), np.log10(0.95 * T_h)
+
+T = np.logspace(3, 7, 4001)
+# lambda_cool zeroes T <= 1e4 K; the original ISMCoolFn uses KI02 for all log T <= 4.2
+lam = np.where(np.log10(T) <= 4.2, lambda_ki02(T), lambda_cool(T))
+lam_eff = lambda_cool(T, mask=True, LOGT_ACTIVE_START=logT_lo, LOGT_ACTIVE_END=logT_hi)
+
+fig, ax = plt.subplots(figsize=(6.5, 4))
+ax.axvspan(10**logT_lo, 10**logT_hi, color="0.93", zorder=0)
+ax.loglog(T, lam, color="0.6", lw=1.5, label=r"$\Lambda(T)$")
+ax.loglog(T, np.where(lam_eff > 0, lam_eff, np.nan), color="#2a6fdb", lw=2,
+          label=r"$\Lambda_{\rm eff}(T)$")
+for x, name in [(10**logT_lo, r"$1.05\,T_c$"), (10**logT_hi, r"$0.95\,T_h$")]:
+    ax.axvline(x, color="0.4", lw=1, ls="--")
+    ax.text(x, 1.01, name, transform=ax.get_xaxis_transform(), ha="center",
+            va="bottom", fontsize=9, color="0.3")
+
+ax_g = ax.twinx()
+ax_g.loglog(T, np.where(lam_eff > 0, lam_eff / T**2, np.nan), color="#0b0b0b", lw=1.5, ls="--",
+            label=r"$g(T)$ (right)")
+ax_g.set_ylim(1e-35, 1e-28)
+ax_g.set_ylabel(r"$g(T)=\Lambda_{\rm eff}/T^2$ [erg cm$^3$ s$^{-1}$ K$^{-2}$]")
+
+ax.set_xlim(1e3, 1e7)
+ax.set_ylim(1e-27, 1e-20)
+ax.set_xlabel(r"$T$ [K]")
+ax.set_ylabel(r"$\Lambda$ [erg cm$^3$ s$^{-1}$]")
+handles = ax.get_legend_handles_labels()[0] + ax_g.get_legend_handles_labels()[0]
+ax.legend(handles=handles, frameon=False, loc="upper left", fontsize=9)
+for a in (ax, ax_g):
+    a.spines["top"].set_visible(False)
+fig.tight_layout()
+plt.show()
+```
+
+# The three cooling estimates
+
+$$
+\begin{aligned}
+\Ctrue &\equiv \B\!\left[n^2\Leff(T)\right] && \text{true block-averaged cooling,}\\
+\Ccg   &\equiv \bar n^2\,\Leff(\Tcg),\quad \bar n=\bar\rho/(\mu m_p) && \text{cooling evaluated on coarse fields,}\\
+\Ciso  &\equiv \left(\frac{\bar P}{k_B}\right)^{2}\int \mathcal{P}_V(T)\,\frac{\Leff(T)}{T^2}\,dT && \text{isobaric estimator,}
+\end{aligned}
+$$
+where $\mathcal{P}_V$ is the volume-weighted temperature PDF of the fine cells in the block. In practice $\Ciso$ is evaluated on a histogram with volume fractions $p_k$ and bin weights $w_k$:
+$$
+\Cbin = \left(\frac{\bar P}{k_B}\right)^{2}\sum_k p_k\,w_k .
+$$
+
+## Comparison on the `hr_build_512` run
+
+We evaluate $\Ctrue$, $\Ccg$ and $\Ciso$ on every snapshot of the `hr_build_512` run: $256\times512$ cells on the same $10\times20$ pc box, so $\delta x=0.039$ pc. Block sizes $\Delta=8,16,32$ give $\ell=0.3125,\,0.625,\,1.25$ pc, and $\Delta=16$ and $32$ match the $\ell$ of $\Delta=32$ and $64$ at $512\times1024$. $\Ciso$ uses the unbinned volume PDF, i.e. $\B[g(T)]$ over the fine cells. $n$, $T$ and $\Leff$ follow AthenaK exactly: $n=\rho/(\mu m_u)$, $T=\mu m_u P/(k_B\rho)$, and `ISMCoolFn` with the cutoffs above. @fig-estimate-maps shows the fine cooling field and the three block estimates at the final snapshot, @fig-block-ratios the block-by-block error of $\Ccg$ and $\Ciso$, and @fig-total-ratio their box-integrated cooling against time; @tbl-estimate-summary collects the statistics.
+
+```{python}
+#| label: compute-estimates
+#| echo: false
+
+sys.path.insert(0, "../..")
+import ergane
+
+SIM_DIR = "../../simulation_outputs/hr_build_512"
+sim = ergane.SimulationData(athinp=f"{SIM_DIR}/kh_radiative_256x512.athinput",
+                            datafolder=f"{SIM_DIR}/bin")
+
+MU, M_U, K_B = 0.62, 1.66053906660e-24, 1.380649e-16  # cgs, as in AthenaK's ISMCooling
+DX_PC = (sim.x1max - sim.x1min) / sim.nx
+DX_CM = DX_PC * sim.units.length
+LX_CM = (sim.x1max - sim.x1min) * sim.units.length
+DELTAS = (8, 16, 32)
+D_MAP = 16        # block size shown in the maps
+T_STEADY = 5.0    # Myr; per-block statistics use t >= T_STEADY
+NAMES = ("true", "cg", "iso")
+
+
+def lam_eff(temp):
+    return lambda_cool(temp, mask=True, LOGT_ACTIVE_START=logT_lo, LOGT_ACTIVE_END=logT_hi)
+
+
+def block_mean(f, D):
+    ny, nx = f.shape
+    return f.reshape(ny // D, D, nx // D, D).mean(axis=(1, 3))
+
+
+def fine_cooling(rho, P):
+    """Fine-grid n^2 Lambda_eff(T), in erg cm^-3 s^-1."""
+    T = MU * M_U * P / (K_B * rho)
+    return (rho / (MU * M_U)) ** 2 * lam_eff(T)
+
+
+def cooling_estimates(rho, P, D):
+    """Return (C_true, C_cg, C_iso) on the D x D block grid, in erg cm^-3 s^-1."""
+    T = MU * M_U * P / (K_B * rho)
+    lam = lam_eff(T)
+    rho_bar, P_bar = block_mean(rho, D), block_mean(P, D)
+    T_cg = MU * M_U * P_bar / (K_B * rho_bar)
+    C_true = block_mean(fine_cooling(rho, P), D)
+    C_cg = (rho_bar / (MU * M_U)) ** 2 * lam_eff(T_cg)
+    C_iso = (P_bar / K_B) ** 2 * block_mean(lam / T**2, D)
+    return np.stack([C_true, C_cg, C_iso])
+
+
+def pressure_terms(rho, P, D):
+    """Block moments of g and pi = P/P_bar - 1: (P_bar, B[g], B[g pi], B[g pi^2], B[pi], B[pi^2], B[g^2])."""
+    T = MU * M_U * P / (K_B * rho)
+    g = lam_eff(T) / T**2
+    P_bar = block_mean(P, D)
+    pi = P / np.repeat(np.repeat(P_bar, D, axis=0), D, axis=1) - 1
+    return (P_bar, block_mean(g, D), block_mean(g * pi, D), block_mean(g * pi**2, D),
+            block_mean(pi, D), block_mean(pi**2, D), block_mean(g**2, D))
+
+
+# log T bins for the temperature decomposition, with edges placed exactly at the cutoffs
+LOGT_EDGES = np.unique(np.r_[np.arange(3.5, 6.51, 0.05), logT_lo, logT_hi])
+
+
+def temperature_profile(rho, P, D):
+    """Per log T bin, over cells in cooling blocks: (cell count, sum pi, sum w g pi); and sum w g,
+    with w = (P_bar/k_B)^2 the block's isobaric prefactor."""
+    T = MU * M_U * P / (K_B * rho)
+    g = lam_eff(T) / T**2
+    P_bar = block_mean(P, D)
+    upsample = lambda f: np.repeat(np.repeat(f, D, axis=0), D, axis=1)
+    pi = P / upsample(P_bar) - 1
+    w = upsample((P_bar / K_B) ** 2)
+    cooling = upsample(block_mean(g, D) > 0)
+    k = np.clip(np.digitize(np.log10(T[cooling]), LOGT_EDGES) - 1, 0, len(LOGT_EDGES) - 2)
+    n_bins = len(LOGT_EDGES) - 1
+    return (np.bincount(k, minlength=n_bins), np.bincount(k, pi[cooling], minlength=n_bins),
+            np.bincount(k, (w * g * pi)[cooling], minlength=n_bins), (w * g)[cooling].sum())
+
+
+times = np.asarray(sim.times)
+totals = {D: np.zeros((len(times), 3)) for D in DELTAS}  # sum over blocks, per frame
+blocks = {D: [] for D in DELTAS}                         # per-block values, t >= T_STEADY
+fine_total = np.zeros(len(times))                        # integral of n^2 Lambda_eff dA, erg cm^-1 s^-1
+pi_box = {D: np.zeros((len(times), 2)) for D in DELTAS}  # sum over blocks of C_iso * (2<pi>_E, <pi^2>_E)
+pi_blocks = {D: [] for D in DELTAS}                      # per cooling block (2<pi>_E, <pi^2>_E), t >= T_STEADY
+cov_blocks = {D: [] for D in DELTAS}                     # per cooling block (B[pi], r_g_pi, sigma_pi, sigma_g/B[g])
+T_profile = {D: [np.zeros(len(LOGT_EDGES) - 1) for _ in range(3)] + [0.0] for D in DELTAS}  # t >= T_STEADY
+for i, num in enumerate(sim.frame_numbers):
+    frame = sim.get_frame(num)
+    fine_total[i] = fine_cooling(frame.density, frame.pressure).sum() * DX_CM**2
+    for D in DELTAS:
+        est = cooling_estimates(frame.density, frame.pressure, D)
+        totals[D][i] = est.sum(axis=(1, 2))
+        if times[i] >= T_STEADY:
+            blocks[D].append(est.reshape(3, -1))
+
+        P_bar, Bg, Bg_pi, Bg_pi2, B_pi, B_pi2, Bg2 = pressure_terms(frame.density, frame.pressure, D)
+        weight = (P_bar / K_B) ** 2
+        pi_box[D][i] = (weight * 2 * Bg_pi).sum(), (weight * Bg_pi2).sum()
+        if times[i] >= T_STEADY:
+            cooling = Bg > 0
+            pi_blocks[D].append(np.stack([2 * Bg_pi[cooling], Bg_pi2[cooling]]) / Bg[cooling])
+            cov = Bg_pi - Bg * B_pi
+            sigma_pi = np.sqrt(np.maximum(B_pi2 - B_pi**2, 0))
+            sigma_g = np.sqrt(np.maximum(Bg2 - Bg**2, 0))
+            with np.errstate(invalid="ignore", divide="ignore"):
+                r = cov / (sigma_g * sigma_pi)
+            cov_blocks[D].append(np.stack([B_pi, r, sigma_pi, sigma_g / Bg])[:, cooling])
+            for j, part in enumerate(temperature_profile(frame.density, frame.pressure, D)):
+                T_profile[D][j] += part
+blocks = {D: np.concatenate(b, axis=1) for D, b in blocks.items()}
+pi_blocks = {D: np.concatenate(b, axis=1) for D, b in pi_blocks.items()}
+cov_blocks = {D: np.concatenate(b, axis=1) for D, b in cov_blocks.items()}
+
+# final snapshot for the maps
+cool_fine = fine_cooling(frame.density, frame.pressure)
+maps = cooling_estimates(frame.density, frame.pressure, D_MAP)
+```
+
+```{python}
+#| label: fig-estimate-maps
+#| fig-cap: "Cooling rate at the final snapshot ($t=10$ Myr). Left: fine-grid $n^2\\Lambda_{\\rm eff}(T)$. Right three: the block estimates for $\\Delta=16$ ($\\ell=0.625$ pc). Grey marks zero cooling."
+#| echo: false
+from matplotlib.colors import LogNorm
+
+C_TRUE, C_CG, C_ISO = "#0b0b0b", "#eb6834", "#2a78d6"
+LABELS = {"true": r"$\mathcal{C}_{\rm true}$", "cg": r"$\mathcal{C}_{\rm cg}$",
+          "iso": r"$\mathcal{C}_{\rm iso}$"}
+
+vmax = np.percentile(cool_fine[cool_fine > 0], 99.5)
+norm = LogNorm(vmin=vmax * 1e-4, vmax=vmax)
+cmap = plt.get_cmap("Blues").copy()
+cmap.set_bad("0.85")
+extent = (sim.x1min, sim.x1max, sim.x2min, sim.x2max)
+
+panels = [(cool_fine, r"fine $n^2\Lambda_{\rm eff}$")] + [
+    (maps[k], LABELS[name]) for k, name in enumerate(NAMES)]
+fig, axes = plt.subplots(1, 4, figsize=(7.5, 3.9), sharey=True, layout="constrained")
+for ax, (img, title) in zip(axes, panels):
+    im = ax.imshow(np.ma.masked_less_equal(img, 0), origin="lower", extent=extent,
+                   norm=norm, cmap=cmap, interpolation="nearest")
+    ax.set_title(title, fontsize=10)
+    ax.set_xlabel(r"$x$ [pc]")
+axes[0].set_ylabel(r"$y$ [pc]")
+fig.colorbar(im, ax=axes, shrink=0.8, label=r"cooling rate [erg cm$^{-3}$ s$^{-1}$]")
+plt.show()
+```
+
+```{python}
+#| label: fig-block-ratios
+#| fig-cap: "Distribution of the block-by-block error $\\log_{10}(\\mathcal{C}/\\mathcal{C}_{\\rm true})$ over all cooling blocks ($\\mathcal{C}_{\\rm true}>0$) for $t\\ge5$ Myr. Blocks where $\\mathcal{C}_{\\rm cg}=0$ cannot be shown on a log scale; their fraction is given in each panel."
+#| echo: false
+bins = np.linspace(-2, 2, 81)
+fig, axes = plt.subplots(1, 3, figsize=(7.5, 2.9), sharey=True, layout="constrained")
+for ax, D in zip(axes, DELTAS):
+    C_true, C_cg, C_iso = blocks[D]
+    active = C_true > 0
+    for C, color, name in ((C_cg, C_CG, "cg"), (C_iso, C_ISO, "iso")):
+        ratio = C[active] / C_true[active]
+        ratio = ratio[ratio > 0]
+        ax.hist(np.log10(ratio), bins, weights=np.full(ratio.size, 1 / active.sum()),
+                histtype="step", lw=1.5, color=color, label=LABELS[name])
+    ax.axvline(0, color="0.4", lw=1, ls="--")
+    zero_cg = np.mean(C_cg[active] == 0)
+    ax.text(0.03, 0.97, f"$\\mathcal{{C}}_{{\\rm cg}}=0$: {zero_cg:.0%}", transform=ax.transAxes,
+            ha="left", va="top", fontsize=8.5, color="0.3")
+    ax.set_title(rf"$\Delta={D}$ ($\ell={D * DX_PC:g}$ pc)", fontsize=10)
+    ax.set_xlabel(r"$\log_{10}(\mathcal{C}/\mathcal{C}_{\rm true})$")
+    ax.set_yscale("log")
+axes[0].set_ylabel("fraction of cooling blocks")
+axes[-1].legend(frameon=False, loc="upper right")
+plt.show()
+```
+
+```{python}
+#| label: fig-total-ratio
+#| fig-cap: "Box-integrated cooling from each estimator relative to the true value, $\\sum\\mathcal{C}\\,\\ell^2 / \\sum\\mathcal{C}_{\\rm true}\\,\\ell^2$, as a function of time."
+#| echo: false
+fig, axes = plt.subplots(1, 3, figsize=(7.5, 2.7), sharey=True, layout="constrained")
+for ax, D in zip(axes, DELTAS):
+    tot = totals[D]
+    for k, color, name in ((1, C_CG, "cg"), (2, C_ISO, "iso")):
+        ax.plot(times, tot[:, k] / tot[:, 0], color=color, lw=1.5, label=LABELS[name])
+    ax.axhline(1, color="0.4", lw=1, ls="--")
+    ax.set_title(rf"$\Delta={D}$ ($\ell={D * DX_PC:g}$ pc)", fontsize=10)
+    ax.set_xlabel(r"$t$ [Myr]")
+    ax.set_yscale("log")
+axes[0].set_ylabel(r"$\sum\mathcal{C}\,/\,\sum\mathcal{C}_{\rm true}$")
+axes[-1].legend(frameon=False, loc="lower right")
+plt.show()
+```
+
+```{python}
+#| label: tbl-estimate-summary
+#| tbl-cap: "Summary over $t\\ge5$ Myr. Total ratio: time- and box-integrated cooling relative to $\\mathcal{C}_{\\rm true}$. Median $|\\log_{10}|$: median block error over cooling blocks with non-zero estimate (dex)."
+#| echo: false
+#| output: asis
+steady = times >= T_STEADY
+rows = ["| $\\Delta$ | $\\ell$ [pc] | cooling blocks | total $\\mathcal{C}_{\\rm cg}$ | "
+        "total $\\mathcal{C}_{\\rm iso}$ | median $\\lvert\\log_{10}\\rvert$ cg | median $\\lvert\\log_{10}\\rvert$ iso | "
+        "$\\mathcal{C}_{\\rm cg}=0$ |",
+        "|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|"]
+for D in DELTAS:
+    C_true, C_cg, C_iso = blocks[D]
+    active = C_true > 0
+    tot = totals[D][steady].sum(axis=0)
+    med = [np.median(np.abs(np.log10(r[r > 0])))
+           for r in (C_cg[active] / C_true[active], C_iso[active] / C_true[active])]
+    rows.append(f"| {D} | {D * DX_PC:g} | {active.mean():.0%} | {tot[1] / tot[0]:.2f} | "
+                f"{tot[2] / tot[0]:.3f} | {med[0]:.2f} | {med[1]:.3f} | "
+                f"{np.mean(C_cg[active] == 0):.0%} |")
+print("\n".join(rows))
+```
+
+# Exact relations
+
+## Kernel identity
+
+ For an ideal gas $n=P/(k_BT)$ exactly, so with
+$$
+g(T)\equiv \frac{\Leff(T)}{T^2},\qquad n^2\Leff(T)=\frac{P^2}{k_B^2}\,g(T).
+$$
+This is the same kernel as in the emissivity PDF of Sharma et al. (Eq. 7), $\mathcal P_E\propto\mathcal P_V\Lambda/T^2$.
+
+## Conservation 
+
+Because $\B$ is linear, $\sum_{ij}\Ctrue\,\ell^2=\int n^2\Leff\,dA=\dot\Sigma_{\rm cool}L_x$ exactly. Block averaging the cooling field loses nothing; all error lives in whatever model replaces $\Ctrue$. @fig-conservation confirms this on the `hr_build_512` run: for every snapshot and block size the two sides agree to machine precision.
+
+```{python}
+#| label: fig-conservation
+#| fig-cap: "Conservation of $\\mathcal{C}_{\\rm true}$ on the `hr_build_512` run. Top: cooling per unit area of the layer, $\\dot\\Sigma_{\\rm cool}$, from the fine-grid integral $\\int n^2\\Lambda_{\\rm eff}\\,dA/L_x$ (black) and from $\\sum_{ij}\\mathcal{C}_{\\rm true}\\,\\ell^2/L_x$ for each block size (markers, every 0.25 Myr). Bottom: relative difference between the two for every snapshot (snapshots where they agree exactly are not shown); the dotted line is double-precision machine epsilon."
+#| echo: false
+DELTA_COLORS = {8: "#86b6ef", 16: "#2a78d6", 32: "#104281"}  # light -> dark with block size
+MARKERS = {8: "o", 16: "s", 32: "^"}
+every = slice(0, None, 25)
+exact = {}
+
+fig, (ax_top, ax_bot) = plt.subplots(2, 1, figsize=(6.5, 4.6), sharex=True, layout="constrained",
+                                     height_ratios=(3, 2))
+ax_top.plot(times, fine_total / LX_CM, color=C_TRUE, lw=1.2, label="fine grid")
+for D in DELTAS:
+    ell_cm = D * DX_CM
+    block_total = totals[D][:, 0] * ell_cm**2
+    rel = np.abs(block_total - fine_total) / fine_total
+    ax_top.plot(times[every], block_total[every] / LX_CM, ls="none", marker=MARKERS[D], ms=5,
+                mfc="none", mec=DELTA_COLORS[D], label=rf"$\Delta={D}$")
+    ax_bot.plot(times, np.where(rel > 0, rel, np.nan), ls="none", marker=".", ms=2.5,
+                color=DELTA_COLORS[D])
+    exact[D] = np.mean(rel == 0)
+ax_bot.axhline(np.finfo(float).eps, color="0.4", lw=1, ls=":")
+ax_bot.text(0.01, 0.95, "exactly equal: " + ", ".join(
+    rf"$\Delta={D}$ {f:.0%}" for D, f in exact.items()), transform=ax_bot.transAxes,
+    ha="left", va="top", fontsize=8.5, color="0.3")
+ax_bot.set_ylim(1e-18, 1e-13)
+
+ax_top.set_ylabel(r"$\dot\Sigma_{\rm cool}$ [erg cm$^{-2}$ s$^{-1}$]")
+ax_top.set_yscale("log")
+ax_top.legend(frameon=False, ncol=4, loc="lower right", fontsize=9)
+ax_bot.set_yscale("log")
+ax_bot.set_ylabel("relative difference")
+ax_bot.set_xlabel(r"$t$ [Myr]")
+for ax in (ax_top, ax_bot):
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+plt.show()
+```
+
+## Pressure fluctuations
+
+The kernel identity lets us write both $\Ctrue$ and $\Ciso$ as averages of the same function $g(T)$; the only difference is which pressure multiplies it.
+
+*$\Ctrue$ uses each cell's own pressure.* Applying the identity cell by cell,
+$$
+\Ctrue=\B\!\left[n^2\Leff(T)\right]=\frac{1}{k_B^2}\,\B\!\left[P^2\,g(T)\right].
+$$
+
+*$\Ciso$ uses the block-mean pressure for every cell.* By definition of the volume-weighted PDF, $\int\mathcal P_V(T)\,q(T)\,dT=\B[q(T)]$ for any function $q$ of temperature, so
+$$
+\Ciso=\left(\frac{\bar P}{k_B}\right)^{2}\B[g(T)]=\frac{1}{k_B^2}\,\B\!\left[\bar P^{\,2}\,g(T)\right].
+$$
+In other words, $\Ciso$ computes each cell's density as $\bar P/(k_BT)$ instead of the true $P/(k_BT)$. It is exact when $P=\bar P$ throughout the block, and every error it makes comes from $P\ne\bar P$.
+
+*Ratio.* Write the local pressure as a fractional fluctuation about the block mean, $P=\bar P(1+\pi)$. Since $\bar P=\B[P]$, the fluctuation has zero volume average, $\B[\pi]=0$. Dividing the two expressions above, $\bar P^{\,2}$ and $k_B^2$ cancel:
+$$
+\frac{\Ctrue}{\Ciso}=\frac{\B\!\left[(1+\pi)^2\,g\right]}{\B[g]}
+=\frac{\B[g]+2\,\B[g\,\pi]+\B[g\,\pi^2]}{\B[g]} .
+$$
+Each term is an average of a quantity weighted by $g$, the local cooling per unit $P^2$. Defining the emissivity-weighted block average $\langle q\rangle_E\equiv\B[g\,q]/\B[g]$ gives, with no approximation,
+$$
+\boxed{\;\frac{\Ctrue}{\Ciso}=1+2\langle\pi\rangle_E+\langle\pi^2\rangle_E\;}
+$$ {#eq-isoerr}
+
+*Interpretation.* The volume average of $\pi$ vanishes, but its emissivity-weighted average need not. Because $\B[\pi]=0$,
+$$
+\langle\pi\rangle_E=\frac{\B[g\,\pi]-\B[g]\,\B[\pi]}{\B[g]}=\frac{\mathrm{Cov}_V(g,\pi)}{\B[g]},
+$$
+so the first-order term measures whether the gas that cools (large $g$) sits at higher or lower pressure than the block average. If pressure fluctuations are uncorrelated with temperature within the block, $\langle\pi\rangle_E=0$ and the error is only second order, $\langle\pi^2\rangle_E\ge0$. If the cooling gas is systematically under-pressured ($\langle\pi\rangle_E<0$), $\Ciso$ over-cools; if it is over-pressured, $\Ciso$ under-cools. The leading correction is therefore the pressure fluctuation of the *cooling* gas relative to the block mean.
+
+@fig-pressure-terms evaluates both terms on the `hr_build_512` run. Block by block (top row), the first-order term $2\langle\pi\rangle_E$ scatters in both directions and dominates the error, while the second-order term $\langle\pi^2\rangle_E$ is non-negative and usually much smaller. Summed over the box (bottom row), the first-order term is systematically negative, so the cooling gas is under-pressured on average; the second-order term partly offsets it, and their sum is the net over-cooling of $\Ciso$ seen in @fig-total-ratio.
+
+```{python}
+#| label: fig-pressure-terms
+#| fig-cap: "The two terms of @eq-isoerr on the `hr_build_512` run. Top: distribution over cooling blocks ($t\\ge5$ Myr) of the first-order term $2\\langle\\pi\\rangle_E$ and the second-order term $\\langle\\pi^2\\rangle_E$. Bottom: box-integrated contributions, $\\sum\\mathcal{C}_{\\rm iso}\\,2\\langle\\pi\\rangle_E/\\sum\\mathcal{C}_{\\rm iso}$ and $\\sum\\mathcal{C}_{\\rm iso}\\langle\\pi^2\\rangle_E/\\sum\\mathcal{C}_{\\rm iso}$, against time; their sum (black) equals $\\sum\\mathcal{C}_{\\rm true}/\\sum\\mathcal{C}_{\\rm iso}-1$ exactly."
+#| echo: false
+C_FIRST, C_SECOND = "#4a3aa7", "#1baf7a"
+TERM_LABELS = (r"$2\langle\pi\rangle_E$", r"$\langle\pi^2\rangle_E$")
+
+fig, axes = plt.subplots(2, 3, figsize=(7.5, 5.2), sharey="row", layout="constrained")
+bins = np.linspace(-1, 2, 121)
+for col, D in enumerate(DELTAS):
+    ax_hist, ax_time = axes[0, col], axes[1, col]
+    title = rf"$\Delta={D}$ ($\ell={D * DX_PC:g}$ pc)"
+
+    terms = pi_blocks[D]
+    for term, color, label in zip(terms, (C_FIRST, C_SECOND), TERM_LABELS):
+        ax_hist.hist(term, bins, weights=np.full(term.size, 1 / term.size), histtype="step",
+                     lw=1.5, color=color, label=label)
+    ax_hist.axvline(0, color="0.4", lw=1, ls="--")
+    ax_hist.set_yscale("log")
+    ax_hist.set_title(title, fontsize=10)
+    ax_hist.set_xlabel("term value")
+
+    C_iso_total = totals[D][:, 2]
+    first, second = pi_box[D].T / C_iso_total
+    ax_time.plot(times, first, color=C_FIRST, lw=1, label=TERM_LABELS[0])
+    ax_time.plot(times, second, color=C_SECOND, lw=1, label=TERM_LABELS[1])
+    ax_time.plot(times, first + second, color=C_TRUE, lw=1, label="sum")
+    ax_time.axhline(0, color="0.4", lw=1, ls="--")
+    ax_time.set_xlabel(r"$t$ [Myr]")
+
+axes[0, 0].set_ylabel("fraction of cooling blocks")
+axes[1, 0].set_ylabel(r"box-integrated contribution")
+axes[0, -1].legend(frameon=False, loc="upper right")
+axes[1, 0].set_ylim(top=0.22)
+axes[1, 0].legend(frameon=False, loc="upper left", ncol=3, fontsize=8.5, handlelength=1.2,
+                  columnspacing=0.8)
+plt.show()
+```
+
+*What sets $\langle\pi\rangle_E$.* By construction $\B[\pi]=\B[P]/\bar P-1=0$ in every block, so the first-order term comes entirely from the covariance of $g$ and $\pi$. Writing the covariance as a correlation coefficient times the two standard deviations separates it into three dimensionless factors,
+$$
+\langle\pi\rangle_E=\frac{\mathrm{Cov}_V(g,\pi)}{\B[g]}=r_{g\pi}\;\sigma_\pi\;\frac{\sigma_g}{\B[g]},
+\qquad r_{g\pi}=\frac{\mathrm{Cov}_V(g,\pi)}{\sigma_g\,\sigma_\pi},
+$$
+with $\sigma_\pi^2=\B[\pi^2]$ and $\sigma_g^2=\B[g^2]-\B[g]^2$: how strongly the cooling kernel and the pressure are correlated inside the block, how large the pressure fluctuations are, and how unevenly the cooling is spread across the block. @fig-covariance and @tbl-covariance show these factors on the `hr_build_512` run; @tbl-covariance also lists $|\B[\pi]|$, which is zero up to floating-point rounding ($\sim10^{-16}$).
+
+```{python}
+#| label: fig-covariance
+#| fig-cap: "Block statistics behind the first-order term, over cooling blocks for $t\\ge5$ Myr. (a) Correlation coefficient $r_{g\\pi}$ between the cooling kernel and the pressure fluctuation. (b) Pressure-fluctuation amplitude $\\sigma_\\pi$. (c) Relative spread of the cooling kernel, $\\sigma_g/\\mathcal{B}[g]$."
+#| echo: false
+panels = [  # (row of cov_blocks, title, bins, log x-axis)
+    (1, "(a) $r_{g\\pi}$", np.linspace(-1, 1, 81), False),
+    (2, "(b) $\\sigma_\\pi$", np.logspace(-4, 0, 81), True),
+    (3, "(c) $\\sigma_g/\\mathcal{B}[g]$", np.logspace(-1, 2, 76), True),
+]
+fig, axes = plt.subplots(1, 3, figsize=(7.5, 2.8), sharey=True, layout="constrained")
+for ax, (row, title, bins, log_x) in zip(axes, panels):
+    for D in DELTAS:
+        values = cov_blocks[D][row]
+        values = values[np.isfinite(values) & (values > 0 if log_x else True)]
+        ax.hist(values, bins, weights=np.full(values.size, 1 / values.size), histtype="step",
+                lw=1.5, color=DELTA_COLORS[D], label=rf"$\Delta={D}$")
+    if log_x:
+        ax.set_xscale("log")
+    ax.set_title(title, fontsize=10, loc="left")
+axes[0].axvline(0, color="0.4", lw=1, ls="--")
+axes[0].set_ylabel("fraction of cooling blocks")
+axes[0].legend(frameon=False, loc="upper left", fontsize=9)
+plt.show()
+```
+
+```{python}
+#| label: tbl-covariance
+#| tbl-cap: "Medians over cooling blocks for $t\\ge5$ Myr. The product $r_{g\\pi}\\sigma_\\pi\\sigma_g/\\mathcal{B}[g]$ equals $\\langle\\pi\\rangle_E$ block by block; the medians of the factors need not multiply to the median of $\\langle\\pi\\rangle_E$."
+#| echo: false
+#| output: asis
+rows = ["| $\\Delta$ | $\\ell$ [pc] | $\\lvert\\mathcal{B}[\\pi]\\rvert$ | $r_{g\\pi}$ | $\\sigma_\\pi$ | "
+        "$\\sigma_g/\\mathcal{B}[g]$ | $\\langle\\pi\\rangle_E$ | frac. $r_{g\\pi}<0$ |",
+        "|:-:|:-:|:-:|:-:|:-:|:-:|:-:|:-:|"]
+for D in DELTAS:
+    B_pi, r, sigma_pi, spread = cov_blocks[D]
+    pi_E = pi_blocks[D][0] / 2
+    rows.append(f"| {D} | {D * DX_PC:g} | {np.median(np.abs(B_pi)):.1e} | {np.nanmedian(r):+.2f} | "
+                f"{np.median(sigma_pi):.3f} | {np.median(spread):.2f} | {np.median(pi_E):+.3f} | "
+                f"{np.nanmean(r < 0):.0%} |")
+print("\n".join(rows))
+```
+
+*Where in temperature.* To see which gas is under-pressured, sort the fine cells of the cooling blocks by temperature. @fig-pi-vs-temperature shows the mean pressure fluctuation $\langle\pi\,|\,T\rangle$ of gas at each temperature, and how much each temperature contributes to the box-integrated first-order term, $\sum\Ciso\,2\langle\pi\rangle_E/\sum\Ciso$ (the bottom row of @fig-pressure-terms). The contributions add up to that term exactly. The under-pressure is a cold-side effect. Gas between the cutoff and a few $\times10^4$ K, on the steep low-temperature side of the cooling curve where $g$ peaks, sits several per cent below its block's mean pressure and supplies most of the negative first-order term. Gas at $T_c$–$1.1\,T_c$, straddling the cutoff, is instead over-pressured, consistent with acoustic compression heating cold gas across the cutoff; the part just inside the window contributes a small positive amount. Intermediate gas is mildly under-pressured, and the hot side contributes almost nothing: near $T_h$ the pressure fluctuation is small and cooling is switched off.
+
+```{python}
+#| label: fig-pi-vs-temperature
+#| fig-cap: "Pressure fluctuation versus temperature on the `hr_build_512` run, over the fine cells of cooling blocks for $t\\ge5$ Myr. Top: mean fractional pressure fluctuation $\\langle\\pi\\,|\\,T\\rangle$ of gas at temperature $T$. Bottom: contribution per dex of $T$ to the box-integrated first-order term $\\sum\\mathcal{C}_{\\rm iso}\\,2\\langle\\pi\\rangle_E/\\sum\\mathcal{C}_{\\rm iso}$; its integral over $\\log_{10}T$ equals that term. Shaded: cooling window. Dotted: peak of $g=\\Lambda_{\\rm eff}/T^2$. Bin edges fall exactly on the cutoffs, and bins with fewer than 1000 cells are omitted. Gas below $\\sim10^{3.9}$ K is strongly under-pressured (down to $\\langle\\pi\\,|\\,T\\rangle\\approx-0.8$) and runs off the bottom of the top panel."
+#| echo: false
+centers = 0.5 * (LOGT_EDGES[1:] + LOGT_EDGES[:-1])
+widths = np.diff(LOGT_EDGES)
+T_grid = np.logspace(logT_lo, logT_hi, 20001)
+logT_g_peak = np.log10(T_grid[np.argmax(lam_eff(T_grid) / T_grid**2)])
+
+fig, (ax_pi, ax_c) = plt.subplots(2, 1, figsize=(6.5, 4.8), sharex=True, layout="constrained")
+for D in DELTAS:
+    count, sum_pi, sum_wgpi, sum_wg = T_profile[D]
+    mean_pi = np.where(count >= 1000, sum_pi / np.maximum(count, 1), np.nan)
+    contrib_per_dex = 2 * sum_wgpi / sum_wg / widths
+    ax_pi.stairs(mean_pi, LOGT_EDGES, color=DELTA_COLORS[D], lw=1.5, label=rf"$\Delta={D}$")
+    ax_c.stairs(contrib_per_dex, LOGT_EDGES, color=DELTA_COLORS[D], lw=1.5)
+for ax in (ax_pi, ax_c):
+    ax.axvspan(logT_lo, logT_hi, color="0.93", zorder=0)
+    ax.axhline(0, color="0.4", lw=1, ls="--")
+    ax.axvline(logT_g_peak, color="0.4", lw=1, ls=":")
+    for side in ("top", "right"):
+        ax.spines[side].set_visible(False)
+for x, name in [(logT_lo, r"$1.05\,T_c$"), (logT_hi, r"$0.95\,T_h$")]:
+    ax_pi.text(x, 1.01, name, transform=ax_pi.get_xaxis_transform(), ha="center", va="bottom",
+               fontsize=9, color="0.3")
+ax_pi.set_ylabel(r"$\langle\pi\,|\,T\rangle$")
+ax_pi.set_ylim(-0.15, 0.25)
+ax_pi.legend(frameon=False, loc="upper right", fontsize=9)
+ax_c.set_ylabel(r"contribution per dex")
+ax_c.set_xlabel(r"$\log_{10}T$ [K]")
+ax_c.set_xlim(3.5, 6.5)
+plt.show()
+```
+
+**Relation between $\Ciso$ and $\Ccg$.** Since $(\bar P/k_B)^2=\bar n^2\Tcg^2$,
+$$
+\Ccg=\left(\frac{\bar P}{k_B}\right)^{2} g(\Tcg),\qquad
+\frac{\Ciso}{\Ccg}=\frac{\B[g(T)]}{g(\Tcg)} .
+$$
+Both use the same pressure prefactor; $\Ccg$ evaluates the kernel at one temperature, $\Ciso$ averages it over the block's temperature distribution.
+
+**Exact form for $\Ccg$.** With $x\equiv1/T$ and $\tilde g(x)\equiv x^2\Leff(1/x)$, one has $\Tcg^{-1}=\B[(1+\pi)x]$ and
+$$
+\boxed{\;\mathcal R\equiv\frac{\Ctrue}{\Ccg}=\frac{\B\!\left[(1+\pi)^2\,\tilde g(x)\right]}{\tilde g\!\left(\B[(1+\pi)x]\right)}\;}
+$$
+For isobaric blocks $\mathcal R=\B[\tilde g(x)]/\tilde g(\B[x])$, and by Jensen's inequality $\Ccg$ under-cools where $\tilde g$ is convex and over-cools where it is concave.
+
+# Accuracy of $\Ccg$
+
+## Perturbative (smooth, single-phase) blocks
+
+Expand about $\hat x=\B[x]$ with $x=\hat x(1+\delta)$. Let $\alpha=d\ln\Lambda/d\ln T$, so $d\ln\tilde g/d\ln x=2-\alpha$, and define the curvature
+$$
+K\equiv\frac{\hat x^2\tilde g''}{\tilde g}=(2-\alpha)(1-\alpha)+\frac{d\alpha}{d\ln T}.
+$$
+To second order,
+$$
+\mathcal R\approx1+\frac{K}{2}\,\sigma_\delta^2+(2-\alpha)\,\B[\pi\delta]+\sigma_\pi^2,
+\qquad \sigma_\delta^2=\B[\delta^2],\ \sigma_\pi^2=\B[\pi^2].
+$$
+In the isobaric limit $\delta=\delta n/\bar n$ and $\mathcal R\approx1+\tfrac K2\sigma_n^2$: the density clumping factor weighted by the curvature of the cooling curve. The expansion is invalid whenever the block's temperature range straddles a cutoff ($g$ is discontinuous there) or the block PDF is bimodal.
+
+## Two-phase blocks
+
+Consider an isobaric block with cold volume fraction $f_c$ at $T_c$, hot gas at $T_h=\chi T_c$, and no intermediate gas. Then $\Ctrue=0$ exactly (both phases have cooling off), but
+$$
+\Tcg=\frac{T_c}{f_c+(1-f_c)/\chi}
+$$
+falls inside the cooling window for
+$$
+\frac{1/(0.95\chi)-1/\chi}{1-1/\chi}<f_c<\frac{1/1.05-1/\chi}{1-1/\chi},
+$$
+which for $\chi=100$ is $5.3\times10^{-4}<f_c<0.952$. Essentially every block containing both phases is assigned spurious cooling ($\mathcal R=0$), typically near the $\sim10^5$ K peak since the harmonic mean is pulled toward $T_c$. For comparison, $\B[T]$ would enter the window only for $f_c>0.05$ and would land near $0.9\,T_h$. In the `hr_build_512` run no block has $\Ctrue=0$ with $\Ccg>0$, because every interface block contains some intermediate gas. The failure shows up instead as a broad error distribution in both directions, heavy over-cooling of the box total and $\Ccg=0$ in a large fraction of the cooling blocks (@fig-block-ratios, @tbl-estimate-summary).
+
+## Laminar $\tanh$ limit
+
+Suppose within a block $T$ varies only with height along the mean profile of Sharma et al. (Eq. 6), $\langle T\rangle=\tfrac{T_h-T_c}{2}\tanh(z/z_0)+\tfrac{T_h+T_c}{2}$. With $u=z/z_0$ the harmonic mean integrates in closed form:
+$$
+\Tcg^{-1}=\frac{z_0}{T_c\,\ell}\left[u-\frac{\chi-1}{2\chi}\ln\!\left(1+\chi e^{2u}\right)\right]_{u_-}^{u_+}.
+$$
+The true row-averaged cooling follows from Eq. 8 of Sharma et al.,
+$$
+\langle\Ctrue\rangle_j=\frac{\dot\Sigma_{\rm cool}}{\ell}\Big[\overline C_E(\langle T\rangle_+)-\overline C_E(\langle T\rangle_-)\Big],
+$$
+with $\overline C_E$ the cumulative emissivity distribution in mean temperature. For $\ell\ll z_0$, $\sigma_\delta^2\approx(\ell^2/12)(d\ln T/dz)^2$. For $\chi=100$, $d\ln T/dz$ peaks at $1.64/z_0$ at $T\approx10\,T_c$, right at the cooling peak, so $\sigma_\delta^2\lesssim0.22\,(\ell/z_0)^2$. In this limit $\Ccg$ is perturbatively correct (tens of percent) for $\ell\lesssim z_0$; for $\ell\gtrsim z_0$ the TRML occupies one or two rows and the two-phase result dominates. Horizontal (fractal) structure only adds variance, so this is a lower bound on the error of $\Ccg$.
+
+# Accuracy of $\Ciso$
+
+$\Ciso$ removes the entire Jensen/two-phase problem of $\Ccg$: it is exact for any temperature distribution, including bimodal ones and ones that straddle the cutoffs, provided the block is isobaric. Its error has exactly two sources: pressure fluctuations within the block (@eq-isoerr) and discretisation of the PDF.
+
+## Isobaric error
+
+The error is $2\langle\pi\rangle_E+\langle\pi^2\rangle_E$. Only pressure variations *within* a block matter; a compression that is uniform across the block is absorbed into $\bar P$ and causes no error. Three regimes arise.
+
+**Interface blocks.** Cooling gas in the TRML sits in the pressure dip supported by the compressive stress $\mathcal R_{zz}>0$ and is collapsing quasi-isobarically, but lags pressure equilibrium. If this gas is underpressured relative to the block mean, $\langle\pi\rangle_E<0$ and $\Ciso$ *overestimates* the cooling. The size of the effect is set by the depth of the dip across one block and by $\mathcal M_{\rm turb}^2$; it should be a systematic bias at the level of $2|\langle\pi\rangle_E|$, largest in rows spanning the dip. The small, persistent excess of $\Ciso$ over $\Ctrue$ in @fig-total-ratio and @tbl-estimate-summary, growing with $\ell$, is consistent with this.
+
+**Acoustically triggered blocks.** Sound waves launched by collapsing clumps move stable-phase gas across the cutoffs, which is why cooling can switch on in a cell for one timestep and off the next. Here the cooling gas is, by construction, the perturbed gas, and the size of $\pi$ is fixed by the cutoffs. For an adiabatic wave ($\gamma=5/3$), $\delta\ln T=\tfrac{\gamma-1}{\gamma}\,\delta\ln P=0.4\,\delta\ln P$:
+
+- Cold gas crossing $1.05\,T_c$ needs $\delta\ln P\ge0.122$, so $(1+\pi)^2\gtrsim1.28$ and $\Ciso$ *underestimates* by $\gtrsim25\%$.
+- Hot gas crossing $0.95\,T_h$ needs $\delta\ln P\le-0.128$, so $(1+\pi)^2\lesssim0.77$ and $\Ciso$ *overestimates* by $\gtrsim30\%$.
+
+These are lower bounds on the local error, but they apply only when the wavelength is comparable to or smaller than $\ell$. For waves much longer than a block, $\pi\approx0$ and $\Ciso$ is exact. These blocks usually contribute little to the total cooling, but they dominate the *time variability* of cooling in the stable phases.
+
+**Smooth single-phase blocks.** Here $\pi\sim\mathcal M^2$ and the correction is small.
+
+**Diagnostic.** The isobaric assumption can be tested per block without computing $\Ctrue$: with a volume PDF, @eq-harmonic predicts $\sum_kp_k/T_k=\Tcg^{-1}$, while in general $\Tcg^{-1}=\B[(1+\pi)x]$. The fractional mismatch equals $\B[\pi x]/\B[x]$, a volume-and-$1/T$-weighted pressure covariance. This is a proxy for, but not identical to, the emissivity-weighted $\langle\pi\rangle_E$.
+
+**External evidence.** Sharma et al. find that $\mathcal P_E\propto\mathcal P_V\Lambda/T^2$, which is the same isobaric approximation applied across the whole TRML, agrees closely with the measured emissivity PDF (their Fig. 3). This indicates the isobaric error is small at the TRML-integrated level. It does not rule out larger per-block errors that cancel on average.
+
+## Binning error
+
+Write $\B[g]=\sum_kp_k\langle g\rangle_k$, where $\langle g\rangle_k$ is the volume average of $g$ over the gas actually in bin $k$. Then the binning error is
+$$
+\frac{\Cbin-\Ciso}{(\bar P/k_B)^2}=\sum_k p_k\left(w_k-\langle g\rangle_k\right).
+$$
+
+**Smooth bins.** Within a bin of width $h=0.1\,{\rm dex}=0.230$ in $\ln T$, write $g\propto T^{\beta}$ with $\beta=\alpha-2$. If gas is uniform in $\ln T$ across the bin, a centre-point weight $w_k=g(T_k)$ underestimates $\langle g\rangle_k$ by $\beta^2h^2/24$:
+
+| $\lvert\beta\rvert$ | uniform-in-bin error | worst case (gas at one edge), $\sim\lvert\beta\rvert h/2$ |
+|:---:|:---:|:---:|
+| 2 | 0.9% | 23% |
+| 4 | 3.5% | 46% |
+| 8 | 14% | 92% |
+
+Large $|\beta|$ occurs on the steep low-temperature side of the cooling curve just above $10^4$ K. That is also where $g$ peaks (where $\alpha=2$) and where the emissivity PDF $\mathcal P_E$ peaks ($\sim10^{4.1}$ K in Sharma et al.). Bin-integrated weights, $w_k=h^{-1}\int_{\rm bin}g\,d\ln T$ computed from the cooling table, remove the second-order term. The first-order term, from non-uniform gas within a bin, remains and can only be reduced with narrower bins.
+
+**Cutoff bins (dominant problem).** With 40 log bins over $10^3$–$10^7$ K, the edges fall at multiples of $0.1$ dex, but the cutoffs do not:
+
+| cutoff | $\log_{10}T$ | containing bin | bin centre |
+|:-----|:-----:|:-------:|:--------------:|
+| $1.05\,T_c$ | 4.021 | $[4.0,4.1]$ | $10^{4.05}=1.12\,T_c$ (cooling on) |
+| $0.95\,T_h$ | 5.978 | $[5.9,6.0]$ | $10^{5.95}=0.89\,T_h$ (cooling on) |
+
+All gas in $[T_c,1.05\,T_c]$ and $[0.95\,T_h,T_h]$ is therefore assigned cooling that the simulation does not apply. The cold side is critical. Any compressive acoustic fluctuation lifts cold gas above $T_c$ into this bin, which can put up to roughly half the cold-phase volume in the compressive half of a wave there. That gas is $\chi$ times denser than hot gas and is weighted at close to the peak of $g$. Integrated over a cold layer several parsecs deep, this spurious term can be comparable to or larger than the true $\dot\Sigma_{\rm cool}$, depending on how tightly the cold phase sits at $T_c$.
+
+The outer bins ($10^3$–$10^4$ and $10^6$–$10^7$ K) are not empty: acoustic rarefactions and compressions populate them. They must be kept, with $w_k=0$. The fix is to place bin edges exactly at $1.05\,T_c$ and $0.95\,T_h$, so that every bin lies entirely inside or entirely outside the cooling window. Bins outside the window then carry exactly zero weight. Acoustically driven crossings into the window are counted correctly, apart from the isobaric error above.
+
+# Summary
+
+| Estimate | Exact relation to $\Ctrue$ | Accuracy |
+|:-----------|:-------------------------------|:-----------------------------------|
+| $\Ccg$ | $\Ctrue/\Ccg=\B[(1+\pi)^2\tilde g(x)]/\tilde g(\B[(1+\pi)x])$ | Perturbative $1+\tfrac K2\sigma_\delta^2+\dots$ only in smooth single-phase blocks; spurious cooling ($\mathcal R=0$) in essentially all two-phase blocks. Poor wherever $\ell\gtrsim z_0$. |
+| $\Ciso$ (exact PDF) | $\Ctrue/\Ciso=1+2\langle\pi\rangle_E+\langle\pi^2\rangle_E$ | Exact for isobaric blocks of any PDF shape. Systematic bias $2\langle\pi\rangle_E$ in interface blocks; $\gtrsim25$–$30\%$ in acoustically triggered blocks with wavelength $\lesssim\ell$. |
+| $\Cbin$ | $\Ciso+(\bar P/k_B)^2\sum_kp_k(w_k-\langle g\rangle_k)$ | Few percent with bin-integrated weights in smooth bins; tens of percent near $10^4$ K for spiky PDFs; $O(1)$ or worse with the current cutoff-straddling bins. |
+
+**How good is $\Ciso$?** Conceptually it is the correct estimator. It is exact up to within-block pressure fluctuations of the cooling gas, and it fixes the structural failure of $\Ccg$ at two-phase interfaces. Its accuracy is limited in practice by, in order of importance: (i) cutoff aliasing in the current binning, which is fixable and potentially dominant; (ii) the first-order isobaric bias $2\langle\pi\rangle_E$ in interface and acoustic blocks, which is irreducible for any isobaric method and has opposite signs in the two regimes; and (iii) within-bin variation of $g$ near $10^4$ K, which is reducible with bin-integrated weights and finer bins there.
+
+**Measurements to make on the fine data.** For each block and each $\Delta$, compute $\Ctrue$, $\Ciso$ (unbinned, from fine cells), and $\Cbin$ for the current and cutoff-aligned binnings, together with $\Ccg$. The quantities to plot are:
+
+- $\ln(\Ciso/\Ctrue)$ against $\langle\pi\rangle_E$, $\Tcg$, height $z$ and cold fraction $f_c$. This is the isobaric floor, and the regime dependence identifies interface versus acoustic blocks.
+- $\ln(\Cbin/\Ciso)$ for both binnings. This is the discretisation floor, and the per-bin contribution isolates cutoff leakage.
+- $\ln(\Ccg/\Ctrue)$ as the baseline.
+- Totals $\sum\mathcal C\,\ell^2$ against $\dot\Sigma_{\rm cool}$, and row profiles $\langle\mathcal C\rangle_j(z)$, as functions of time. Acoustically triggered blocks should show up as the time-variable component.
+- The harmonic-mean mismatch $\sum_kp_k/T_k-\Tcg^{-1}$ as a cheap isobaricity check.
+
+**Reference.** P. Sharma, A. Kumar, D. Datta, A. Babul, R. Das, K. Aditya, *Universal Structure of Turbulent Radiative Mixing Layers*, arXiv:2509.03802 (2025).

@@ -21,6 +21,8 @@ from models.conv_nn.pdf_cnn import (
     lambda_cool,
     compute_cooling_rate,
     compute_isobaric_cooling_rate,
+    LOGT_ACTIVE_START,
+    LOGT_ACTIVE_END,
 )
 
 # Set PyTorch device
@@ -77,16 +79,37 @@ from data_preprocess import simulation_data
 # =========================
 # QUANTITATIVE METRICS  (Change #4)
 # =========================
+def floor_zero_pred(true, pred, floor_dex=3.0):
+    """
+    Replace non-positive predictions (where true > 0) with a floor value
+    `floor_dex` below the smallest positive true value, so that zero
+    predictions stay visible in log-space plots and metrics instead of being
+    silently dropped. Returns (pred_floored, floor, n_zero).
+    """
+    pos_true = true > 0
+    floor = true[pos_true].min() * 10.0 ** (-floor_dex) if pos_true.any() else 1e-60
+    zero = pos_true & ~(pred > 0)
+    return np.where(zero, floor, pred), floor, int(zero.sum())
+
+
 def print_metrics(true, pred, label):
     """
     Log-space bias, RMSE, and Pearson correlation for cooling rate arrays.
-    Only pixels where both true and pred are positive are included.
+    Statistics use pixels where both true and pred are positive; pixels where
+    true > 0 but pred <= 0 are counted separately (and dominate if ignored),
+    and the domain-integrated cooling ratio sum(pred)/sum(true) is reported.
     """
     mask = (true > 0) & (pred > 0)
     num_pixels = mask.sum()
+    n_zero = int(((true > 0) & ~(pred > 0)).sum())
+    true_sum = true[true > 0].sum()
 
     print(f"\n--- {label} ---")
     print(f"  Pixels used : {num_pixels} / {true.size}")
+    print(f"  Zero-pred   : {n_zero} pixels with true > 0 but pred <= 0 "
+          f"({n_zero / max((true > 0).sum(), 1):.1%}, carrying "
+          f"{true[(true > 0) & ~(pred > 0)].sum() / max(true_sum, 1e-300):.2%} of true cooling)")
+    print(f"  Total ratio : sum(pred)/sum(true) = {np.clip(pred, 0, None).sum() / max(true_sum, 1e-300):.3f}")
 
     if num_pixels < 2:
         print("  Log-Bias    : N/A (insufficient positive pixels)")
@@ -104,6 +127,52 @@ def print_metrics(true, pred, label):
     print(f"  Log-Bias    : {bias:+.3f} dex")
     print(f"  Log-RMSE    :  {rmse:.3f} dex")
     print(f"  Correlation :  {corr:.4f}")
+
+
+def cooling_regimes(cg_temp, true_pdf, temp_centers, mass_threshold=5e-3):
+    """
+    Label each pixel by where its coarse temperature sits relative to the
+    active cooling window, and flag "tail-dominated" pixels: those whose true
+    isobaric cooling comes mostly (>50%) from bins holding < mass_threshold of
+    the mass. Returns (regime_masks: dict[name -> bool array], tail_dominated).
+    Arrays are shaped like cg_temp (nt, nx, ny); true_pdf is (nt, nb, nx, ny).
+    """
+    logT = np.log10(np.clip(cg_temp, 1e-30, None))
+    regimes = {
+        f"below window (logT<{LOGT_ACTIVE_START})": logT < LOGT_ACTIVE_START,
+        "inside window": (logT >= LOGT_ACTIVE_START) & (logT <= LOGT_ACTIVE_END),
+        f"above window (logT>{LOGT_ACTIVE_END})": logT > LOGT_ACTIVE_END,
+    }
+    w = (lambda_cool(temp_centers, mask=True) / temp_centers**2)[None, :, None, None]
+    contrib = true_pdf * w
+    total = contrib.sum(axis=1)
+    tail = (contrib * (true_pdf < mass_threshold)).sum(axis=1)
+    tail_dominated = (total > 0) & (tail > 0.5 * total)
+    return regimes, tail_dominated
+
+
+def print_regime_metrics(true, pred, regimes, tail_dominated, label):
+    """Per-regime version of print_metrics (zero predictions floored)."""
+    pred_f, _, _ = floor_zero_pred(true, pred)
+    groups = dict(regimes)
+    groups["tail-dominated (any T)"] = tail_dominated
+    print(f"\n--- {label}: by regime ---")
+    print(f"  {'regime':<28s} {'pixels':>8s} {'zero':>6s} {'%cool':>6s} {'ratio':>6s} "
+          f"{'median':>7s} {'p16':>7s} {'p84':>7s} {'rmse':>6s}")
+    true_sum = true[true > 0].sum()
+    for name, sel in groups.items():
+        sel = sel & (true > 0)
+        n = int(sel.sum())
+        if n == 0:
+            print(f"  {name:<28s} {0:>8d}")
+            continue
+        r = np.log10(pred_f[sel] / true[sel])
+        n_zero = int((~(pred[sel] > 0)).sum())
+        print(f"  {name:<28s} {n:>8d} {n_zero:>6d} {true[sel].sum() / true_sum:>6.1%} "
+              f"{np.clip(pred[sel], 0, None).sum() / true[sel].sum():>6.3f} "
+              f"{np.median(r):>+7.2f} {np.percentile(r, 16):>+7.2f} {np.percentile(r, 84):>+7.2f} "
+              f"{np.sqrt(np.mean(r**2)):>6.2f}")
+    print("  (residuals are log10(pred/true) with zero predictions floored 3 dex below min true)")
 
 
 # Define PDF bins and log temperature centers for background color calculations
@@ -493,8 +562,8 @@ def worker_pdf_compare(frames_list, temp_dir, nt, nx, ny, nb, temp_pdf, conv_tem
         if frame == 0:
             fig2.savefig(snapshot_compare_path, dpi=150)
 
-        # Render frames at dpi=100
-        fig2.savefig(os.path.join(temp_dir, f"frame_{frame:04d}.png"), dpi=100)
+        # Render frames at dpi=150 (per-cell PDFs need the extra resolution)
+        fig2.savefig(os.path.join(temp_dir, f"frame_{frame:04d}.png"), dpi=150)
         
         # Write progress marker
         with open(os.path.join(temp_dir, f"progress_{frame}.txt"), "w") as f:
@@ -593,7 +662,7 @@ def worker_cooling_compare(frames_list, temp_dir, nt, cool_vmin, cool_vmax, true
         if frame == 0:
             fig3.savefig(snapshot_cooling_compare_path, dpi=300)
 
-        fig3.savefig(os.path.join(temp_dir, f"frame_{frame:04d}.png"), dpi=300)
+        fig3.savefig(os.path.join(temp_dir, f"frame_{frame:04d}.png"), dpi=120)
         
         # Write progress marker
         with open(os.path.join(temp_dir, f"progress_{frame}.txt"), "w") as f:
@@ -602,16 +671,15 @@ def worker_cooling_compare(frames_list, temp_dir, nt, cool_vmin, cool_vmax, true
     plt.close(fig3)
 
 
-def render_density_gate_sequential(nt, temp_dir, rho_vmin, rho_vmax, data_path_or_rho, cg_rho, cnn_gate_maps, snapshot_density_path):
-    """Render every density-gate frame sequentially in a single process.
+def worker_density_gate(frames_list, temp_dir, nt, rho_vmin, rho_vmax, data_path_or_rho, cg_rho, cnn_gate_maps, snapshot_density_path):
+    """Render a chunk of density-gate frames.
 
-    Streams fine-grid rho snapshot-by-snapshot to avoid allocating 100+ GB of RAM.
+    Streams fine-grid rho snapshot-by-snapshot so each worker holds only one fine frame at a time.
     """
     import matplotlib
     matplotlib.use('Agg')
     import matplotlib.pyplot as plt
     import numpy as np
-    from tqdm import tqdm
     import os
 
     w_files = []
@@ -631,7 +699,9 @@ def render_density_gate_sequential(nt, temp_dir, rho_vmin, rho_vmax, data_path_o
             try:
                 import bin_convert
                 file_data = bin_convert.read_binary(os.path.join(data_path_or_rho, w_files[frame]))
-                return bin_convert.make_2D_array(file_data, "dens").astype(np.float32)
+                rho = bin_convert.make_2D_array(file_data, "dens").astype(np.float32)
+                del file_data
+                return rho
             except Exception:
                 pass
         elif isinstance(data_path_or_rho, np.ndarray):
@@ -641,23 +711,25 @@ def render_density_gate_sequential(nt, temp_dir, rho_vmin, rho_vmax, data_path_o
     fig5, axes5 = plt.subplots(1, 3, figsize=(12, 7))
     ax_fine, ax_cg, ax_gate = axes5
 
-    rho0 = _get_fine_rho(0)
+    f0 = frames_list[0]
+    rho0 = _get_fine_rho(f0)
     im_fine = ax_fine.imshow(
         np.log10(rho0 + 1e-10),
         origin="lower", cmap="viridis", vmin=rho_vmin, vmax=rho_vmax
     )
+    del rho0
     ax_fine.set_title(r"True Density (Before CG) [$\log_{10}$]", fontsize=14)
     fig5.colorbar(im_fine, ax=ax_fine, fraction=0.046, pad=0.04)
 
     im_cg = ax_cg.imshow(
-        np.log10(cg_rho[0] + 1e-10),
+        np.log10(cg_rho[f0] + 1e-10),
         origin="lower", cmap="viridis", vmin=rho_vmin, vmax=rho_vmax
     )
     ax_cg.set_title(r"Coarse-Grained Density [$\log_{10}$]", fontsize=14)
     fig5.colorbar(im_cg, ax=ax_cg, fraction=0.046, pad=0.04)
 
     im_gate = ax_gate.imshow(
-        cnn_gate_maps[0],
+        cnn_gate_maps[f0],
         origin="lower", cmap="inferno", vmin=0.0, vmax=1.0
     )
     ax_gate.set_title(r"CNN Gate Output $g(x,y)$", fontsize=14)
@@ -667,12 +739,13 @@ def render_density_gate_sequential(nt, temp_dir, rho_vmin, rho_vmax, data_path_o
         ax.set_xlabel("Y (cells)")
         ax.set_ylabel("X (cells)")
 
-    title5 = fig5.suptitle("Density & Gate Comparison | t = 0", fontsize=18, y=0.95)
+    title5 = fig5.suptitle(f"Density & Gate Comparison | t = {f0}", fontsize=18, y=0.95)
     plt.tight_layout(rect=[0, 0.03, 1, 0.95], w_pad=1.0)
 
-    for frame in tqdm(range(nt), desc="Rendering density gate frames"):
+    for frame in frames_list:
         rho_frame = _get_fine_rho(frame)
         im_fine.set_data(np.log10(rho_frame + 1e-10))
+        del rho_frame
         im_cg.set_data(np.log10(cg_rho[frame] + 1e-10))
         im_gate.set_data(cnn_gate_maps[frame])
         title5.set_text(f"Density & Gate Comparison | t = {frame}")
@@ -680,7 +753,11 @@ def render_density_gate_sequential(nt, temp_dir, rho_vmin, rho_vmax, data_path_o
         if frame == 0:
             fig5.savefig(snapshot_density_path, dpi=300)
 
-        fig5.savefig(os.path.join(temp_dir, f"frame_{frame:04d}.png"), dpi=300)
+        fig5.savefig(os.path.join(temp_dir, f"frame_{frame:04d}.png"), dpi=120)
+
+        # Write progress marker
+        with open(os.path.join(temp_dir, f"progress_{frame}.txt"), "w") as f:
+            pass
 
     plt.close(fig5)
 
@@ -977,7 +1054,7 @@ if __name__ == '__main__':
                 mp4_path,
                 writer="ffmpeg",
                 fps=10,
-                dpi=300,
+                dpi=150,
                 extra_args=codec_args,
                 progress_callback=lambda i, n: pbar.update(1),
             )
@@ -1024,8 +1101,9 @@ if __name__ == '__main__':
     temp_centers = np.sqrt(temp_bins[:-1] * temp_bins[1:])  # (nb,)
     
     # ---- Active cooling window for shading (Change #3) ----
-    logT_active_start = float(os.environ.get("LOGT_ACTIVE_START", "4.2"))
-    logT_active_end = float(os.environ.get("LOGT_ACTIVE_END", "6.0"))
+    # Same window as the trainer's masked cooling curve (pdf_cnn.py)
+    logT_active_start = LOGT_ACTIVE_START
+    logT_active_end = LOGT_ACTIVE_END
     active_bin_start = np.searchsorted(temp_centers, 10**logT_active_start)
     active_bin_end = np.searchsorted(temp_centers, 10**logT_active_end)
     
@@ -1114,6 +1192,9 @@ if __name__ == '__main__':
         cg_resolved_cool.flatten(),
         "Coarse-Grain Resolved Error (True PDF vs Coarse-Grain n_bar^2 Lambda(T_bar))",
     )
+    regime_masks, tail_dominated = cooling_regimes(cg_temp, temp_pdf, temp_centers)
+    print_regime_metrics(true_iso_cool, cnn_cool, regime_masks, tail_dominated, "CNN PDF")
+    print_regime_metrics(true_iso_cool, cg_resolved_cool, regime_masks, tail_dominated, "Coarse-Grain")
     
     # =========================
     # COARSE-GRAIN TEMPERATURE
@@ -1163,9 +1244,14 @@ if __name__ == '__main__':
         # Flatten the cooling fields (raw values; no eps clipping)
         temp_flat = cg_temp.flatten()
         flat_true_iso = true_iso_cool.flatten()
-        flat_cnn = cnn_cool.flatten()
-        flat_cg_res = cg_resolved_cool.flatten()
-    
+        # Zero predictions (true > 0, pred <= 0) are drawn at a floor instead of
+        # being dropped, so that failures stay visible and the medians honest.
+        flat_cnn, cnn_floor, n_zero_cnn = floor_zero_pred(flat_true_iso, cnn_cool.flatten())
+        flat_cg_res, cg_floor, n_zero_cg = floor_zero_pred(flat_true_iso, cg_resolved_cool.flatten())
+
+        def _zero_note(n_zero):
+            return f"; {n_zero:,} zero-pred at floor" if n_zero else ""
+
         def add_running_median(ax, xv, yv, n_bins=25):
             logx = np.log10(xv)
             bin_edges = np.linspace(logx.min(), logx.max(), n_bins + 1)
@@ -1210,7 +1296,8 @@ if __name__ == '__main__':
         ax_pred_cnn.set_yscale("log")
         ax_pred_cnn.set_xlabel(r"True PDF Cooling $[\mathrm{erg\,cm^{-3}\,s^{-1}}]$", fontsize=10)
         ax_pred_cnn.set_ylabel(r"CNN PDF Cooling $[\mathrm{erg\,cm^{-3}\,s^{-1}}]$", fontsize=10)
-        ax_pred_cnn.set_title(f"CNN Prediction Error (True PDF vs CNN PDF)\n({mask2.sum():,} / {len(flat_true_iso):,} points)", fontsize=11)
+        ax_pred_cnn.axhline(cnn_floor, color="gray", linestyle=":", lw=1)
+        ax_pred_cnn.set_title(f"CNN Prediction Error (True PDF vs CNN PDF)\n({mask2.sum():,} / {len(flat_true_iso):,} points{_zero_note(n_zero_cnn)})", fontsize=11)
         plt.colorbar(hb2, ax=ax_pred_cnn, label="log$_{10}$(count)")
         add_running_median(ax_pred_cnn, xm2, ym2)
     
@@ -1230,7 +1317,7 @@ if __name__ == '__main__':
         ax_resid_cnn.set_xscale("log")
         ax_resid_cnn.set_xlabel(r"True PDF Cooling $[\mathrm{erg\,cm^{-3}\,s^{-1}}]$", fontsize=10)
         ax_resid_cnn.set_ylabel(r"$\log_{10}(\mathrm{CNN / True PDF})$", fontsize=10)
-        ax_resid_cnn.set_title(f"CNN Residuals\n({mask4.sum():,} / {len(flat_true_iso):,} points)", fontsize=11)
+        ax_resid_cnn.set_title(f"CNN Residuals\n({mask4.sum():,} / {len(flat_true_iso):,} points{_zero_note(n_zero_cnn)})", fontsize=11)
         plt.colorbar(hb4, ax=ax_resid_cnn, label="log$_{10}$(count)")
         add_running_median(ax_resid_cnn, xm4, ym4)
     
@@ -1257,7 +1344,8 @@ if __name__ == '__main__':
         ax_pred_cg.set_yscale("log")
         ax_pred_cg.set_xlabel(r"True PDF Cooling $[\mathrm{erg\,cm^{-3}\,s^{-1}}]$", fontsize=10)
         ax_pred_cg.set_ylabel(r"Coarse-Grain $\bar{n}^2 \Lambda(\bar{T})\;[\mathrm{erg\,cm^{-3}\,s^{-1}}]$", fontsize=10)
-        ax_pred_cg.set_title(f"Coarse-Grain Resolved Error (True PDF vs $\\bar{{n}}^2 \\Lambda(\\bar{{T}})$)\n({mask_cg.sum():,} / {len(flat_true_iso):,} points)", fontsize=11)
+        ax_pred_cg.axhline(cg_floor, color="gray", linestyle=":", lw=1)
+        ax_pred_cg.set_title(f"Coarse-Grain Resolved Error (True PDF vs $\\bar{{n}}^2 \\Lambda(\\bar{{T}})$)\n({mask_cg.sum():,} / {len(flat_true_iso):,} points{_zero_note(n_zero_cg)})", fontsize=11)
         plt.colorbar(hb_cg, ax=ax_pred_cg, label="log$_{10}$(count)")
         add_running_median(ax_pred_cg, xm_cg, ym_cg)
     
@@ -1276,7 +1364,7 @@ if __name__ == '__main__':
         ax_resid_cg.set_xscale("log")
         ax_resid_cg.set_xlabel(r"True PDF Cooling $[\mathrm{erg\,cm^{-3}\,s^{-1}}]$", fontsize=10)
         ax_resid_cg.set_ylabel(r"$\log_{10}(\mathrm{Coarse\text{-}Grain / True PDF})$", fontsize=10)
-        ax_resid_cg.set_title(f"Coarse-Grain Residuals\n({mask_cg.sum():,} / {len(flat_true_iso):,} points)", fontsize=11)
+        ax_resid_cg.set_title(f"Coarse-Grain Residuals\n({mask_cg.sum():,} / {len(flat_true_iso):,} points{_zero_note(n_zero_cg)})", fontsize=11)
         plt.colorbar(hb_cg_res, ax=ax_resid_cg, label="log$_{10}$(count)")
         add_running_median(ax_resid_cg, xm_cg_res, ym_cg_res)
     
@@ -1295,8 +1383,11 @@ if __name__ == '__main__':
         print("Creating cooling time diagnostic plots...")
 
         flat_t_true = t_cool_true.flatten()
-        flat_t_cnn = t_cool_cnn.flatten()
-        flat_t_cg = t_cool_cg.flatten()
+        # Use floored cooling rates so zero-pred pixels show up at a t_cool ceiling
+        _flat_eint = e_int_cgs.flatten()
+        with np.errstate(divide="ignore", invalid="ignore"):
+            flat_t_cnn = np.where(flat_true_iso > 0, _flat_eint / flat_cnn, np.nan) / _T_cgs
+            flat_t_cg = np.where(flat_true_iso > 0, _flat_eint / flat_cg_res, np.nan) / _T_cgs
 
         fig_tc, axes_tc = plt.subplots(2, 2, figsize=(15, 11))
 
@@ -1323,7 +1414,7 @@ if __name__ == '__main__':
         ax_tc_pred_cnn.set_yscale("log")
         ax_tc_pred_cnn.set_xlabel(r"True PDF Cooling Time $t_{\rm cool}$ [Myr]", fontsize=10)
         ax_tc_pred_cnn.set_ylabel(r"CNN PDF Cooling Time $t_{\rm cool}$ [Myr]", fontsize=10)
-        ax_tc_pred_cnn.set_title(f"CNN Cooling-Time Error (True PDF vs CNN PDF)\n({mask_tc2.sum():,} / {len(flat_t_true):,} points)", fontsize=11)
+        ax_tc_pred_cnn.set_title(f"CNN Cooling-Time Error (True PDF vs CNN PDF)\n({mask_tc2.sum():,} / {len(flat_t_true):,} points{_zero_note(n_zero_cnn)})", fontsize=11)
         plt.colorbar(hbt2, ax=ax_tc_pred_cnn, label="log$_{10}$(count)")
         add_running_median(ax_tc_pred_cnn, xt2, yt2)
 
@@ -1341,7 +1432,7 @@ if __name__ == '__main__':
         ax_tc_resid_cnn.set_xscale("log")
         ax_tc_resid_cnn.set_xlabel(r"True PDF Cooling Time $t_{\rm cool}$ [Myr]", fontsize=10)
         ax_tc_resid_cnn.set_ylabel(r"$\log_{10}(\mathrm{CNN / True}\ t_{\rm cool})$", fontsize=10)
-        ax_tc_resid_cnn.set_title(f"CNN Cooling-Time Residuals\n({mask_tc2.sum():,} / {len(flat_t_true):,} points)", fontsize=11)
+        ax_tc_resid_cnn.set_title(f"CNN Cooling-Time Residuals\n({mask_tc2.sum():,} / {len(flat_t_true):,} points{_zero_note(n_zero_cnn)})", fontsize=11)
         plt.colorbar(hbt4, ax=ax_tc_resid_cnn, label="log$_{10}$(count)")
         add_running_median(ax_tc_resid_cnn, xt2, yt2_resid)
 
@@ -1368,7 +1459,7 @@ if __name__ == '__main__':
         ax_tc_pred_cg.set_yscale("log")
         ax_tc_pred_cg.set_xlabel(r"True PDF Cooling Time $t_{\rm cool}$ [Myr]", fontsize=10)
         ax_tc_pred_cg.set_ylabel(r"Coarse-Grain Cooling Time $t_{\rm cool}$ [Myr]", fontsize=10)
-        ax_tc_pred_cg.set_title(f"Coarse-Grain Cooling-Time Error (True PDF vs $\\bar{{n}}^2 \\Lambda(\\bar{{T}})$)\n({mask_tc_cg.sum():,} / {len(flat_t_true):,} points)", fontsize=11)
+        ax_tc_pred_cg.set_title(f"Coarse-Grain Cooling-Time Error (True PDF vs $\\bar{{n}}^2 \\Lambda(\\bar{{T}})$)\n({mask_tc_cg.sum():,} / {len(flat_t_true):,} points{_zero_note(n_zero_cg)})", fontsize=11)
         plt.colorbar(hbt_cg, ax=ax_tc_pred_cg, label="log$_{10}$(count)")
         add_running_median(ax_tc_pred_cg, xt_cg, yt_cg)
 
@@ -1386,7 +1477,7 @@ if __name__ == '__main__':
         ax_tc_resid_cg.set_xscale("log")
         ax_tc_resid_cg.set_xlabel(r"True PDF Cooling Time $t_{\rm cool}$ [Myr]", fontsize=10)
         ax_tc_resid_cg.set_ylabel(r"$\log_{10}(\mathrm{Coarse\text{-}Grain / True}\ t_{\rm cool})$", fontsize=10)
-        ax_tc_resid_cg.set_title(f"Coarse-Grain Cooling-Time Residuals\n({mask_tc_cg.sum():,} / {len(flat_t_true):,} points)", fontsize=11)
+        ax_tc_resid_cg.set_title(f"Coarse-Grain Cooling-Time Residuals\n({mask_tc_cg.sum():,} / {len(flat_t_true):,} points{_zero_note(n_zero_cg)})", fontsize=11)
         plt.colorbar(hbt_cg_res, ax=ax_tc_resid_cg, label="log$_{10}$(count)")
         add_running_median(ax_tc_resid_cg, xt_cg, yt_cg_resid)
 
@@ -1398,6 +1489,66 @@ if __name__ == '__main__':
         plt.show()
         plt.close(fig_tc)
         print("Saved cooling time diagnostic plot.")
+
+        # ============================================================
+        # RESIDUALS BY REGIME: coarse T relative to the active window,
+        # plus tail-dominated pixels (cooling set by low-mass bins)
+        # ============================================================
+        print("Creating residual-by-regime diagnostic plot...")
+
+        flat_regimes = {k: v.flatten() for k, v in regime_masks.items()}
+        flat_tail = tail_dominated.flatten()
+        pos = flat_true_iso > 0
+        resid_cnn = np.log10(flat_cnn[pos] / flat_true_iso[pos])
+        resid_cg = np.log10(flat_cg_res[pos] / flat_true_iso[pos])
+
+        fig_rg, axes_rg = plt.subplots(1, 3, figsize=(20, 6))
+
+        ax = axes_rg[0]
+        hb_rg = ax.hexbin(
+            cg_temp.flatten()[pos], resid_cnn,
+            xscale="log", gridsize=60, bins="log", cmap="viridis", mincnt=1, rasterized=True,
+        )
+        for _edge in (LOGT_ACTIVE_START, LOGT_ACTIVE_END):
+            ax.axvline(10**_edge, color="k", linestyle="--", lw=1)
+        ax.axhline(0, color="r", linestyle="--", lw=1)
+        ax.set_xlabel(r"Coarse-Grain Temperature $T$ [K]", fontsize=10)
+        ax.set_ylabel(r"$\log_{10}(\mathrm{CNN / True PDF})$ cooling", fontsize=10)
+        ax.set_title(f"CNN residual vs coarse T (dashed: active window)\n"
+                     f"({pos.sum():,} points{_zero_note(n_zero_cnn)})", fontsize=11)
+        plt.colorbar(hb_rg, ax=ax, label="log$_{10}$(count)")
+        add_running_median(ax, cg_temp.flatten()[pos], resid_cnn)
+
+        _groups = dict(flat_regimes)
+        _groups["tail-dominated (any T)"] = flat_tail
+        _rng = (
+            np.floor(min(np.percentile(resid_cnn, 0.5), np.percentile(resid_cg, 0.5))),
+            np.ceil(max(np.percentile(resid_cnn, 99.5), np.percentile(resid_cg, 99.5))),
+        )
+        _hist_bins = np.linspace(*_rng, 81)
+        for ax, resid, name in ((axes_rg[1], resid_cnn, "CNN PDF"), (axes_rg[2], resid_cg, "Coarse-Grain")):
+            for (g_name, g_mask), ls in zip(_groups.items(), ("-", "-", "-", "--")):
+                sel = g_mask[pos]
+                if not sel.any():
+                    continue
+                r = resid[sel]
+                ax.hist(
+                    np.clip(r, *_rng), bins=_hist_bins, histtype="step", lw=1.6, linestyle=ls,
+                    label=f"{g_name}: n={sel.sum():,}, median {np.median(r):+.2f}",
+                )
+            ax.axvline(0, color="r", linestyle="--", lw=1)
+            ax.set_yscale("log")
+            ax.set_xlabel(rf"$\log_{{10}}(\mathrm{{{name.split()[0]} / True}})$ cooling (clipped to range)", fontsize=10)
+            ax.set_ylabel("Pixel count", fontsize=10)
+            ax.set_title(f"{name} residuals by regime", fontsize=11)
+            ax.legend(fontsize=8, loc="upper left")
+
+        fig_rg.suptitle("Cooling Residuals by Temperature Regime (All Pixels, All Timesteps)", fontsize=15)
+        fig_rg.tight_layout()
+        fig_rg.savefig(os.path.join(PDF_MOCKS_DIR, "pdf_cooling_residual_regimes.png"), dpi=200)
+        plt.show()
+        plt.close(fig_rg)
+        print("Saved residual-by-regime diagnostic plot.")
 
         # ============================================================
         # COOLING TIME DRIVERS: what conditions cause absurdly low t_cool?
@@ -1733,7 +1884,7 @@ if __name__ == '__main__':
                 mp4_path_fourway,
                 writer="ffmpeg",
                 fps=10,
-                dpi=300,
+                dpi=120,
                 extra_args=codec_args,
                 progress_callback=lambda i, n: pbar.update(1),
             )
@@ -1747,8 +1898,7 @@ if __name__ == '__main__':
     # Panels: Fine Density (log) | Coarse Density (log) | Gate Output
     # ============================================================
     if RUN_DENSITY_GATE_ANIMATION:
-        import tempfile, shutil, subprocess
-        print("Creating density and gate comparison animation (sequential)...")
+        print("Creating density and gate comparison animation in parallel...")
 
         mp4_path_density = os.path.join(PDF_MOCKS_DIR, "pdf_density_gate_animation.mp4")
         snapshot_density_path = os.path.join(PDF_MOCKS_DIR, "pdf_density_gate_t0.png")
@@ -1760,52 +1910,26 @@ if __name__ == '__main__':
             rho_vmax = np.log10(np.percentile(pos_rho, 99))
         else:
             rho_vmin, rho_vmax = -5, 5
+        del pos_rho
 
-        _temp_dir = tempfile.mkdtemp()
-        try:
-            render_density_gate_sequential(
-                nt, _temp_dir,
-                rho_vmin, rho_vmax,
-                data_path, cg_rho, cnn_gate_maps,
+        # Workers stream fine-grid rho from disk one snapshot at a time; only the small
+        # coarse arrays are shared. Worker count is capped to bound peak RAM.
+        generate_parallel_animation(
+            worker_density_gate,
+            nt,
+            mp4_path_density,
+            fps=24,
+            num_workers=min(8, os.cpu_count() or 8),
+            extra_args=(
+                rho_vmin,
+                rho_vmax,
+                data_path,
+                np.ascontiguousarray(cg_rho),
+                cnn_gate_maps,
                 snapshot_density_path,
             )
-
-            print(f"Stitching density gate frames → {mp4_path_density}")
-            os.makedirs(os.path.dirname(os.path.abspath(mp4_path_density)), exist_ok=True)
-            codec = get_best_video_codec()
-            codec_args = get_ffmpeg_codec_args(codec)
-            vf_filter = "scale='min(4096,iw)':'min(4096,ih)':force_original_aspect_ratio=decrease,pad=ceil(iw/2)*2:ceil(ih/2)*2"
-            cmd = [
-                "ffmpeg", "-y",
-                "-framerate", "24",
-                "-i", os.path.join(_temp_dir, "frame_%04d.png"),
-                "-vf", vf_filter,
-                *codec_args,
-                "-pix_fmt", "yuv420p",
-                mp4_path_density,
-            ]
-            res = subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-            if res.returncode != 0:
-                # Fallback to high-quality mpeg4
-                cmd_fb = [
-                    "ffmpeg", "-y",
-                    "-framerate", "24",
-                    "-i", os.path.join(_temp_dir, "frame_%04d.png"),
-                    "-vf", vf_filter,
-                    "-c:v", "mpeg4",
-                    "-q:v", "2",
-                    "-pix_fmt", "yuv420p",
-                    mp4_path_density,
-                ]
-                res_fb = subprocess.run(cmd_fb, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
-                if res_fb.returncode != 0:
-                    print(f"ffmpeg error: {res_fb.stderr.decode()}")
-                else:
-                    print(f"Saved density/gate animation → {mp4_path_density}")
-            else:
-                print(f"Saved density/gate animation → {mp4_path_density}")
-        finally:
-            shutil.rmtree(_temp_dir)
+        )
+        print(f"Saved density/gate animation -> {mp4_path_density}")
 
 
 # ============================================================

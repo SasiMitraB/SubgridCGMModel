@@ -91,7 +91,7 @@ HYPERPARAMS = {
     "dropout_rate": 0.2,
     "alpha_gate": float(os.environ.get("PDF_CNN_ALPHA_GATE", "0.0")),
     "alpha_mean_temp": 10,
-    "alpha_emiss": float(os.environ.get("PDF_CNN_ALPHA_EMISS", "100.0")),
+    "alpha_emiss": float(os.environ.get("PDF_CNN_ALPHA_EMISS", "20.0")),
     "alpha_leak": float(os.environ.get("PDF_CNN_ALPHA_LEAK", "10.0")),
     "alpha_active_wasserstein": float(
         os.environ.get(
@@ -178,109 +178,20 @@ def lambda_cool(temp, mask=False, LOGT_ACTIVE_START=None, LOGT_ACTIVE_END=None):
     logt = np.log10(temp)
 
     lhd = np.array(
-        [
-            -22.5977,
-            -21.9689,
-            -21.5972,
-            -21.4615,
-            -21.4789,
-            -21.5497,
-            -21.6211,
-            -21.6595,
-            -21.6426,
-            -21.5688,
-            -21.4771,
-            -21.3755,
-            -21.2693,
-            -21.1644,
-            -21.0658,
-            -20.9778,
-            -20.8986,
-            -20.8281,
-            -20.7700,
-            -20.7223,
-            -20.6888,
-            -20.6739,
-            -20.6815,
-            -20.7051,
-            -20.7229,
-            -20.7208,
-            -20.7058,
-            -20.6896,
-            -20.6797,
-            -20.6749,
-            -20.6709,
-            -20.6748,
-            -20.7089,
-            -20.8031,
-            -20.9647,
-            -21.1482,
-            -21.2932,
-            -21.3767,
-            -21.4129,
-            -21.4291,
-            -21.4538,
-            -21.5055,
-            -21.5740,
-            -21.6300,
-            -21.6615,
-            -21.6766,
-            -21.6886,
-            -21.7073,
-            -21.7304,
-            -21.7491,
-            -21.7607,
-            -21.7701,
-            -21.7877,
-            -21.8243,
-            -21.8875,
-            -21.9738,
-            -22.0671,
-            -22.1537,
-            -22.2265,
-            -22.2821,
-            -22.3213,
-            -22.3462,
-            -22.3587,
-            -22.3622,
-            -22.3590,
-            -22.3512,
-            -22.3420,
-            -22.3342,
-            -22.3312,
-            -22.3346,
-            -22.3445,
-            -22.3595,
-            -22.3780,
-            -22.4007,
-            -22.4289,
-            -22.4625,
-            -22.4995,
-            -22.5353,
-            -22.5659,
-            -22.5895,
-            -22.6059,
-            -22.6161,
-            -22.6208,
-            -22.6213,
-            -22.6184,
-            -22.6126,
-            -22.6045,
-            -22.5945,
-            -22.5831,
-            -22.5707,
-            -22.5573,
-            -22.5434,
-            -22.5287,
-            -22.5140,
-            -22.4992,
-            -22.4844,
-            -22.4695,
-            -22.4543,
-            -22.4392,
-            -22.4237,
-            -22.4087,
-            -22.3928,
+        [      
+        -22.5977, -21.9689, -21.5972, -21.4615, -21.4789, -21.5497, -21.6211, -21.6595,
+        -21.6426, -21.5688, -21.4771, -21.3755, -21.2693, -21.1644, -21.0658, -20.9778,
+        -20.8986, -20.8281, -20.7700, -20.7223, -20.6888, -20.6739, -20.6815, -20.7051,
+        -20.7229, -20.7208, -20.7058, -20.6896, -20.6797, -20.6749, -20.6709, -20.6748,
+        -20.7089, -20.8031, -20.9647, -21.1482, -21.2932, -21.3767, -21.4129, -21.4291,
+        -21.4538, -21.5055, -21.5740, -21.6300, -21.6615, -21.6766, -21.6886, -21.7073,
+        -21.7304, -21.7491, -21.7607, -21.7701, -21.7877, -21.8243, -21.8875, -21.9738,
+        -22.0671, -22.1537, -22.2265, -22.2821, -22.3213, -22.3462, -22.3587, -22.3622,
+        -22.3590, -22.3512, -22.3420, -22.3342, -22.3312, -22.3346, -22.3445, -22.3595,
+        -22.3780, -22.4007, -22.4289, -22.4625, -22.4995, -22.5353, -22.5659, -22.5895,
+        -22.6059, -22.6161, -22.6208, -22.6213, -22.6184, -22.6126, -22.6045, -22.5945,
+        -22.5831, -22.5707, -22.5573, -22.5434, -22.5287, -22.5140, -22.4992, -22.4844,
+        -22.4695, -22.4543, -22.4392, -22.4237, -22.4087, -22.3928
         ]
     )
 
@@ -1027,12 +938,32 @@ class GatedThresholdedSoftmax(nn.Module):
                    (Acts like a Delta function, but preserves gradients!)
     When gate ≈ 1: PDF remains a broad multiphase distribution.
     """
-    def __init__(self, threshold=5e-3, sharp_temp=0.02, eps=1e-12, logit_clamp=50.0):
+    def __init__(self, threshold=5e-3, sharp_temp=0.02, eps=1e-12, logit_clamp=50.0,
+                 min_tail_mass=None):
         super().__init__()
         self.threshold = threshold
+        # Smallest bin mass a true PDF can hold is one fine cell, 1/downsample^2.
+        # Low-mass bins kept for their cooling must hold at least half of that,
+        # so softmax leftovers (~1e-12) in pure hot/cold cells are still zeroed.
+        self.min_tail_mass = (
+            min_tail_mass if min_tail_mass is not None else 0.5 / downsample**2
+        )
         self.sharp_temp = sharp_temp # Controls how "sharp" the delta function is
         self.eps = eps
         self.logit_clamp = logit_clamp  # Prevent softmax overflow
+
+        # Isobaric cooling weight per bin, Lambda(T_i) / T_i^2 (active window only).
+        # Used by the eval-time threshold so that low-mass bins which dominate a
+        # cell's cooling (e.g. a ~1e5 K tail in a ~1e6 K cell) are not zeroed.
+        # They must hold >= min_tail_mass: a cooling *share* alone is not enough,
+        # since in a cell with no real cooling a ~1e-12 leftover is 100% of it.
+        # Non-persistent so existing checkpoints load unchanged.
+        cool_w = lambda_cool(T_centers, mask=True) / T_centers**2
+        self.register_buffer(
+            "cool_weight",
+            torch.tensor(cool_w, dtype=torch.float32).view(1, -1, 1, 1),
+            persistent=False,
+        )
 
     def forward(self, logits, gate):
         # Clamp logits to prevent softmax overflow/underflow
@@ -1040,12 +971,6 @@ class GatedThresholdedSoftmax(nn.Module):
 
         # --- 1. Multiphase (Broad) Branch ---
         p_broad = F.softmax(logits_safe, dim=1)
-        
-        # Hard thresholding is bad for gradients. Only do it during evaluation/inference.
-        if not self.training:
-            p_broad = p_broad * (p_broad >= self.threshold).float()
-
-        p_broad = p_broad / (p_broad.sum(dim=1, keepdim=True) + self.eps)
 
         # --- 2. Single-Phase (Sharp) Branch ---
         # Use log-softmax for numerical stability with temperature scaling
@@ -1056,6 +981,18 @@ class GatedThresholdedSoftmax(nn.Module):
         # gate=0 -> relies entirely on the differentiable sharp peak
         # gate=1 -> relies entirely on the broad distribution
         gated = gate * p_broad + (1.0 - gate) * p_sharp
+
+        # Hard thresholding is bad for gradients. Only do it during evaluation/inference.
+        # Applied to the gated mix so leftovers from both branches are removed.
+        # A bin survives if it holds >= threshold of the mass, OR >= threshold of
+        # the cell's cooling while holding >= min_tail_mass.
+        if not self.training:
+            cool = gated * self.cool_weight
+            cool_total = torch.clamp_min(cool.sum(dim=1, keepdim=True), torch.finfo(cool.dtype).tiny)
+            keep = (gated >= self.threshold) | (
+                (cool / cool_total >= self.threshold) & (gated >= self.min_tail_mass)
+            )
+            gated = gated * keep.float()
 
         # Final renormalization for numerical stability
         return gated / (gated.sum(dim=1, keepdim=True) + self.eps)

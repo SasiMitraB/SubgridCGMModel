@@ -1,18 +1,15 @@
 # Python script for preprocessing the simulation data, calculating source terms, fluxes and PDFs
 
-import numpy as np 
+import numpy as np
 import os
-import skimage.measure
-import matplotlib.pyplot as plt
 import bin_convert
 from tqdm import tqdm
+from coarse_grain_utils import block_mean, coarse_grain
 
 def divergence(f, dx, dy):
     dFx_dx = np.gradient(f[0], dy, dx)[1]
     dFy_dy = np.gradient(f[1], dy, dx)[0]
     return dFx_dx + dFy_dy
-
-import numpy as np
 
 # Cooling function from AthenaK code
 def lambda_cool(temp):
@@ -180,7 +177,8 @@ class simulation_data():
         self.ps = self.ps[::filter]
 
     def coarse_grain(self: "simulation_data", quan: np.ndarray) -> np.ndarray:
-        return skimage.measure.block_reduce(quan, (self.down_sample, self.down_sample), np.mean)
+        """Simple volume average (for density, pressure, energy)"""
+        return block_mean(quan, self.down_sample)
     
     def calc_fmcl(self: "simulation_data", rho: np.ndarray, temp: np.ndarray) -> np.ndarray:
         rho_block = rho.reshape(rho.shape[0] // self.down_sample, self.down_sample, rho.shape[1] // self.down_sample, self.down_sample)
@@ -263,10 +261,14 @@ class simulation_data():
 
             fmcl[i] = self.calc_fmcl(self.rho[i], self.temp[i])
             cg_rho[i] = self.coarse_grain(self.rho[i])
-            cg_temp[i] = self.coarse_grain(self.temp[i])
-            cg_ux[i] = self.coarse_grain(self.ux[i])
-            cg_uy[i] = self.coarse_grain(self.uy[i])
             cg_pressure[i] = self.coarse_grain(self.pressure[i])
+
+            # Mass-weighted velocity averages (conserve momentum)
+            cg_ux[i] = block_mean(self.rho[i] * self.ux[i], self.down_sample) / np.maximum(cg_rho[i], 1e-30)
+            cg_uy[i] = block_mean(self.rho[i] * self.uy[i], self.down_sample) / np.maximum(cg_rho[i], 1e-30)
+
+            # Temperature from equation of state (not from spatial average)
+            cg_temp[i] = (cg_pressure[i] * self.P_unit / cg_rho[i]) * (self.mu / self.kb)
 
             cg_momx[i] = self.coarse_grain(self.cons_momx[i])
             cg_momy[i] = self.coarse_grain(self.cons_momy[i])
@@ -420,10 +422,14 @@ class simulation_data():
 
             fmcl[i] = self.calc_fmcl(self.rho[i], self.temp[i])
             cg_rho[i] = self.coarse_grain(self.rho[i])
-            cg_temp[i] = self.coarse_grain(self.temp[i])
-            cg_ux[i] = self.coarse_grain(self.ux[i])
-            cg_uy[i] = self.coarse_grain(self.uy[i])
             cg_pressure[i] = self.coarse_grain(self.pressure[i])
+
+            # Mass-weighted velocity averages (conserve momentum)
+            cg_ux[i] = block_mean(self.rho[i] * self.ux[i], self.down_sample) / np.maximum(cg_rho[i], 1e-30)
+            cg_uy[i] = block_mean(self.rho[i] * self.uy[i], self.down_sample) / np.maximum(cg_rho[i], 1e-30)
+
+            # Temperature from equation of state (not from spatial average)
+            cg_temp[i] = (cg_pressure[i] * self.P_unit / cg_rho[i]) * (self.mu / self.kb)
 
             cg_momx[i] = self.coarse_grain(self.cons_momx[i])
             cg_momy[i] = self.coarse_grain(self.cons_momy[i])

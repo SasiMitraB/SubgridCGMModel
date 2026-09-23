@@ -477,6 +477,8 @@ run_step 5 "subgrid_model_cnn_restart" \
         export CROP_H_CG='${CROP_H_CG}'
         export CROP_W_CG='${CROP_W_CG}'
         export MODEL_SAVES_DIR='${MODEL_SAVES_DIR}'
+        export CLIP_LOG_PATH='${RUN_DIR}/clip_events.csv'
+        export DT_COOL_LOG_PATH='${RUN_DIR}/dt_cool_log.csv'
         export CNN_TILING_MODE='single'
 
         ./athena \
@@ -531,6 +533,11 @@ run_step 7 "dt_vs_time_plot" \
         export PROJECT_ROOT='${PROJECT_ROOT}'
         export LR_OUTPUT_DIR='${LR_BUILD_OUTPUT_DIR}'
         export SG_OUTPUT_DIR='${SG_OUTPUT_DIR}'
+        export LR_LOG='${LOG_DIR}/step4_lr_build_ism_restart.log'
+        export SG_LOG='${LOG_DIR}/step5_subgrid_model_cnn_restart.log'
+        export DT_COOL_LOG_PATH='${RUN_DIR}/dt_cool_log.csv'
+        export HR_OUTPUT_DIR='${HR_EVAL_OUTPUT}'
+        export RESTART_TIME_MYR='${RESTART_TIME_MYR}'
         export SG_MOCKS_DIR='${SG_MOCKS_DIR}'
         cd '${PROJECT_ROOT}/data/mocks' && python3 plot_dt_comparison.py
     "
