@@ -36,6 +36,16 @@ else:
         print(f"Using device: {device}")
 
 # =========================
+# PLOT LABELS
+# =========================
+# True cooling: isobaric sum over the volume-weighted temperature PDF
+C_ISO = r"\mathcal{C}_{\rm iso}"
+C_ISO_EQ = (r"$\mathcal{C}_{\rm iso} = \left(\frac{\bar{P}}{k_B}\right)^2"
+            r" \sum_i \frac{1}{T_i^2} \Lambda(T_i) \mathcal{P}_V(T_i)$")
+# Resolved cooling: cooling function evaluated on the coarse-grained cell state
+C_RES_EQ = r"$\bar{n}^2 \Lambda(\bar{T})$"
+
+# =========================
 # RUN TOGGLES
 # =========================
 RUN_PDF_ANIMATION = False
@@ -46,6 +56,7 @@ RUN_COOLING_COMPARE_ANIMATION = True
 RUN_FOURWAY_COMPARE_ANIMATION = False
 RUN_DENSITY_GATE_ANIMATION = True
 RUN_GATE_ENTROPY_DIAGNOSTIC = True
+RUN_PDF_FIDELITY = True
 
 # =========================
 # SETTINGS
@@ -79,19 +90,6 @@ from data_preprocess import simulation_data
 # =========================
 # QUANTITATIVE METRICS  (Change #4)
 # =========================
-def floor_zero_pred(true, pred, floor_dex=3.0):
-    """
-    Replace non-positive predictions (where true > 0) with a floor value
-    `floor_dex` below the smallest positive true value, so that zero
-    predictions stay visible in log-space plots and metrics instead of being
-    silently dropped. Returns (pred_floored, floor, n_zero).
-    """
-    pos_true = true > 0
-    floor = true[pos_true].min() * 10.0 ** (-floor_dex) if pos_true.any() else 1e-60
-    zero = pos_true & ~(pred > 0)
-    return np.where(zero, floor, pred), floor, int(zero.sum())
-
-
 def print_metrics(true, pred, label):
     """
     Log-space bias, RMSE, and Pearson correlation for cooling rate arrays.
@@ -152,8 +150,7 @@ def cooling_regimes(cg_temp, true_pdf, temp_centers, mass_threshold=5e-3):
 
 
 def print_regime_metrics(true, pred, regimes, tail_dominated, label):
-    """Per-regime version of print_metrics (zero predictions floored)."""
-    pred_f, _, _ = floor_zero_pred(true, pred)
+    """Per-regime version of print_metrics (residuals over pred > 0 pixels only)."""
     groups = dict(regimes)
     groups["tail-dominated (any T)"] = tail_dominated
     print(f"\n--- {label}: by regime ---")
@@ -166,13 +163,18 @@ def print_regime_metrics(true, pred, regimes, tail_dominated, label):
         if n == 0:
             print(f"  {name:<28s} {0:>8d}")
             continue
-        r = np.log10(pred_f[sel] / true[sel])
         n_zero = int((~(pred[sel] > 0)).sum())
+        both = sel & (pred > 0)
+        if not both.any():
+            print(f"  {name:<28s} {n:>8d} {n_zero:>6d} {true[sel].sum() / true_sum:>6.1%} "
+                  f"{np.clip(pred[sel], 0, None).sum() / true[sel].sum():>6.3f}")
+            continue
+        r = np.log10(pred[both] / true[both])
         print(f"  {name:<28s} {n:>8d} {n_zero:>6d} {true[sel].sum() / true_sum:>6.1%} "
               f"{np.clip(pred[sel], 0, None).sum() / true[sel].sum():>6.3f} "
               f"{np.median(r):>+7.2f} {np.percentile(r, 16):>+7.2f} {np.percentile(r, 84):>+7.2f} "
               f"{np.sqrt(np.mean(r**2)):>6.2f}")
-    print("  (residuals are log10(pred/true) with zero predictions floored 3 dex below min true)")
+    print("  (residuals are log10(pred/true) over pixels with true > 0 and pred > 0; 'zero' = pred <= 0 pixels excluded)")
 
 
 # Define PDF bins and log temperature centers for background color calculations
@@ -599,11 +601,11 @@ def worker_cooling_compare(frames_list, temp_dir, nt, cool_vmin, cool_vmax, true
 
 
         ax_t = fig3.add_subplot(gs3[0])
-        ax_t.set_title(r"True PDF ($\bar{n}^2 \sum_i \Lambda(T_i)\mathrm{PDF}$)", fontsize=12)
+        ax_t.set_title(f"True: {C_ISO_EQ}", fontsize=12)
         ax_p = fig3.add_subplot(gs3[1])
         ax_p.set_title("CNN Prediction", fontsize=12)
         ax_cg = fig3.add_subplot(gs3[2])
-        ax_cg.set_title(r"Coarse-Grain ($\bar{n}^2 \Lambda(\bar{T})$)", fontsize=12)
+        ax_cg.set_title(f"Resolved: {C_RES_EQ}", fontsize=12)
         cbar_ax3 = fig3.add_subplot(gs3[3])
 
         im_t = ax_t.imshow(np.clip(true_iso_cool[0], cool_vmin, None), origin="lower", cmap=cmap_cool, norm=norm_cool)
@@ -859,12 +861,9 @@ if __name__ == '__main__':
     cg_inputs_path = os.path.join(coarse_cache_dir, "cg_inputs.npy")
     cg_pdfs_path = os.path.join(coarse_cache_dir, "cg_pdfs.npy")
 
-    if os.path.exists(cg_inputs_path) and os.path.exists(cg_pdfs_path):
-        print(f"Loading coarse data from cache: {coarse_cache_dir}")
-        cg_inputs = np.load(cg_inputs_path)
-        temp_pdf = np.load(cg_pdfs_path)
-    elif os.path.exists(f"{folder_path}/rho.npy"):
+    if not os.path.exists(cg_inputs_path) and os.path.exists(f"{folder_path}/rho.npy"):
         print(f"Loading from legacy cache: {folder_path}...")
+        from coarse_grain_utils import cnn_input_fields
         sim_data = simulation_data()
         sim_data.resolution = resolution
         sim_data.down_sample = downsample
@@ -874,18 +873,18 @@ if __name__ == '__main__':
         sim_data.ux = np.load(f"{folder_path}/ux.npy", mmap_mode="r")
         sim_data.uy = np.load(f"{folder_path}/uy.npy", mmap_mode="r")
         sim_data.ps = np.load(f"{folder_path}/ps.npy", mmap_mode="r")
-        _nt = sim_data.rho.shape[0]
-        _nx, _ny = sim_data.coarse_grain(sim_data.rho[0]).shape
-        cg_inputs = np.zeros((_nt, 5, _nx, _ny), dtype=np.float32)
-        for t in range(_nt):
-            cg_inputs[t, 0] = sim_data.coarse_grain(sim_data.rho[t])
-            cg_inputs[t, 1] = sim_data.coarse_grain(sim_data.temp[t])
-            cg_inputs[t, 2] = sim_data.coarse_grain(sim_data.ux[t])
-            cg_inputs[t, 3] = sim_data.coarse_grain(sim_data.uy[t])
-            cg_inputs[t, 4] = sim_data.coarse_grain(sim_data.ps[t])
+        cg_inputs = np.stack([
+            cnn_input_fields(
+                np.asarray(sim_data.rho[t]), np.asarray(sim_data.ux[t]), np.asarray(sim_data.uy[t]),
+                np.asarray(sim_data.pressure[t]), np.asarray(sim_data.ps[t]), downsample,
+                P_unit=sim_data.P_unit, mu=sim_data.mu, k_b=sim_data.kb,
+            )
+            for t in range(sim_data.rho.shape[0])
+        ])
         temp_pdf = sim_data.calc_pixel_pdf(bins=bins)
     else:
-        print(f"Cache not found in {coarse_cache_dir}. Processing binary snapshots streamingly...")
+        # Loads the coarse cache if it matches the current coarse-graining
+        # scheme, otherwise rebuilds it from the binary snapshots
         from random_snapshot_training import load_or_create_coarse_data
         cg_inputs, temp_pdf = load_or_create_coarse_data(
             data_path,
@@ -1185,16 +1184,16 @@ if __name__ == '__main__':
     print_metrics(
         true_iso_cool.flatten(),
         cnn_cool.flatten(),
-        "CNN Prediction Error   (True PDF vs CNN PDF)",
+        "CNN Prediction Error   (True C_iso vs CNN PDF)",
     )
     print_metrics(
         true_iso_cool.flatten(),
         cg_resolved_cool.flatten(),
-        "Coarse-Grain Resolved Error (True PDF vs Coarse-Grain n_bar^2 Lambda(T_bar))",
+        "Resolved Cooling Error (True C_iso vs Resolved n_bar^2 Lambda(T_bar))",
     )
     regime_masks, tail_dominated = cooling_regimes(cg_temp, temp_pdf, temp_centers)
     print_regime_metrics(true_iso_cool, cnn_cool, regime_masks, tail_dominated, "CNN PDF")
-    print_regime_metrics(true_iso_cool, cg_resolved_cool, regime_masks, tail_dominated, "Coarse-Grain")
+    print_regime_metrics(true_iso_cool, cg_resolved_cool, regime_masks, tail_dominated, "Resolved")
     
     # =========================
     # COARSE-GRAIN TEMPERATURE
@@ -1225,7 +1224,7 @@ if __name__ == '__main__':
         plt.colorbar(sc2, ax=axes[1], label="CNN active-window mass")
         axes[1].set_xscale("log")
         axes[1].set_yscale("log")
-        axes[1].set_xlabel(r"True PDF Cooling $[\mathrm{erg\,cm^{-3}\,s^{-1}}]$")
+        axes[1].set_xlabel(rf"True ${C_ISO}$ $[\mathrm{{erg\,cm^{{-3}}\,s^{{-1}}}}]$")
         axes[1].set_ylabel(r"CNN PDF Cooling $[\mathrm{erg\,cm^{-3}\,s^{-1}}]$")
         axes[1].set_title("Cooling scatter coloured by CNN window mass")
         plt.tight_layout()
@@ -1244,13 +1243,10 @@ if __name__ == '__main__':
         # Flatten the cooling fields (raw values; no eps clipping)
         temp_flat = cg_temp.flatten()
         flat_true_iso = true_iso_cool.flatten()
-        # Zero predictions (true > 0, pred <= 0) are drawn at a floor instead of
-        # being dropped, so that failures stay visible and the medians honest.
-        flat_cnn, cnn_floor, n_zero_cnn = floor_zero_pred(flat_true_iso, cnn_cool.flatten())
-        flat_cg_res, cg_floor, n_zero_cg = floor_zero_pred(flat_true_iso, cg_resolved_cool.flatten())
-
-        def _zero_note(n_zero):
-            return f"; {n_zero:,} zero-pred at floor" if n_zero else ""
+        # Pixels where either true or predicted cooling is zero are excluded
+        # from all log-space plots below (counts are reported by print_metrics).
+        flat_cnn = cnn_cool.flatten()
+        flat_cg_res = cg_resolved_cool.flatten()
 
         def add_running_median(ax, xv, yv, n_bins=25):
             logx = np.log10(xv)
@@ -1294,10 +1290,9 @@ if __name__ == '__main__':
             ax_pred_cnn.plot(_lim, _lim, "r--", lw=1)
         ax_pred_cnn.set_xscale("log")
         ax_pred_cnn.set_yscale("log")
-        ax_pred_cnn.set_xlabel(r"True PDF Cooling $[\mathrm{erg\,cm^{-3}\,s^{-1}}]$", fontsize=10)
+        ax_pred_cnn.set_xlabel(rf"True ${C_ISO}$ $[\mathrm{{erg\,cm^{{-3}}\,s^{{-1}}}}]$", fontsize=10)
         ax_pred_cnn.set_ylabel(r"CNN PDF Cooling $[\mathrm{erg\,cm^{-3}\,s^{-1}}]$", fontsize=10)
-        ax_pred_cnn.axhline(cnn_floor, color="gray", linestyle=":", lw=1)
-        ax_pred_cnn.set_title(f"CNN Prediction Error (True PDF vs CNN PDF)\n({mask2.sum():,} / {len(flat_true_iso):,} points{_zero_note(n_zero_cnn)})", fontsize=11)
+        ax_pred_cnn.set_title(f"CNN Prediction Error (True ${C_ISO}$ vs CNN PDF)\n({mask2.sum():,} / {len(flat_true_iso):,} points)", fontsize=11)
         plt.colorbar(hb2, ax=ax_pred_cnn, label="log$_{10}$(count)")
         add_running_median(ax_pred_cnn, xm2, ym2)
     
@@ -1315,9 +1310,9 @@ if __name__ == '__main__':
         )
         ax_resid_cnn.axhline(0, color="r", linestyle="--", lw=1)
         ax_resid_cnn.set_xscale("log")
-        ax_resid_cnn.set_xlabel(r"True PDF Cooling $[\mathrm{erg\,cm^{-3}\,s^{-1}}]$", fontsize=10)
-        ax_resid_cnn.set_ylabel(r"$\log_{10}(\mathrm{CNN / True PDF})$", fontsize=10)
-        ax_resid_cnn.set_title(f"CNN Residuals\n({mask4.sum():,} / {len(flat_true_iso):,} points{_zero_note(n_zero_cnn)})", fontsize=11)
+        ax_resid_cnn.set_xlabel(rf"True ${C_ISO}$ $[\mathrm{{erg\,cm^{{-3}}\,s^{{-1}}}}]$", fontsize=10)
+        ax_resid_cnn.set_ylabel(rf"$\log_{{10}}(\mathrm{{CNN}} / {C_ISO})$", fontsize=10)
+        ax_resid_cnn.set_title(f"CNN Residuals\n({mask4.sum():,} / {len(flat_true_iso):,} points)", fontsize=11)
         plt.colorbar(hb4, ax=ax_resid_cnn, label="log$_{10}$(count)")
         add_running_median(ax_resid_cnn, xm4, ym4)
     
@@ -1342,10 +1337,9 @@ if __name__ == '__main__':
             ax_pred_cg.plot(_lim_cg, _lim_cg, "r--", lw=1)
         ax_pred_cg.set_xscale("log")
         ax_pred_cg.set_yscale("log")
-        ax_pred_cg.set_xlabel(r"True PDF Cooling $[\mathrm{erg\,cm^{-3}\,s^{-1}}]$", fontsize=10)
-        ax_pred_cg.set_ylabel(r"Coarse-Grain $\bar{n}^2 \Lambda(\bar{T})\;[\mathrm{erg\,cm^{-3}\,s^{-1}}]$", fontsize=10)
-        ax_pred_cg.axhline(cg_floor, color="gray", linestyle=":", lw=1)
-        ax_pred_cg.set_title(f"Coarse-Grain Resolved Error (True PDF vs $\\bar{{n}}^2 \\Lambda(\\bar{{T}})$)\n({mask_cg.sum():,} / {len(flat_true_iso):,} points{_zero_note(n_zero_cg)})", fontsize=11)
+        ax_pred_cg.set_xlabel(rf"True ${C_ISO}$ $[\mathrm{{erg\,cm^{{-3}}\,s^{{-1}}}}]$", fontsize=10)
+        ax_pred_cg.set_ylabel(r"Resolved $\bar{n}^2 \Lambda(\bar{T})\;[\mathrm{erg\,cm^{-3}\,s^{-1}}]$", fontsize=10)
+        ax_pred_cg.set_title(f"Resolved Cooling Error (True ${C_ISO}$ vs {C_RES_EQ})\n({mask_cg.sum():,} / {len(flat_true_iso):,} points)", fontsize=11)
         plt.colorbar(hb_cg, ax=ax_pred_cg, label="log$_{10}$(count)")
         add_running_median(ax_pred_cg, xm_cg, ym_cg)
     
@@ -1362,13 +1356,13 @@ if __name__ == '__main__':
         )
         ax_resid_cg.axhline(0, color="r", linestyle="--", lw=1)
         ax_resid_cg.set_xscale("log")
-        ax_resid_cg.set_xlabel(r"True PDF Cooling $[\mathrm{erg\,cm^{-3}\,s^{-1}}]$", fontsize=10)
-        ax_resid_cg.set_ylabel(r"$\log_{10}(\mathrm{Coarse\text{-}Grain / True PDF})$", fontsize=10)
-        ax_resid_cg.set_title(f"Coarse-Grain Residuals\n({mask_cg.sum():,} / {len(flat_true_iso):,} points{_zero_note(n_zero_cg)})", fontsize=11)
+        ax_resid_cg.set_xlabel(rf"True ${C_ISO}$ $[\mathrm{{erg\,cm^{{-3}}\,s^{{-1}}}}]$", fontsize=10)
+        ax_resid_cg.set_ylabel(rf"$\log_{{10}}(\mathrm{{Resolved}} / {C_ISO})$", fontsize=10)
+        ax_resid_cg.set_title(f"Resolved Cooling Residuals\n({mask_cg.sum():,} / {len(flat_true_iso):,} points)", fontsize=11)
         plt.colorbar(hb_cg_res, ax=ax_resid_cg, label="log$_{10}$(count)")
         add_running_median(ax_resid_cg, xm_cg_res, ym_cg_res)
     
-        fig_sc.suptitle("Cooling Rate Comparisons & Diagnostics (All Pixels, All Timesteps)", fontsize=15)
+        fig_sc.suptitle(f"Cooling Rate Comparisons & Diagnostics (All Pixels, All Timesteps)\nTrue: {C_ISO_EQ}", fontsize=15)
         fig_sc.tight_layout()
         fig_sc.savefig(
             os.path.join(PDF_MOCKS_DIR, "pdf_cooling_scatter_twoway.png"), dpi=200
@@ -1383,7 +1377,7 @@ if __name__ == '__main__':
         print("Creating cooling time diagnostic plots...")
 
         flat_t_true = t_cool_true.flatten()
-        # Use floored cooling rates so zero-pred pixels show up at a t_cool ceiling
+        # Zero-cooling pixels give inf/nan t_cool and are dropped by the isfinite masks
         _flat_eint = e_int_cgs.flatten()
         with np.errstate(divide="ignore", invalid="ignore"):
             flat_t_cnn = np.where(flat_true_iso > 0, _flat_eint / flat_cnn, np.nan) / _T_cgs
@@ -1412,9 +1406,9 @@ if __name__ == '__main__':
             ax_tc_pred_cnn.plot(_lim_t2, _lim_t2, "r--", lw=1)
         ax_tc_pred_cnn.set_xscale("log")
         ax_tc_pred_cnn.set_yscale("log")
-        ax_tc_pred_cnn.set_xlabel(r"True PDF Cooling Time $t_{\rm cool}$ [Myr]", fontsize=10)
+        ax_tc_pred_cnn.set_xlabel(rf"True ${C_ISO}$ Cooling Time $t_{{\rm cool}}$ [Myr]", fontsize=10)
         ax_tc_pred_cnn.set_ylabel(r"CNN PDF Cooling Time $t_{\rm cool}$ [Myr]", fontsize=10)
-        ax_tc_pred_cnn.set_title(f"CNN Cooling-Time Error (True PDF vs CNN PDF)\n({mask_tc2.sum():,} / {len(flat_t_true):,} points{_zero_note(n_zero_cnn)})", fontsize=11)
+        ax_tc_pred_cnn.set_title(f"CNN Cooling-Time Error (True ${C_ISO}$ vs CNN PDF)\n({mask_tc2.sum():,} / {len(flat_t_true):,} points)", fontsize=11)
         plt.colorbar(hbt2, ax=ax_tc_pred_cnn, label="log$_{10}$(count)")
         add_running_median(ax_tc_pred_cnn, xt2, yt2)
 
@@ -1430,9 +1424,9 @@ if __name__ == '__main__':
         )
         ax_tc_resid_cnn.axhline(0, color="r", linestyle="--", lw=1)
         ax_tc_resid_cnn.set_xscale("log")
-        ax_tc_resid_cnn.set_xlabel(r"True PDF Cooling Time $t_{\rm cool}$ [Myr]", fontsize=10)
+        ax_tc_resid_cnn.set_xlabel(rf"True ${C_ISO}$ Cooling Time $t_{{\rm cool}}$ [Myr]", fontsize=10)
         ax_tc_resid_cnn.set_ylabel(r"$\log_{10}(\mathrm{CNN / True}\ t_{\rm cool})$", fontsize=10)
-        ax_tc_resid_cnn.set_title(f"CNN Cooling-Time Residuals\n({mask_tc2.sum():,} / {len(flat_t_true):,} points{_zero_note(n_zero_cnn)})", fontsize=11)
+        ax_tc_resid_cnn.set_title(f"CNN Cooling-Time Residuals\n({mask_tc2.sum():,} / {len(flat_t_true):,} points)", fontsize=11)
         plt.colorbar(hbt4, ax=ax_tc_resid_cnn, label="log$_{10}$(count)")
         add_running_median(ax_tc_resid_cnn, xt2, yt2_resid)
 
@@ -1457,9 +1451,9 @@ if __name__ == '__main__':
             ax_tc_pred_cg.plot(_lim_tcg, _lim_tcg, "r--", lw=1)
         ax_tc_pred_cg.set_xscale("log")
         ax_tc_pred_cg.set_yscale("log")
-        ax_tc_pred_cg.set_xlabel(r"True PDF Cooling Time $t_{\rm cool}$ [Myr]", fontsize=10)
-        ax_tc_pred_cg.set_ylabel(r"Coarse-Grain Cooling Time $t_{\rm cool}$ [Myr]", fontsize=10)
-        ax_tc_pred_cg.set_title(f"Coarse-Grain Cooling-Time Error (True PDF vs $\\bar{{n}}^2 \\Lambda(\\bar{{T}})$)\n({mask_tc_cg.sum():,} / {len(flat_t_true):,} points{_zero_note(n_zero_cg)})", fontsize=11)
+        ax_tc_pred_cg.set_xlabel(rf"True ${C_ISO}$ Cooling Time $t_{{\rm cool}}$ [Myr]", fontsize=10)
+        ax_tc_pred_cg.set_ylabel(r"Resolved Cooling Time $t_{\rm cool}$ [Myr]", fontsize=10)
+        ax_tc_pred_cg.set_title(f"Resolved Cooling-Time Error (True ${C_ISO}$ vs {C_RES_EQ})\n({mask_tc_cg.sum():,} / {len(flat_t_true):,} points)", fontsize=11)
         plt.colorbar(hbt_cg, ax=ax_tc_pred_cg, label="log$_{10}$(count)")
         add_running_median(ax_tc_pred_cg, xt_cg, yt_cg)
 
@@ -1475,13 +1469,13 @@ if __name__ == '__main__':
         )
         ax_tc_resid_cg.axhline(0, color="r", linestyle="--", lw=1)
         ax_tc_resid_cg.set_xscale("log")
-        ax_tc_resid_cg.set_xlabel(r"True PDF Cooling Time $t_{\rm cool}$ [Myr]", fontsize=10)
-        ax_tc_resid_cg.set_ylabel(r"$\log_{10}(\mathrm{Coarse\text{-}Grain / True}\ t_{\rm cool})$", fontsize=10)
-        ax_tc_resid_cg.set_title(f"Coarse-Grain Cooling-Time Residuals\n({mask_tc_cg.sum():,} / {len(flat_t_true):,} points{_zero_note(n_zero_cg)})", fontsize=11)
+        ax_tc_resid_cg.set_xlabel(rf"True ${C_ISO}$ Cooling Time $t_{{\rm cool}}$ [Myr]", fontsize=10)
+        ax_tc_resid_cg.set_ylabel(r"$\log_{10}(\mathrm{Resolved / True}\ t_{\rm cool})$", fontsize=10)
+        ax_tc_resid_cg.set_title(f"Resolved Cooling-Time Residuals\n({mask_tc_cg.sum():,} / {len(flat_t_true):,} points)", fontsize=11)
         plt.colorbar(hbt_cg_res, ax=ax_tc_resid_cg, label="log$_{10}$(count)")
         add_running_median(ax_tc_resid_cg, xt_cg, yt_cg_resid)
 
-        fig_tc.suptitle(r"Cooling Time Comparisons ($t_{\rm cool} = e_{\rm int}/\dot{e}_{\rm cool}$, All Pixels, All Timesteps)", fontsize=15)
+        fig_tc.suptitle(r"Cooling Time Comparisons ($t_{\rm cool} = e_{\rm int}/\dot{e}_{\rm cool}$, All Pixels, All Timesteps)" + f"\nTrue: {C_ISO_EQ}", fontsize=15)
         fig_tc.tight_layout()
         fig_tc.savefig(
             os.path.join(PDF_MOCKS_DIR, "pdf_cooling_time_scatter_twoway.png"), dpi=200
@@ -1498,26 +1492,27 @@ if __name__ == '__main__':
 
         flat_regimes = {k: v.flatten() for k, v in regime_masks.items()}
         flat_tail = tail_dominated.flatten()
-        pos = flat_true_iso > 0
-        resid_cnn = np.log10(flat_cnn[pos] / flat_true_iso[pos])
-        resid_cg = np.log10(flat_cg_res[pos] / flat_true_iso[pos])
+        pos_cnn = (flat_true_iso > 0) & (flat_cnn > 0)
+        pos_cg = (flat_true_iso > 0) & (flat_cg_res > 0)
+        resid_cnn = np.log10(flat_cnn[pos_cnn] / flat_true_iso[pos_cnn])
+        resid_cg = np.log10(flat_cg_res[pos_cg] / flat_true_iso[pos_cg])
 
         fig_rg, axes_rg = plt.subplots(1, 3, figsize=(20, 6))
 
         ax = axes_rg[0]
         hb_rg = ax.hexbin(
-            cg_temp.flatten()[pos], resid_cnn,
+            cg_temp.flatten()[pos_cnn], resid_cnn,
             xscale="log", gridsize=60, bins="log", cmap="viridis", mincnt=1, rasterized=True,
         )
         for _edge in (LOGT_ACTIVE_START, LOGT_ACTIVE_END):
             ax.axvline(10**_edge, color="k", linestyle="--", lw=1)
         ax.axhline(0, color="r", linestyle="--", lw=1)
         ax.set_xlabel(r"Coarse-Grain Temperature $T$ [K]", fontsize=10)
-        ax.set_ylabel(r"$\log_{10}(\mathrm{CNN / True PDF})$ cooling", fontsize=10)
+        ax.set_ylabel(rf"$\log_{{10}}(\mathrm{{CNN}} / {C_ISO})$ cooling", fontsize=10)
         ax.set_title(f"CNN residual vs coarse T (dashed: active window)\n"
-                     f"({pos.sum():,} points{_zero_note(n_zero_cnn)})", fontsize=11)
+                     f"({pos_cnn.sum():,} points)", fontsize=11)
         plt.colorbar(hb_rg, ax=ax, label="log$_{10}$(count)")
-        add_running_median(ax, cg_temp.flatten()[pos], resid_cnn)
+        add_running_median(ax, cg_temp.flatten()[pos_cnn], resid_cnn)
 
         _groups = dict(flat_regimes)
         _groups["tail-dominated (any T)"] = flat_tail
@@ -1526,7 +1521,7 @@ if __name__ == '__main__':
             np.ceil(max(np.percentile(resid_cnn, 99.5), np.percentile(resid_cg, 99.5))),
         )
         _hist_bins = np.linspace(*_rng, 81)
-        for ax, resid, name in ((axes_rg[1], resid_cnn, "CNN PDF"), (axes_rg[2], resid_cg, "Coarse-Grain")):
+        for ax, resid, pos, name in ((axes_rg[1], resid_cnn, pos_cnn, "CNN PDF"), (axes_rg[2], resid_cg, pos_cg, "Resolved")):
             for (g_name, g_mask), ls in zip(_groups.items(), ("-", "-", "-", "--")):
                 sel = g_mask[pos]
                 if not sel.any():
@@ -1538,12 +1533,12 @@ if __name__ == '__main__':
                 )
             ax.axvline(0, color="r", linestyle="--", lw=1)
             ax.set_yscale("log")
-            ax.set_xlabel(rf"$\log_{{10}}(\mathrm{{{name.split()[0]} / True}})$ cooling (clipped to range)", fontsize=10)
+            ax.set_xlabel(rf"$\log_{{10}}(\mathrm{{{name.split()[0]}}} / {C_ISO})$ cooling (clipped to range)", fontsize=10)
             ax.set_ylabel("Pixel count", fontsize=10)
             ax.set_title(f"{name} residuals by regime", fontsize=11)
             ax.legend(fontsize=8, loc="upper left")
 
-        fig_rg.suptitle("Cooling Residuals by Temperature Regime (All Pixels, All Timesteps)", fontsize=15)
+        fig_rg.suptitle(f"Cooling Residuals by Temperature Regime (All Pixels, All Timesteps)\nTrue: {C_ISO_EQ}", fontsize=15)
         fig_rg.tight_layout()
         fig_rg.savefig(os.path.join(PDF_MOCKS_DIR, "pdf_cooling_residual_regimes.png"), dpi=200)
         plt.show()
@@ -1583,9 +1578,9 @@ if __name__ == '__main__':
         flat_e_int = e_int_cgs.flatten()
 
         _tcool_rows = [
-            ("True PDF", flat_t_true, true_iso_cool.flatten()),
+            (f"True ${C_ISO}$", flat_t_true, true_iso_cool.flatten()),
             ("CNN PDF", flat_t_cnn, cnn_cool.flatten()),
-            ("Coarse-Grain", flat_t_cg, cg_resolved_cool.flatten()),
+            ("Resolved", flat_t_cg, cg_resolved_cool.flatten()),
         ]
 
         fig_drv, axes_drv = plt.subplots(3, 3, figsize=(16, 14))
@@ -1623,15 +1618,233 @@ if __name__ == '__main__':
         print("Saved cooling time driver diagnostic plot.")
 
     # ============================================================
+    # PDF FIDELITY: how well does the CNN reproduce the true PDF?
+    # Metric: 1-Wasserstein distance in log T, in units of PDF bins,
+    #   W1 = sum_k |CDF_true(k) - CDF_CNN(k)|   (one bin = dlogT dex)
+    # It is bounded, exactly 0 for a perfect match, and finite even where
+    # the CNN puts zero mass in a bin that holds true mass (unlike KL).
+    # ============================================================
+    if RUN_PDF_FIDELITY:
+        print("Creating PDF fidelity plots...")
+        from matplotlib.colors import LinearSegmentedColormap, TwoSlopeNorm
+
+        dlogT = log_temp_centers[1] - log_temp_centers[0]
+        w1 = np.abs(np.cumsum(temp_pdf, axis=1) - np.cumsum(conv_temp_pdf, axis=1)).sum(axis=1)  # (nt, nx, ny) [bins]
+        tv = 0.5 * np.abs(temp_pdf - conv_temp_pdf).sum(axis=1)  # fraction of mass misplaced
+        logTbar = np.log10(np.clip(cg_temp, 1e-30, None))
+        pdf_t = temp_pdf.transpose(0, 2, 3, 1).reshape(-1, nb)  # (npix, nb)
+        pdf_c = conv_temp_pdf.transpose(0, 2, 3, 1).reshape(-1, nb)
+
+        # Palettes (validated): regimes = categorical, quality classes = ordinal blue
+        _reg_defs = [
+            ("below window", logTbar < LOGT_ACTIVE_START, "#2a78d6"),
+            ("inside window", (logTbar >= LOGT_ACTIVE_START) & (logTbar <= LOGT_ACTIVE_END), "#eb6834"),
+            ("above window", logTbar > LOGT_ACTIVE_END, "#1baf7a"),
+        ]
+        _q_edges = [0.0, 0.01, 1.0, 3.0, np.inf]  # W1 in bins
+        _q_labels = ["exact (< 0.01 bin)", "0.01 - 1 bin", "1 - 3 bins", "> 3 bins"]
+        _q_colors = ["#86b6ef", "#3987e5", "#1c5cab", "#0d366b"]
+        C_TRUE, C_CNN = "#52514e", "#4a3aa7"
+        INK2 = "#52514e"
+
+        # ---- Printed summary ----
+        print(f"\n--- PDF fidelity (W1 in bins; 1 bin = {dlogT:.2f} dex) ---")
+        print(f"  {'regime':<16s} {'pixels':>8s} {'exact':>7s} {'<1 bin':>7s} {'med W1':>7s} "
+              f"{'p90 W1':>7s} {'med TV':>7s}")
+        for name, m, _ in [("all", np.ones_like(w1, bool), None)] + _reg_defs:
+            v, t = w1[m], tv[m]
+            if v.size == 0:
+                continue
+            print(f"  {name:<16s} {v.size:>8d} {np.mean(v < 0.01):>7.1%} {np.mean(v < 1):>7.1%} "
+                  f"{np.median(v):>7.2f} {np.percentile(v, 90):>7.2f} {np.median(t):>7.3f}")
+
+        fig_f = plt.figure(figsize=(18, 15))
+        gs_f = fig_f.add_gridspec(3, 5, height_ratios=[1.15, 0.9, 1.0], hspace=0.42, wspace=0.28, top=0.93)
+
+        # ---- (a) Cumulative distribution of W1, per regime ----
+        ax_ecdf = fig_f.add_subplot(gs_f[0, :2])
+        x_max = 6.0
+        for name, m, col in [("all pixels", np.ones_like(w1, bool), "#0b0b0b")] + _reg_defs:
+            v = np.sort(w1[m].ravel())
+            if v.size == 0:
+                continue
+            y = np.arange(1, v.size + 1) / v.size
+            v = np.concatenate([[0.0], v])
+            y = np.concatenate([[np.mean(w1[m] < 1e-12)], y])
+            ax_ecdf.step(np.clip(v, 0, x_max), y, where="post", lw=2, color=col,
+                         ls="--" if name == "all pixels" else "-",
+                         label=f"{name}: {np.mean(w1[m] < 0.01):.0%} exact, "
+                               f"{np.mean(w1[m] < 1):.0%} within 1 bin (n={m.sum():,})")
+        ax_ecdf.axvline(1.0, color=INK2, lw=1, ls=":")
+        ax_ecdf.text(1.03, 0.02, "1 bin", color=INK2, fontsize=9, transform=ax_ecdf.get_xaxis_transform())
+        ax_ecdf.set_xlim(0, x_max)
+        ax_ecdf.set_ylim(0, 1.01)
+        ax_ecdf.set_xlabel(f"PDF error $W_1$ [bins]   (1 bin = {dlogT:.2f} dex in $\\log_{{10}} T$; clipped at {x_max:.0f})", fontsize=10)
+        ax_ecdf.set_ylabel("Fraction of pixels with error $\\leq$ x", fontsize=10)
+        ax_ecdf.set_title("(a) How many pixels get the PDF right?", fontsize=12, loc="left")
+        ax_ecdf.grid(True, color="#e6e5e1", lw=0.8)
+        ax_ecdf.legend(fontsize=8.5, loc="lower right", frameon=False)
+        for sp in ("top", "right"):
+            ax_ecdf.spines[sp].set_visible(False)
+
+        # ---- (b) Error class mix vs coarse temperature (+ pixel counts strip) ----
+        gs_b = gs_f[0, 2:].subgridspec(2, 1, height_ratios=[1, 4], hspace=0.08)
+        ax_cnt = fig_f.add_subplot(gs_b[0])
+        ax_mix = fig_f.add_subplot(gs_b[1], sharex=ax_cnt)
+        t_edges = np.linspace(np.floor(logTbar.min() * 10) / 10, np.ceil(logTbar.max() * 10) / 10, 25)
+        t_idx = np.clip(np.digitize(logTbar.ravel(), t_edges) - 1, 0, len(t_edges) - 2)
+        w1_flat = w1.ravel()
+        counts = np.bincount(t_idx, minlength=len(t_edges) - 1)
+        fracs = np.zeros((len(_q_labels), len(t_edges) - 1))
+        for k in range(len(_q_labels)):
+            in_k = (w1_flat >= _q_edges[k]) & (w1_flat < _q_edges[k + 1])
+            fracs[k] = np.bincount(t_idx, weights=in_k, minlength=len(t_edges) - 1) / np.maximum(counts, 1)
+        centers = 0.5 * (t_edges[:-1] + t_edges[1:])
+        width = (t_edges[1] - t_edges[0]) * 0.9
+        bottom = np.zeros_like(centers)
+        for k in range(len(_q_labels)):
+            ax_mix.bar(centers, fracs[k], width=width, bottom=bottom, color=_q_colors[k],
+                       edgecolor="#fcfcfb", lw=1.0, label=_q_labels[k])
+            bottom += fracs[k]
+        ax_cnt.bar(centers, counts, width=width, color="#b5b4ae", edgecolor="#fcfcfb", lw=1.0)
+        ax_cnt.set_yscale("log")
+        ax_cnt.set_ylabel("pixels", fontsize=9)
+        ax_cnt.tick_params(labelbottom=False, labelsize=8)
+        ax_cnt.set_title("(b) Error class vs coarse temperature", fontsize=12, loc="left")
+        for ax_ in (ax_cnt, ax_mix):
+            for _edge in (LOGT_ACTIVE_START, LOGT_ACTIVE_END):
+                ax_.axvline(_edge, color="#0b0b0b", ls="--", lw=1)
+            for sp in ("top", "right"):
+                ax_.spines[sp].set_visible(False)
+        ax_mix.set_ylim(0, 1)
+        ax_mix.set_xlabel(r"Coarse-grain temperature $\log_{10}\bar{T}$ [K]   (dashed: active window)", fontsize=10)
+        ax_mix.set_ylabel("Fraction of pixels", fontsize=10)
+        ax_mix.legend(title="$W_1$ error", fontsize=8.5, title_fontsize=9, loc="center left",
+                      bbox_to_anchor=(1.01, 0.5), frameon=False)
+        # empty T-bins: mark so a gap is not read as "zero error"
+        for c, n in zip(centers, counts):
+            if n == 0:
+                ax_mix.text(c, 0.5, "no data", rotation=90, ha="center", va="center", fontsize=7, color=INK2)
+
+        # ---- (c) Mean PDF, true vs CNN, in coarse-T bands ----
+        inside_edges = np.linspace(LOGT_ACTIVE_START, LOGT_ACTIVE_END, 4)
+        bands = [(f"$\\log\\bar T$ < {LOGT_ACTIVE_START}", logTbar < LOGT_ACTIVE_START)]
+        for lo, hi in zip(inside_edges[:-1], inside_edges[1:]):
+            bands.append((f"{lo:.1f} - {hi:.1f}", (logTbar >= lo) & (logTbar < hi if hi < LOGT_ACTIVE_END else logTbar <= hi)))
+        bands.append((f"$\\log\\bar T$ > {LOGT_ACTIVE_END}", logTbar > LOGT_ACTIVE_END))
+        pdf_floor = 1e-4
+        for bi, (bname, bm) in enumerate(bands):
+            ax_b = fig_f.add_subplot(gs_f[1, bi])
+            n_b = int(bm.sum())
+            if n_b:
+                mt = pdf_t[bm.ravel()].mean(axis=0)
+                mp = pdf_c[bm.ravel()].mean(axis=0)
+                ax_b.fill_between(log_temp_centers, pdf_floor, np.maximum(mt, pdf_floor), step="mid",
+                                  color=C_TRUE, alpha=0.25, lw=0)
+                ax_b.step(log_temp_centers, np.maximum(mt, pdf_floor), where="mid", color=C_TRUE, lw=2, label="True (mean)")
+                ax_b.step(log_temp_centers, np.maximum(mp, pdf_floor), where="mid", color=C_CNN, lw=2, ls="--", label="CNN (mean)")
+                ax_b.text(0.03, 0.97, f"n={n_b:,}\nmedian $W_1$={np.median(w1[bm]):.2f} bins",
+                          transform=ax_b.transAxes, va="top", fontsize=8.5, color=INK2)
+            ax_b.axvspan(LOGT_ACTIVE_START, LOGT_ACTIVE_END, color="#f0efec", zorder=0)
+            ax_b.set_yscale("log")
+            ax_b.set_ylim(pdf_floor, 1.5)
+            ax_b.set_xlim(log_temp_centers[0] - dlogT / 2, log_temp_centers[-1] + dlogT / 2)
+            ax_b.set_title(bname, fontsize=10)
+            ax_b.set_xlabel(r"$\log_{10} T_i$ [K]", fontsize=9)
+            ax_b.tick_params(labelsize=8)
+            for sp in ("top", "right"):
+                ax_b.spines[sp].set_visible(False)
+            if bi == 0:
+                ax_b.set_ylabel(r"Mean $\mathcal{P}_V(T_i)$ (bin mass)", fontsize=9)
+                ax_b.text(0.0, 1.22, "(c) Average PDF shape in coarse-T bands (shaded: active window)",
+                          transform=ax_b.transAxes, fontsize=12)
+            else:
+                ax_b.tick_params(labelleft=False)
+            if bi == len(bands) - 1:
+                ax_b.legend(fontsize=8.5, loc="center left", frameon=False)
+
+        # ---- (d) Where is mass misplaced? mean(CNN - True) per (coarse T, PDF bin) ----
+        ax_hm = fig_f.add_subplot(gs_f[2, :])
+        n_tb = len(t_edges) - 1
+        diff_sum = np.zeros((n_tb, nb))
+        np.add.at(diff_sum, t_idx, pdf_c - pdf_t)
+        with np.errstate(invalid="ignore"):
+            diff_mean = np.where(counts[:, None] > 0, diff_sum / np.maximum(counts[:, None], 1), np.nan)
+        vmax = np.nanpercentile(np.abs(diff_mean), 99) if np.isfinite(diff_mean).any() else 1.0
+        vmax = max(vmax, 1e-6)
+        cmap_div = LinearSegmentedColormap.from_list(
+            "blue_gray_red", ["#104281", "#3987e5", "#f0efec", "#e34948", "#8a1f1f"])
+        cmap_div.set_bad("#ffffff")
+        im_hm = ax_hm.pcolormesh(
+            np.concatenate([log_temp_centers - dlogT / 2, [log_temp_centers[-1] + dlogT / 2]]),
+            t_edges, diff_mean, cmap=cmap_div, norm=TwoSlopeNorm(0.0, -vmax, vmax), rasterized=True,
+        )
+        _lim = [max(t_edges[0], log_temp_centers[0]), min(t_edges[-1], log_temp_centers[-1])]
+        ax_hm.plot(_lim, _lim, color="#0b0b0b", lw=1, ls=":")
+        ax_hm.text(4.75, 4.75, r"$T_i = \bar T$", fontsize=9, ha="left", va="top", rotation=12)
+        for _edge in (LOGT_ACTIVE_START, LOGT_ACTIVE_END):
+            ax_hm.axhline(_edge, color="#0b0b0b", ls="--", lw=1)
+        ax_hm.set_xlabel(r"PDF bin $\log_{10} T_i$ [K]", fontsize=10)
+        ax_hm.set_ylabel(r"Coarse-grain $\log_{10}\bar{T}$ [K]", fontsize=10)
+        ax_hm.set_title("(d) Where does the CNN misplace mass?  mean bin-mass error (CNN $-$ True)   "
+                        "red: CNN puts too much mass here, blue: too little", fontsize=12, loc="left", pad=10)
+        cb = plt.colorbar(im_hm, ax=ax_hm, pad=0.01, fraction=0.03)
+        cb.set_label(r"$\langle q_i - p_i \rangle$", fontsize=10)
+
+        fig_f.suptitle("How well does the CNN learn the temperature PDF?  (all pixels, all timesteps)", fontsize=16, y=0.975)
+        fig_f.savefig(os.path.join(PDF_MOCKS_DIR, "pdf_fidelity_summary.png"), dpi=200, bbox_inches="tight")
+        plt.show()
+        plt.close(fig_f)
+        print("Saved PDF fidelity summary plot.")
+
+        # ---- Example gallery: what does a typical / bad prediction look like? ----
+        pcts = [50, 75, 90, 99]
+        fig_g, axes_g = plt.subplots(len(_reg_defs), len(pcts), figsize=(18, 10), sharex=True)
+        w1_f = w1.ravel()
+        for ri, (rname, rm, rcol) in enumerate(_reg_defs):
+            idx_r = np.flatnonzero(rm.ravel())
+            ann_x, ann_ha = {0: (0.97, "right"), 1: (0.55, "center"), 2: (0.03, "left")}[ri]
+            for ci, pc in enumerate(pcts):
+                ax_g = axes_g[ri, ci]
+                if idx_r.size:
+                    target = np.percentile(w1_f[idx_r], pc)
+                    k = idx_r[np.argmin(np.abs(w1_f[idx_r] - target))]
+                    ax_g.fill_between(log_temp_centers, 0, pdf_t[k], step="mid", color=C_TRUE, alpha=0.25, lw=0)
+                    ax_g.step(log_temp_centers, pdf_t[k], where="mid", color=C_TRUE, lw=2, label="True")
+                    ax_g.step(log_temp_centers, pdf_c[k], where="mid", color=C_CNN, lw=2, ls="--", label="CNN")
+                    ax_g.text(ann_x, 0.95, f"$W_1$={w1_f[k]:.2f} bins\nTV={tv.ravel()[k]:.2f}\n"
+                                          f"$\\log\\bar T$={logTbar.ravel()[k]:.2f}",
+                              transform=ax_g.transAxes, ha=ann_ha, va="top", fontsize=8.5, color=INK2)
+                ax_g.axvspan(LOGT_ACTIVE_START, LOGT_ACTIVE_END, color="#f0efec", zorder=0)
+                ax_g.set_ylim(bottom=0)
+                for sp in ("top", "right"):
+                    ax_g.spines[sp].set_visible(False)
+                ax_g.tick_params(labelsize=8)
+                if ri == 0:
+                    ax_g.set_title(f"{pc}th percentile error", fontsize=11)
+                if ci == 0:
+                    ax_g.set_ylabel(f"{rname}\n(n={idx_r.size:,})\nbin mass", fontsize=10)
+                if ri == len(_reg_defs) - 1:
+                    ax_g.set_xlabel(r"$\log_{10} T_i$ [K]", fontsize=9)
+        axes_g[0, 0].legend(fontsize=8.5, loc="upper left", frameon=False)
+        fig_g.suptitle("Example pixels at increasing error percentile, per regime  "
+                       "(TV = fraction of mass misplaced; shaded: active window)", fontsize=14)
+        fig_g.tight_layout()
+        fig_g.savefig(os.path.join(PDF_MOCKS_DIR, "pdf_fidelity_examples.png"), dpi=200)
+        plt.show()
+        plt.close(fig_g)
+        print("Saved PDF fidelity example gallery.")
+
+    # ============================================================
     # HISTOGRAM: Zero-Fraction + Positive-Only log10 (Change #5)
     # ============================================================
     if RUN_COOLING_HISTOGRAM:
         print("Creating improved histogram plots...")
     
         _fields = {
-            "True PDF": true_iso_cool.flatten(),
+            f"True ${C_ISO}$": true_iso_cool.flatten(),
             "CNN PDF": cnn_cool.flatten(),
-            r"Coarse-Grain $\bar{n}^2 \Lambda(\bar{T})$": cg_resolved_cool.flatten(),
+            f"Resolved {C_RES_EQ}": cg_resolved_cool.flatten(),
         }
         _colors = ["darkorange", "mediumseagreen", "royalblue"]
     
@@ -1678,7 +1891,7 @@ if __name__ == '__main__':
         ax_pos.set_yscale("log")
         ax_pos.grid(True, linestyle=":", alpha=0.6)
     
-        fig_hist.suptitle("Cooling Rate Histograms", fontsize=14, fontweight="bold")
+        fig_hist.suptitle(f"Cooling Rate Histograms  (True: {C_ISO_EQ})", fontsize=14, fontweight="bold")
         fig_hist.tight_layout()
         fig_hist.savefig(os.path.join(PDF_MOCKS_DIR, "pdf_cooling_histogram.png"), dpi=200)
         plt.show()

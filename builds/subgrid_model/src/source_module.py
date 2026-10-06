@@ -9,7 +9,6 @@
 #  - The tile size is the CNN's native coarse-grid size: 16 rows × 8 cols.
 #  - Hard-cut tiling (no overlap blending) is used for simplicity.
 
-import csv
 import os
 import sys
 import types
@@ -88,11 +87,6 @@ TILE_COLS = int(os.environ.get("TILE_COLS", os.environ.get("CROP_W_CG", str(reso
 layer_size4 = 256
 layer_size5 = 512
 
-# Fallback domain extents (code units), used for clip-log positions only when the
-# caller doesn't pass the mesh extents (subgrid.cpp builds predating that argument).
-total_length: float = 40.0   # |x2max - x2min| = 20 - (-20)
-total_width: float = 20.0    # |x1max - x1min| = 10 - (-10)
-
 gamma: float = 5.0 / 3.0
 P_unit: float = 1.59916e-14   # pressure unit in dyne/cm^2 per code pressure
 mu: float = 0.62
@@ -108,103 +102,6 @@ _model_cache = None  # ConvNN instance
 _input_mean_cache = None  # torch.Tensor, shape (1, 5, 1, 1)
 _input_std_cache = None   # torch.Tensor, shape (1, 5, 1, 1)
 
-# ---------------------------------------------------------------------------
-# Cooling-rate clip tracking
-#
-# The temperature-floor cap in source_func() (see below) is a safety valve,
-# not something that should be triggering constantly. We log every clipped
-# cell -- sim time, grid position, physical position, and the local field
-# values -- to a CSV so a run can be audited after the fact for how often
-# and where the cap is actually engaging.
-#
-# subgrid.cpp passes pm->time (sim time at the start of the cycle -- it only
-# advances after all RK stages), pm->dt and the mesh extents. Older builds pass
-# only bdt; then time falls back to accumulating bdt, which OVERCOUNTS for
-# multi-stage integrators (bdt = beta_stage*dt, and the betas sum to 1.5 for
-# rk2), so those logs are only indicative. CLIP_LOG_START_TIME offsets the
-# fallback clock for restarts.
-#
-# DT_COOL_LOG_PATH gets one row per call with the cooling timestep computed
-# from the capped rate (what AthenaK actually uses) and from the raw CNN rate
-# (what it would be without the cap), both scaled by cfl_no to match the
-# dt_cool column of the history file.
-#
-# This assumes a single-process run (no MPI), matching the subgrid run
-# scripts in shell_scripts/ -- concurrent writers would need file locking.
-# ---------------------------------------------------------------------------
-CLIP_LOG_PATH = os.environ.get(
-    "CLIP_LOG_PATH", os.path.join(PROJECT_ROOT, "outputs", "clip_events.csv")
-)
-_clip_log_header_written = False
-_sim_time_accum = float(os.environ.get("CLIP_LOG_START_TIME", "0.0"))
-
-# COOL_CLIP=0 disables the cap (test mode): cells that WOULD have been clipped
-# are still logged, with clip_applied=0, and the raw rate is applied and fed
-# into dt_cool. subgrid.cpp's own floor (e_int never drops below 5% of its
-# value in one stage) remains as the last-resort guard.
-COOL_CLIP_ENABLED = os.environ.get("COOL_CLIP", "1").strip().lower() not in ("0", "false", "no", "off")
-if not COOL_CLIP_ENABLED:
-    print("source_module: COOL_CLIP=0 -- cooling-rate cap DISABLED (would-be clips still logged)")
-
-_CLIP_LOG_FIELDS = [
-    "time", "row", "col", "x2_pc", "x1_pc",
-    "rho", "temp_K", "cool_rate_raw", "cool_max", "bdt", "stage_beta", "clip_applied",
-]
-
-DT_COOL_LOG_PATH = os.environ.get(
-    "DT_COOL_LOG_PATH", os.path.join(PROJECT_ROOT, "outputs", "dt_cool_log.csv")
-)
-_dt_cool_log_header_written = False
-_DT_COOL_LOG_FIELDS = [
-    "time", "stage_beta", "bdt", "dt", "cfl",
-    "dt_cool_clipped", "dt_cool_noclip", "n_clipped", "clip_applied",
-]
-
-
-def _log_dt_cool(time_now, stage_beta, bdt, dt, cfl, dt_cool_clipped, dt_cool_noclip, n_clipped):
-    """Append one CSV row per source_func call to DT_COOL_LOG_PATH."""
-    global _dt_cool_log_header_written
-
-    os.makedirs(os.path.dirname(DT_COOL_LOG_PATH), exist_ok=True)
-    write_header = not _dt_cool_log_header_written and not os.path.isfile(DT_COOL_LOG_PATH)
-
-    with open(DT_COOL_LOG_PATH, "a", newline="") as f:
-        writer = csv.writer(f)
-        if write_header:
-            writer.writerow(_DT_COOL_LOG_FIELDS)
-        writer.writerow([time_now, stage_beta, bdt, dt, cfl,
-                         dt_cool_clipped, dt_cool_noclip, int(n_clipped),
-                         int(COOL_CLIP_ENABLED)])
-    _dt_cool_log_header_written = True
-
-
-def _log_clip_events(time_now, bdt, stage_beta, rows, cols, x2min, dx2, x1min, dx1,
-                      rho_hw, temp_hw, cool_raw_hw, cool_max_hw):
-    """Append one CSV row per clipped cell to CLIP_LOG_PATH."""
-    global _clip_log_header_written
-
-    os.makedirs(os.path.dirname(CLIP_LOG_PATH), exist_ok=True)
-    write_header = not _clip_log_header_written and not os.path.isfile(CLIP_LOG_PATH)
-
-    with open(CLIP_LOG_PATH, "a", newline="") as f:
-        writer = csv.writer(f)
-        if write_header:
-            writer.writerow(_CLIP_LOG_FIELDS)
-        for r, c in zip(rows, cols):
-            writer.writerow([
-                time_now,
-                int(r), int(c),
-                x2min + (r + 0.5) * dx2,
-                x1min + (c + 0.5) * dx1,
-                float(rho_hw[r, c]),
-                float(temp_hw[r, c]),
-                float(cool_raw_hw[r, c]),
-                float(cool_max_hw[r, c]),
-                bdt,
-                stage_beta,
-                int(COOL_CLIP_ENABLED),
-            ])
-    _clip_log_header_written = True
 
 
 def _find_available_model(save_dir: str):
@@ -328,8 +225,7 @@ def _predict_tile(rho_tile, temp_tile, ux_tile, uy_tile, ps_tile):
     return pdf
 
 
-def source_func(rho, pres, ux, uy, ps, fmcl, bdt=None, sim_time=None, dt=None, cfl=None,
-                x1min=None, x1max=None, x2min=None, x2max=None):
+def source_func(rho, pres, ux, uy, ps, fmcl, bdt=None):
     """
     Compute subgrid source terms for a 32×16 (or any multiple of 16×8) grid.
 
@@ -460,61 +356,11 @@ def source_func(rho, pres, ux, uy, ps, fmcl, bdt=None, sim_time=None, dt=None, c
     )
     cool_rate = emiss.squeeze().cpu().numpy()  # (H, W)
     # cool_rate is a pure sink by construction (see isobaric_emissivity_from_pdf
-    # in pdf_cnn.py: emiss = (P/kB)^2 * sum(pdf * lambda / T^2) * unit_fix, and
-    # both the PDF weights and Lambda(T) are non-negative) -- there is no heating
-    # case to guard against. However, it is NOT bounded in magnitude: a
-    # dense, actively-cooling cell in a TRML can have a genuinely very
-    # short local cooling time. Applying that raw rate unconditionally for
-    # one substep of size bdt could overshoot straight through any
-    # physical temperature floor, and (worse) feeding the raw rate into
-    # dt_cool below would peg the timestep to that one cell's cooling
-    # time forever: dt shrinks, the state barely evolves each step, so
-    # the model keeps seeing ~the same input and keeps predicting the
-    # same huge rate -- an explicit-integration deadlock, not a crash.
-    #
-    # Standard fix (same idea as radiative-cooling papers this model is
-    # based on): cap the sink so this stage's update can cool a cell to
-    # the floor temperature but no further. A capped cell's own dt_cool
-    # then comes out to ~bdt (see below), so it stops driving the global
-    # timestep down without limit; uncapped cells still constrain dt_cool
-    # normally.
-    # ------------------------------------------------------------------
-    global _sim_time_accum
+    # in pdf_cnn.py: both the PDF weights and Lambda(T) are non-negative), and
+    # it is applied as-is: there is no cap on how far one substep can cool a
+    # cell. subgrid.cpp's own guard (e_int never drops below 5% of its value in
+    # one stage) is the only floor.
     e_curr = pres_arr.T / (gamma - 1.0)  # (H, W), code-unit internal energy
-    time_now = float(sim_time) if sim_time is not None else _sim_time_accum
-    stage_beta = (float(bdt) / float(dt)) if (bdt is not None and dt) else float("nan")
-    cool_rate_raw = cool_rate
-    cool_rate_capped = cool_rate  # capped rate, logged even when the cap isn't applied
-    n_clipped = 0
-    T_TARGET = float(os.environ.get("COOL_TFLOOR", "1.0e4"))  # K
-    if bdt is not None and float(bdt) > 0.0 and T_TARGET > 0.0:
-        p_floor = (rho_arr.T * kb * T_TARGET) / (mu * P_unit)
-        e_floor = p_floor / (gamma - 1.0)
-        cool_max = np.maximum(e_curr - e_floor, 0.0) / float(bdt)
-
-        clip_mask = cool_rate > cool_max
-        if np.any(clip_mask):
-            rows, cols = np.nonzero(clip_mask)
-            n_clipped = len(rows)
-            if None not in (x1min, x1max, x2min, x2max):
-                x2lo, x1lo = float(x2min), float(x1min)
-                dx2 = (float(x2max) - x2lo) / H
-                dx1 = (float(x1max) - x1lo) / W
-            else:
-                x2lo, x1lo = -total_length / 2.0, -total_width / 2.0
-                dx2, dx1 = total_length / H, total_width / W
-            _log_clip_events(
-                time_now, float(bdt), stage_beta, rows, cols,
-                x2lo, dx2, x1lo, dx1,
-                cg["rho"], cg["temp"], cool_rate, cool_max,
-            )
-
-        cool_rate_capped = np.minimum(cool_rate_raw, cool_max)
-        if COOL_CLIP_ENABLED:
-            cool_rate = cool_rate_capped
-
-    if bdt is not None:
-        _sim_time_accum += float(bdt)
 
     # ------------------------------------------------------------------
     # 5. Build source term array
@@ -523,20 +369,10 @@ def source_func(rho, pres, ux, uy, ps, fmcl, bdt=None, sim_time=None, dt=None, c
     source_term[3] = -cool_rate  # energy sink
 
     # ------------------------------------------------------------------
-    # 5b. Cooling timestep: dt_cool = min_cell( E_int / cool_rate ), using
-    #     the same (capped) cool_rate that was actually applied above, so
-    #     a capped cell reports back ~bdt (the step just taken) instead of
-    #     an unboundedly small number.
+    # 5b. Cooling timestep: dt_cool = min_cell( E_int / cool_rate ), fed
+    #     back to AthenaK through psrc->dtnew
     # ------------------------------------------------------------------
-    dt_cool = float(np.min(e_curr / (cool_rate + 1e-30)))  # from the applied rate: fed back
-    # Both variants for the diagnostics log (one of them equals dt_cool)
-    dt_cool_clipped = float(np.min(e_curr / (cool_rate_capped + 1e-30)))
-    dt_cool_noclip = float(np.min(e_curr / (cool_rate_raw + 1e-30)))
-    cfl_f = float(cfl) if cfl is not None else 1.0
-    _log_dt_cool(time_now, stage_beta,
-                 float(bdt) if bdt is not None else float("nan"),
-                 float(dt) if dt is not None else float("nan"), cfl_f,
-                 cfl_f * dt_cool_clipped, cfl_f * dt_cool_noclip, n_clipped)
+    dt_cool = float(np.min(e_curr / (cool_rate + 1e-30)))
 
     # ------------------------------------------------------------------
     # 6. Return shape expected by subgrid.cpp:

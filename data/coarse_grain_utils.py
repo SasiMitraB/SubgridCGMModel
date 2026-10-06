@@ -8,6 +8,8 @@ All coarse-graining follows these principles:
 - Subgrid KE: computed as diagnostic for turbulent closure targets
 """
 
+import os
+
 import numpy as np
 
 
@@ -137,3 +139,38 @@ def compute_subgrid_cooling(rho, temp, rho_c, T_c, lambda_cool_fn, b=32):
         'cool_closure': cool_closure,
         'tau_lambda': tau_lambda,
     }
+
+
+# Version tag for CNN input caches (cg_inputs.npy). Bump it whenever
+# cnn_input_fields changes so stale caches are rebuilt instead of reused.
+CNN_INPUT_SCHEME = "coarse_grain_utils_v1"
+CNN_INPUT_SCHEME_FILE = "scheme.txt"
+
+
+def cnn_input_fields(rho, ux, uy, P, s0, b, P_unit=1.59916e-14, mu=0.62, k_b=1.3807e-16):
+    """
+    Coarse-grain one snapshot into the ConvNN input stack.
+
+    Channel order matches training and source_module inference:
+    (rho, T, ux, uy, s0), with the averaging conventions of coarse_grain().
+
+    Returns:
+        float32 array of shape (5, ny//b, nx//b)
+    """
+    cg = coarse_grain(rho, ux, uy, P, scalars=[s0], b=b, P_unit=P_unit, mu=mu, k_b=k_b)
+    return np.stack([cg['rho_c'], cg['T_c'], cg['ux_c'], cg['uy_c'], cg['s_c'][0]]).astype(np.float32)
+
+
+def cache_scheme_matches(cache_dir):
+    """True if cache_dir was written with the current CNN_INPUT_SCHEME."""
+    path = os.path.join(cache_dir, CNN_INPUT_SCHEME_FILE)
+    if not os.path.exists(path):
+        return False
+    with open(path) as f:
+        return f.read().strip() == CNN_INPUT_SCHEME
+
+
+def write_cache_scheme(cache_dir):
+    """Tag cache_dir with the current CNN_INPUT_SCHEME."""
+    with open(os.path.join(cache_dir, CNN_INPUT_SCHEME_FILE), "w") as f:
+        f.write(CNN_INPUT_SCHEME + "\n")

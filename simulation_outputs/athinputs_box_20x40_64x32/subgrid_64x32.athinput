@@ -52,6 +52,7 @@ gamma       = 1.666667  # gamma = C_p/C_v
 
 <hydro_srcterms>
 ism_cooling = false
+user_cooling = true
 hrate 	    = 0
 
 <problem>

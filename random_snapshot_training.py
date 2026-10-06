@@ -21,7 +21,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from torch.utils.data import DataLoader, Dataset
+from torch.utils.data import Dataset
 import matplotlib.pyplot as plt
 from tqdm import tqdm
 
@@ -54,6 +54,8 @@ from models.conv_nn.pdf_cnn import (
     plot_gate_training,
     train_gate_branch,
 )
+
+from coarse_grain_utils import CNN_INPUT_SCHEME, cache_scheme_matches, cnn_input_fields, write_cache_scheme
 
 try:
     import data_preprocess
@@ -163,7 +165,9 @@ def _load_or_create_single_coarse_data(
         try:
             cg_inputs = np.load(inputs_file)
             cg_pdfs = np.load(pdfs_file)
-            if cg_inputs.ndim == 4 and cg_inputs.shape[0] > 0 and cg_pdfs.shape[0] == cg_inputs.shape[0]:
+            if not cache_scheme_matches(cache_dir):
+                print(f"Cache {cache_dir} predates coarse-graining scheme '{CNN_INPUT_SCHEME}'. Recomputing...")
+            elif cg_inputs.ndim == 4 and cg_inputs.shape[0] > 0 and cg_pdfs.shape[0] == cg_inputs.shape[0]:
                 print(f"Loaded coarse data from cache: {cache_dir} ({cg_inputs.shape[0]} snapshots, shape: {cg_inputs.shape[2:]})")
                 return cg_inputs, cg_pdfs
             print(f"Cached data in {cache_dir} was empty or corrupted. Recomputing...")
@@ -225,12 +229,12 @@ def _load_or_create_single_coarse_data(
             pressure_fine = (gamma - 1.0) * eint_fine
             temp_fine = (pressure_fine * P_unit / rho_fine) * (mu / kb)
 
-            # Block averaging for inputs
-            cg_inputs[idx, 0] = rho_fine.reshape(cH, downsample, cW, downsample).mean(axis=(1, 3))
-            cg_inputs[idx, 1] = temp_fine.reshape(cH, downsample, cW, downsample).mean(axis=(1, 3))
-            cg_inputs[idx, 2] = ux_fine.reshape(cH, downsample, cW, downsample).mean(axis=(1, 3))
-            cg_inputs[idx, 3] = uy_fine.reshape(cH, downsample, cW, downsample).mean(axis=(1, 3))
-            cg_inputs[idx, 4] = ps_fine.reshape(cH, downsample, cW, downsample).mean(axis=(1, 3))
+            # Shared coarse-graining: volume-averaged rho/P, mass-weighted
+            # velocity and scalar, temperature from the EOS on coarse fields
+            cg_inputs[idx] = cnn_input_fields(
+                rho_fine, ux_fine, uy_fine, pressure_fine, ps_fine, downsample,
+                P_unit=P_unit, mu=mu, k_b=kb,
+            )
 
             # Temperature PDF calculation per coarse cell
             temp_blocks = temp_fine.reshape(cH, downsample, cW, downsample).swapaxes(1, 2).reshape(cH, cW, -1)
@@ -249,6 +253,7 @@ def _load_or_create_single_coarse_data(
     cache_dir.mkdir(parents=True, exist_ok=True)
     np.save(inputs_file, cg_inputs)
     np.save(pdfs_file, cg_pdfs)
+    write_cache_scheme(cache_dir)
     print(f"Saved coarse data cache to {cache_dir} (Total size: ~{(cg_inputs.nbytes + cg_pdfs.nbytes) / (1024**2):.1f} MB)")
 
     return cg_inputs, cg_pdfs
@@ -346,6 +351,10 @@ class SnapshotCropDataset(Dataset):
     Random-crop dataset over coarse-grained (32x16) snapshots.
     Extracts (16x8) random subregions each epoch.
 
+    The full coarse arrays and the crop buffers live on `device`, so crops are
+    gathered with a single indexing op and batches are served by GPUBatchLoader
+    without any host<->device copies or DataLoader worker processes.
+
     Parameters
     ----------
     cg_inputs : np.ndarray
@@ -360,30 +369,34 @@ class SnapshotCropDataset(Dataset):
         Number of random crops to draw per snapshot on each resample().
     ema_alpha : float
         EMA smoothing factor for normalisation statistics across epochs.
+    device : torch.device | str
+        Device holding the coarse arrays and crop buffers.
     """
 
     def __init__(
         self,
-        cg_inputs: np.ndarray,
-        cg_pdfs: np.ndarray,
+        cg_inputs: np.ndarray | torch.Tensor,
+        cg_pdfs: np.ndarray | torch.Tensor,
         snap_indices: np.ndarray,
         crop_h_cg: int = 16,
         crop_w_cg: int = 8,
         n_crops_per_snap: int = 8,
         ema_alpha: float = 0.9,
+        device: torch.device | str = "cpu",
     ):
-        self.cg_inputs = cg_inputs
-        self.cg_pdfs = cg_pdfs
-        self.snap_indices = np.asarray(snap_indices)
+        self.device = torch.device(device)
+        self.cg_inputs = torch.as_tensor(cg_inputs, dtype=torch.float32, device=self.device)
+        self.cg_pdfs = torch.as_tensor(cg_pdfs, dtype=torch.float32, device=self.device)
+        self.snap_indices = torch.as_tensor(np.asarray(snap_indices), dtype=torch.long, device=self.device)
         self.crop_h_cg = crop_h_cg
         self.crop_w_cg = crop_w_cg
         self.n_crops_per_snap = n_crops_per_snap
         self.ema_alpha = ema_alpha
 
-        self.cH_full = cg_inputs.shape[2]  # 32
-        self.cW_full = cg_inputs.shape[3]  # 16
-        self.n_fields = cg_inputs.shape[1]  # 5
-        self.out_channels = cg_pdfs.shape[1]  # 40
+        self.cH_full = self.cg_inputs.shape[2]  # 32
+        self.cW_full = self.cg_inputs.shape[3]  # 16
+        self.n_fields = self.cg_inputs.shape[1]  # 5
+        self.out_channels = self.cg_pdfs.shape[1]  # 40
 
         assert self.cH_full >= crop_h_cg, f"Coarse height {self.cH_full} < crop {crop_h_cg}"
         assert self.cW_full >= crop_w_cg, f"Coarse width {self.cW_full} < crop {crop_w_cg}"
@@ -410,25 +423,21 @@ class SnapshotCropDataset(Dataset):
         Draw n_crops_per_snap random 16x8 crops per snapshot.
         Recomputes normalization stats and updates the EMA.
         """
-        total = len(self.snap_indices) * self.n_crops_per_snap
-        inputs_buf = np.zeros((total, self.n_fields, self.crop_h_cg, self.crop_w_cg), dtype=np.float32)
-        pdfs_buf = np.zeros((total, self.out_channels, self.crop_h_cg, self.crop_w_cg), dtype=np.float32)
+        snaps = self.snap_indices.repeat_interleave(self.n_crops_per_snap)  # (N,)
+        total = snaps.shape[0]
 
         max_y = self.cH_full - self.crop_h_cg + 1
         max_x = self.cW_full - self.crop_w_cg + 1
+        y0 = torch.randint(0, max_y, (total,), device=self.device)
+        x0 = torch.randint(0, max_x, (total,), device=self.device)
 
-        idx = 0
-        for snap in self.snap_indices:
-            for _ in range(self.n_crops_per_snap):
-                y0 = np.random.randint(0, max_y)
-                x0 = np.random.randint(0, max_x)
+        ys = y0[:, None] + torch.arange(self.crop_h_cg, device=self.device)  # (N, h)
+        xs = x0[:, None] + torch.arange(self.crop_w_cg, device=self.device)  # (N, w)
+        s_idx, y_idx, x_idx = snaps[:, None, None], ys[:, :, None], xs[:, None, :]
 
-                inputs_buf[idx] = self.cg_inputs[snap, :, y0 : y0 + self.crop_h_cg, x0 : x0 + self.crop_w_cg]
-                pdfs_buf[idx] = self.cg_pdfs[snap, :, y0 : y0 + self.crop_h_cg, x0 : x0 + self.crop_w_cg]
-                idx += 1
-
-        self._inputs = torch.from_numpy(inputs_buf)
-        self._pdfs = torch.from_numpy(pdfs_buf)
+        # Advanced indexing gives (N, h, w, C); move channels back to dim 1
+        self._inputs = self.cg_inputs.permute(0, 2, 3, 1)[s_idx, y_idx, x_idx].permute(0, 3, 1, 2).contiguous()
+        self._pdfs = self.cg_pdfs.permute(0, 2, 3, 1)[s_idx, y_idx, x_idx].permute(0, 3, 1, 2).contiguous()
 
         # Clamping PDFs for numerical stability
         self._pdfs = torch.clamp(self._pdfs, min=1e-12)
@@ -457,8 +466,8 @@ class SnapshotCropDataset(Dataset):
 
     def set_norm_stats(self, mean: torch.Tensor, std: torch.Tensor):
         """Override internal stats with externally provided ones."""
-        self.input_mean = mean
-        self.input_std = std
+        self.input_mean = mean.to(self.device)
+        self.input_std = std.to(self.device)
 
     @property
     def ema_mean(self) -> torch.Tensor:
@@ -471,9 +480,53 @@ class SnapshotCropDataset(Dataset):
     def __len__(self) -> int:
         return self._inputs.shape[0]
 
+    def get_batch(self, idx: torch.Tensor) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
+        """Return a normalised batch for the given crop indices (a slice or index tensor)."""
+        x_norm = (self._inputs[idx] - self.input_mean) / self.input_std
+        return x_norm, self._pdfs[idx], self._rho_cg[idx], self._temp_cg[idx]
+
     def __getitem__(self, i: int) -> tuple[torch.Tensor, torch.Tensor, torch.Tensor, torch.Tensor]:
         x_norm = (self._inputs[i] - self.input_mean.squeeze(0)) / self.input_std.squeeze(0)
         return x_norm, self._pdfs[i], self._rho_cg[i], self._temp_cg[i]
+
+
+class GPUBatchLoader:
+    """
+    Minimal DataLoader replacement for a device-resident SnapshotCropDataset.
+
+    Iterating yields batches sliced directly from the dataset's current crop
+    buffers, so it always reflects the latest resample() / set_norm_stats()
+    and never needs to be rebuilt between epochs.
+    """
+
+    def __init__(self, dataset: SnapshotCropDataset, batch_size: int, shuffle: bool = False):
+        self.dataset = dataset
+        self.batch_size = batch_size
+        self.shuffle = shuffle
+
+    def __len__(self) -> int:
+        return (len(self.dataset) + self.batch_size - 1) // self.batch_size
+
+    def __iter__(self):
+        n = len(self.dataset)
+        if self.shuffle:
+            order = torch.randperm(n, device=self.dataset.device)
+            for i in range(0, n, self.batch_size):
+                yield self.dataset.get_batch(order[i : i + self.batch_size])
+        else:
+            for i in range(0, n, self.batch_size):
+                yield self.dataset.get_batch(slice(i, i + self.batch_size))
+
+
+def model_forward(model: nn.Module, x: torch.Tensor, use_bf16: bool) -> tuple[torch.Tensor, torch.Tensor]:
+    """
+    Run the CNN, optionally under bf16 autocast (~2.5x faster convs on CUDA).
+    Outputs are cast back to fp32 so the loss (log10 terms, sharp softmax)
+    is always computed in full precision.
+    """
+    with torch.autocast("cuda", dtype=torch.bfloat16, enabled=use_bf16):
+        logits, gate = model(x)
+    return logits.float(), gate.float()
 
 
 # ===================================================================== #
@@ -627,10 +680,21 @@ def parse_args():
         help="Random seed for snapshot split",
     )
     parser.add_argument(
+        "--log_every",
+        type=int,
+        default=int(os.environ.get("LOG_EVERY", "10")),
+        help="Evaluate and record train/val losses every N epochs (the final epoch is always recorded)",
+    )
+    parser.add_argument(
         "--device",
         type=str,
         default=None,
         help="Device override ('cuda', 'mps', 'cpu')",
+    )
+    parser.add_argument(
+        "--no_bf16",
+        action="store_true",
+        help="Disable bf16 autocast for the CNN forward pass (CUDA only; loss always runs in fp32)",
     )
     # Loss Weights
     parser.add_argument(
@@ -747,6 +811,15 @@ def main():
     device = get_device(args.device)
     print(f"Using device: {device}")
 
+    # Fixed input shapes, so cuDNN autotuning pays off
+    torch.backends.cudnn.benchmark = True
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+    use_bf16 = (
+        device.type == "cuda" and not args.no_bf16 and torch.cuda.is_bf16_supported()
+    )
+    print(f"bf16 autocast: {'on' if use_bf16 else 'off'}")
+
     # Directories
     model_save_dir = Path(args.model_save_dir)
     loss_plot_dir = Path(args.loss_plot_dir)
@@ -808,6 +881,7 @@ def main():
         crop_w_cg=crop_w_cg,
         n_crops_per_snap=args.n_crops_train,
         ema_alpha=args.ema_alpha,
+        device=device,
     )
 
     val_dataset = SnapshotCropDataset(
@@ -818,6 +892,7 @@ def main():
         crop_w_cg=crop_w_cg,
         n_crops_per_snap=args.n_crops_val,
         ema_alpha=args.ema_alpha,
+        device=device,
     )
 
     test_dataset = SnapshotCropDataset(
@@ -828,6 +903,7 @@ def main():
         crop_w_cg=crop_w_cg,
         n_crops_per_snap=args.n_crops_test,
         ema_alpha=args.ema_alpha,
+        device=device,
     )
 
     # Initialize Model
@@ -844,21 +920,12 @@ def main():
     batch_size = args.batch_size
     grad_clip_max_norm = HYPERPARAMS.get("grad_clip_max_norm", 1.0)
 
-    # Initial Dataloaders for Stage 1
-    train_loader = DataLoader(
-        train_dataset,
-        batch_size=batch_size,
-        shuffle=True,
-        num_workers=2,
-        pin_memory=(device.type == "cuda"),
-    )
-    val_loader = DataLoader(
-        val_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=2,
-        pin_memory=(device.type == "cuda"),
-    )
+    log_every = max(1, args.log_every)
+
+    # Device-resident batch loaders; they read the datasets' live buffers, so
+    # they are reused across resample() calls in both stages
+    train_loader = GPUBatchLoader(train_dataset, batch_size=batch_size, shuffle=True)
+    val_loader = GPUBatchLoader(val_dataset, batch_size=batch_size, shuffle=False)
 
     # ── STAGE 1: GATE PRETRAINING ─────────────────────────────────────
     gate_save_path = model_save_dir / f"cnn_{res}_{downsample}_gate.pth"
@@ -882,6 +949,7 @@ def main():
             weight_decay=args.weight_decay,
             grad_clip_max_norm=grad_clip_max_norm,
             save_path=str(gate_save_path),
+            eval_every=log_every,
         )
         plot_gate_training(gate_history, save_path=str(gate_plot_path))
     else:
@@ -968,29 +1036,9 @@ def main():
         # Val uses train's current-epoch stats so the loss is comparable
         val_dataset.set_norm_stats(train_dataset.input_mean, train_dataset.input_std)
 
-        train_loader = DataLoader(
-            train_dataset,
-            batch_size=batch_size,
-            shuffle=True,
-            num_workers=2,
-            pin_memory=(device.type == "cuda"),
-        )
-        val_loader = DataLoader(
-            val_dataset,
-            batch_size=batch_size,
-            shuffle=False,
-            num_workers=2,
-            pin_memory=(device.type == "cuda"),
-        )
-
         # ── 2. Train ──────────────────────────────────────────────────
         cnn_model.train()
         for inputs, labels, rho, temp in train_loader:
-            inputs = inputs.to(device)
-            labels = labels.to(device)
-            rho = rho.to(device)
-            temp = temp.to(device)
-
             # Augmentation: flip & negate velocity components
             if torch.rand(1).item() > 0.5:
                 inputs = torch.flip(inputs, [3])
@@ -1008,7 +1056,7 @@ def main():
                 inputs = inputs.clone()
                 inputs[:, 3] = -inputs[:, 3]  # negate uy
 
-            logits, gate = cnn_model(inputs)
+            logits, gate = model_forward(cnn_model, inputs, use_bf16)
             loss = criterion(logits, gate, labels, rho, temp)
 
             optimizer.zero_grad()
@@ -1018,13 +1066,17 @@ def main():
             scheduler.step()
 
         # ── 3. Validate with individual loss term breakdown ───────────
+        # Only every `log_every` epochs: re-running the model over the whole
+        # train set costs about as much as a training epoch
+        is_last_epoch = epoch == num_epochs - 1
+        if (epoch + 1) % log_every != 0 and not is_last_epoch:
+            continue
+
         cnn_model.eval()
         with torch.no_grad():
             train_totals = {k: 0.0 for k in train_history}
             for x_b, y_b, r_b, t_b in train_loader:
-                x_b, y_b = x_b.to(device), y_b.to(device)
-                r_b, t_b = r_b.to(device), t_b.to(device)
-                logits_b, gate_b = cnn_model(x_b)
+                logits_b, gate_b = model_forward(cnn_model, x_b, use_bf16)
                 _, comp = criterion(
                     logits_b, gate_b, y_b, r_b, t_b, return_components=True
                 )
@@ -1037,9 +1089,7 @@ def main():
 
             val_totals = {k: 0.0 for k in val_history}
             for x_b, y_b, r_b, t_b in val_loader:
-                x_b, y_b = x_b.to(device), y_b.to(device)
-                r_b, t_b = r_b.to(device), t_b.to(device)
-                logits_b, gate_b = cnn_model(x_b)
+                logits_b, gate_b = model_forward(cnn_model, x_b, use_bf16)
                 _, comp = criterion(
                     logits_b, gate_b, y_b, r_b, t_b, return_components=True
                 )
@@ -1056,14 +1106,16 @@ def main():
         epochs_array.append(epoch + 1)
         val_loss_arr = val_history["total"]
 
-        if (epoch + 1) % 50 == 0 or epoch == num_epochs - 1:
+        if (epoch + 1) % 50 < log_every or is_last_epoch:
             tqdm.write(
                 f"Epoch [{epoch+1}/{num_epochs}] - Train Loss: {train_loss:.6f}, Val Loss: {val_loss:.6f}"
             )
 
         # ── 4. Early stopping (moving-average logic) ───────────────────
-        if len(val_loss_arr) >= 200:
-            ma = np.convolve(val_loss_arr, np.ones(200) / 200, mode="valid")
+        # 200-epoch window, expressed in number of logged points
+        ma_window = max(1, 200 // log_every)
+        if len(val_loss_arr) >= ma_window:
+            ma = np.convolve(val_loss_arr, np.ones(ma_window) / ma_window, mode="valid")
             if len(ma) > 1 and ma[-1] > np.min(ma[:-1]) and epoch >= 499:
                 print(f"Early stopping at epoch {epoch+1}")
                 break
@@ -1125,21 +1177,13 @@ def main():
     print("\nEvaluating on Test Set with EMA stats...")
     test_dataset.resample()
     test_dataset.set_norm_stats(train_dataset.ema_mean, train_dataset.ema_std)
-    test_loader = DataLoader(
-        test_dataset,
-        batch_size=batch_size,
-        shuffle=False,
-        num_workers=2,
-        pin_memory=(device.type == "cuda"),
-    )
+    test_loader = GPUBatchLoader(test_dataset, batch_size=batch_size, shuffle=False)
 
     cnn_model.eval()
     with torch.no_grad():
         test_totals = {k: 0.0 for k in train_history}
         for x_b, y_b, r_b, t_b in test_loader:
-            x_b, y_b = x_b.to(device), y_b.to(device)
-            r_b, t_b = r_b.to(device), t_b.to(device)
-            logits_b, gate_b = cnn_model(x_b)
+            logits_b, gate_b = model_forward(cnn_model, x_b, use_bf16)
             _, comp = criterion(
                 logits_b, gate_b, y_b, r_b, t_b, return_components=True
             )

@@ -255,8 +255,9 @@ def trapz_integral(y_vals: np.ndarray, x_coords: np.ndarray) -> float:
 
 def compute_profile_metrics(ref_profile, target_profile):
     """Compute Pearson correlation and RMSD between two 1D profiles."""
-    ref = np.asarray(ref_profile).ravel()
-    tar = np.asarray(target_profile).ravel()
+    # float64: squared differences of ~1e-26 cooling rates underflow in float32
+    ref = np.asarray(ref_profile, dtype=np.float64).ravel()
+    tar = np.asarray(target_profile, dtype=np.float64).ravel()
     rmsd = float(np.sqrt(np.mean((ref - tar) ** 2)))
     if np.all(ref == ref[0]) or np.all(tar == tar[0]) or np.isnan(ref).any() or np.isnan(tar).any():
         r = float("nan")
@@ -264,6 +265,67 @@ def compute_profile_metrics(ref_profile, target_profile):
         r_val, _ = pearsonr(ref, tar)
         r = float(r_val)
     return r, rmsd
+
+
+def compute_net_cooling(emis: np.ndarray, Ly_pc: float) -> np.ndarray:
+    """Net cooling per unit mixing-layer area at each snapshot.
+
+    Sigma_c(t) = (1/Lx) * integral n^2 Lambda(T) dx dy  [erg cm^-2 s^-1]
+    = <n^2 Lambda>_{x,y} * Ly, which is resolution-independent, so the full-res
+    HR field and the coarse SG/LR fields can be compared directly.
+    """
+    return np.mean(emis, axis=(-2, -1), dtype=np.float64) * Ly_pc * CM_PER_PC
+
+
+NET_COOLING_COLORS = {"HR": "#1f1e1b", "SG": "#2a78d6", "LR": "#eb6834"}
+
+
+def plot_net_cooling_vs_time(t_myr, sigma_hr, sigma_sg, sigma_lr, out_dir, title_suffix=""):
+    """Plot Sigma_c(t) for HR / SG / LR plus the SG/HR and LR/HR ratios, and
+    write the underlying series to net_cooling_vs_time.csv."""
+    out_dir = Path(out_dir)
+    series = [
+        ("HR", sigma_hr, "-", "^"),
+        (SG_LABEL, sigma_sg, "-.", "o"),
+        (LR_LABEL, sigma_lr, "--", "s"),
+    ]
+    colors_ = [NET_COOLING_COLORS["HR"], NET_COOLING_COLORS["SG"], NET_COOLING_COLORS["LR"]]
+    markevery = max(1, len(t_myr) // 25)
+
+    fig, (ax, ax_r) = plt.subplots(2, 1, figsize=(10, 8), sharex=True,
+                                   gridspec_kw={"height_ratios": [2, 1], "hspace": 0.08})
+    for (lbl, sig, ls, mk), c in zip(series, colors_):
+        mean_str = f"{np.nanmean(sig):.2e}"
+        ax.plot(t_myr, sig, lw=2, ls=ls, marker=mk, markersize=5, markevery=markevery,
+                color=c, label=rf"{lbl}  ($\langle\Sigma_c\rangle_t = {mean_str}$)")
+    ax.set_yscale("log")
+    ax.set_ylabel(r"$\Sigma_c = L_x^{-1}\!\int n^2\Lambda(T)\,dx\,dy$  [erg cm$^{-2}$ s$^{-1}$]", fontsize=12)
+    ax.set_title(f"Net Cooling vs Time{title_suffix}", fontsize=14, weight="bold")
+    ax.grid(True, which="both", ls="--", alpha=0.4)
+    ax.legend(fontsize=10)
+
+    with np.errstate(divide="ignore", invalid="ignore"):
+        r_sg = sigma_sg / sigma_hr
+        r_lr = sigma_lr / sigma_hr
+    ax_r.axhline(1.0, color="gray", lw=1.2)
+    ax_r.plot(t_myr, r_sg, lw=2, ls="-.", marker="o", markersize=5, markevery=markevery,
+              color=colors_[1], label=f"{SG_LABEL} / HR")
+    ax_r.plot(t_myr, r_lr, lw=2, ls="--", marker="s", markersize=5, markevery=markevery,
+              color=colors_[2], label=f"{LR_LABEL} / HR")
+    ax_r.set_yscale("log")
+    ax_r.set_xlabel("Physical Time [Myr]", fontsize=13)
+    ax_r.set_ylabel(r"$\Sigma_c / \Sigma_{c,\mathrm{HR}}$", fontsize=12)
+    ax_r.grid(True, which="both", ls="--", alpha=0.4)
+    ax_r.legend(fontsize=10)
+
+    plt.tight_layout()
+    plt.savefig(out_dir / "net_cooling_vs_time.png", dpi=200)
+    plt.close(fig)
+
+    with open(out_dir / "net_cooling_vs_time.csv", "w", newline="") as f:
+        writer = csv.writer(f)
+        writer.writerow(["t_myr", "sigma_c_hr", "sigma_c_sg", "sigma_c_lr"])
+        writer.writerows(zip(t_myr, sigma_hr, sigma_sg, sigma_lr))
 
 
 def setup_tiled_pdf_panel(ax, ny_cg=32, nx_cg=16, nb_bins=40,
@@ -396,61 +458,6 @@ def load_history_file(history_path):
             dt_cool = dt_cool[last_reset:]
 
     return times, dts, dt_cfl, dt_cool
-
-
-def load_clip_log(path):
-    """Load the cooling-rate clip-event CSV written by source_module.py.
-
-    source_module.py's live source_func() logs one row per cell where the
-    temperature-floor cap actually engaged (time, grid position, physical
-    position, and local rho/temp/cool_rate/cool_max). Returns a dict of
-    numpy arrays keyed by column name, or None if no log file exists yet
-    (e.g. this run never invoked the subgrid CNN source term).
-    """
-    if not os.path.isfile(path):
-        return None
-    with open(path, newline="") as f:
-        reader = csv.reader(f)
-        header = next(reader, None)
-        rows = list(reader)
-    if not header or not rows:
-        return None
-    data = np.array(rows, dtype=np.float64)
-    return {name: data[:, i] for i, name in enumerate(header)}
-
-
-def plot_clip_diagnostics(clip_data, out_dir):
-    """Scatter of clipped-cell positions (colored by time) + a time histogram.
-
-    Lets a clip event be cross-referenced directly against the logged
-    rho/temp/cool_rate/cool_max at that cell without re-opening snapshots.
-    """
-    n_events = clip_data["time"].size
-    cells = set(zip(clip_data["row"].astype(int), clip_data["col"].astype(int)))
-    t_min, t_max = clip_data["time"].min(), clip_data["time"].max()
-    print(f"  {n_events} clip events across {len(cells)} unique cells, "
-          f"t = [{t_min:.3f}, {t_max:.3f}] Myr")
-
-    fig, (ax_scatter, ax_hist) = plt.subplots(1, 2, figsize=(16, 6))
-
-    sc = ax_scatter.scatter(clip_data["x1_pc"], clip_data["x2_pc"], c=clip_data["time"],
-                             cmap="viridis", s=12, alpha=0.7)
-    ax_scatter.set_xlabel(r"$x_1 \ [\mathrm{pc}]$", fontsize=12)
-    ax_scatter.set_ylabel(r"$x_2 \ [\mathrm{pc}]$", fontsize=12)
-    ax_scatter.set_title(f"Clip Event Positions ({n_events} events)", fontsize=13, weight="bold")
-    ax_scatter.grid(True, ls="--", alpha=0.4)
-    plt.colorbar(sc, ax=ax_scatter, label="time [Myr]")
-
-    ax_hist.hist(clip_data["time"], bins=min(50, max(1, n_events)), color="tab:red", alpha=0.75)
-    ax_hist.set_xlabel("time [Myr]", fontsize=12)
-    ax_hist.set_ylabel("clip events", fontsize=12)
-    ax_hist.set_title("Clip Events vs Time", fontsize=13, weight="bold")
-    ax_hist.grid(True, ls="--", alpha=0.4)
-
-    plt.tight_layout()
-    plt.savefig(out_dir / "clip_diagnostics.png", dpi=200)
-    plt.close(fig)
-    print("  Saved clip_diagnostics.png")
 
 
 def load_tiled_cnn_model(save_dir=None):
@@ -592,13 +599,17 @@ def main():
     ny_lr, nx_lr = f0_sg.density.shape
 
     # Preallocate float32 arrays directly to prevent massive peak RAM during np.array(list_of_arrays)
+    # Only the full-res HR fields needed across all frames are kept (rho, T,
+    # ux, uy, emissivity); pressure/eint are only used for the frame-0 static
+    # snapshot. Each full-res stack is ~nt*ny*nx*4 bytes (4.2 GB for 501
+    # frames of 2048x1024), so large boxes OOM if every field is kept.
     hr_rho  = np.empty((nt, ny_hr, nx_hr), dtype=np.float32)
     hr_temp = np.empty((nt, ny_hr, nx_hr), dtype=np.float32)
-    hr_pres = np.empty((nt, ny_hr, nx_hr), dtype=np.float32)
     hr_ux   = np.empty((nt, ny_hr, nx_hr), dtype=np.float32)
     hr_uy   = np.empty((nt, ny_hr, nx_hr), dtype=np.float32)
-    hr_ien  = np.empty((nt, ny_hr, nx_hr), dtype=np.float32)
-    hr_ps   = np.empty((nt, ny_hr, nx_hr), dtype=np.float32)
+    emis_hr = np.empty((nt, ny_hr, nx_hr), dtype=np.float32)
+    hr_pres0 = np.empty((1, ny_hr, nx_hr), dtype=np.float32)
+    hr_ien0  = np.empty((1, ny_hr, nx_hr), dtype=np.float32)
 
     cg_hr_rho  = np.empty((nt, ny_lr, nx_lr), dtype=np.float32)
     cg_hr_temp = np.empty((nt, ny_lr, nx_lr), dtype=np.float32)
@@ -607,6 +618,7 @@ def main():
     cg_hr_uy   = np.empty((nt, ny_lr, nx_lr), dtype=np.float32)
     cg_hr_ien  = np.empty((nt, ny_lr, nx_lr), dtype=np.float32)
     cg_hr_ps   = np.empty((nt, ny_lr, nx_lr), dtype=np.float32)
+    emis_cg_hr = np.empty((nt, ny_lr, nx_lr), dtype=np.float32)
 
     sg_rho  = np.empty((nt, ny_lr, nx_lr), dtype=np.float32)
     sg_temp = np.empty((nt, ny_lr, nx_lr), dtype=np.float32)
@@ -639,11 +651,17 @@ def main():
 
         hr_rho[i]  = rho_h
         hr_temp[i] = temp_h
-        hr_pres[i] = pres_h
         hr_ux[i]   = vx_h
         hr_uy[i]   = vy_h
-        hr_ien[i]  = ien_h
-        hr_ps[i]   = ps_h
+        if i == 0:
+            hr_pres0[0] = pres_h
+            hr_ien0[0]  = ien_h
+
+        # HR emissivity per frame (avoids float64 temporaries over the whole stack)
+        e_h = (rho_h.astype(np.float64) * n_to_cm3)**2 * lambda_cool(temp_h, mask=True, LOGT_ACTIVE_START=LOGT_ACTIVE_START, LOGT_ACTIVE_END=LOGT_ACTIVE_END)
+        emis_hr[i]    = e_h
+        emis_cg_hr[i] = coarse_grain_2d(e_h, DS)
+        del e_h
 
         # CG HR
         cg_r = coarse_grain_2d(rho_h, DS)
@@ -678,13 +696,6 @@ def main():
         lr_fmcl[i] = f_lr.scalars['scalar_01'].astype(np.float32) if 'scalar_01' in f_lr.scalars else (f_lr.temperature < 1e5).astype(np.float32)
 
     # 3. Conserved fields
-    hr_cons_rho  = hr_rho
-    hr_cons_momx = hr_rho * hr_ux
-    hr_cons_momy = hr_rho * hr_uy
-    hr_cons_ener = hr_ien + 0.5 * hr_rho * (hr_ux**2 + hr_uy**2)
-    hr_cons_ps   = hr_rho * hr_ps
-    hr_fmcl      = (hr_temp < 1e5).astype(np.float32)
-
     cg_hr_cons_rho  = cg_hr_rho
     cg_hr_cons_momx = cg_hr_rho * cg_hr_ux
     cg_hr_cons_momy = cg_hr_rho * cg_hr_uy
@@ -708,8 +719,6 @@ def main():
     print("\n[3] Computing Subgrid CNN inferences & cooling fields...")
     model, input_mean, input_std = load_tiled_cnn_model()
 
-    emis_hr = (hr_rho * n_to_cm3)**2 * lambda_cool(hr_temp, mask=True, LOGT_ACTIVE_START=LOGT_ACTIVE_START, LOGT_ACTIVE_END=LOGT_ACTIVE_END)
-    emis_cg_hr = np.array([coarse_grain_2d(e, DS) for e in emis_hr])
     emis_lr = (lr_rho * n_to_cm3)**2 * lambda_cool(lr_temp, mask=True, LOGT_ACTIVE_START=LOGT_ACTIVE_START, LOGT_ACTIVE_END=LOGT_ACTIVE_END)
 
     ny_cg, nx_cg = sg_rho.shape[1], sg_rho.shape[2]
@@ -1006,6 +1015,19 @@ def main():
     print("  Saved cold_mass_evolution.png")
 
     # =========================================================================
+    # PLOT 5a: Net Cooling (domain-integrated) vs Time
+    # =========================================================================
+    print("\n[8a] Generating net_cooling_vs_time.png...")
+    plot_net_cooling_vs_time(
+        t_restart_myr,
+        compute_net_cooling(emis_hr, Ly),
+        compute_net_cooling(emis_sg, Ly),
+        compute_net_cooling(emis_lr, Ly),
+        out_dir,
+    )
+    print("  Saved net_cooling_vs_time.png")
+
+    # =========================================================================
     # PLOT 5b: Timestep (dt) vs Time
     # =========================================================================
     print("\n[8b] Generating delta_t_vs_time.png...")
@@ -1192,7 +1214,7 @@ def main():
     # PLOT 7: Static Snapshots (all_fields_snapshot.png & 5-panel Subgrid PDF)
     # =========================================================================
     print("\n[10] Generating static snapshots...")
-    fields_hr = [hr_rho, hr_temp, hr_pres, hr_ux, hr_uy, hr_ien]
+    fields_hr = [hr_rho, hr_temp, hr_pres0, hr_ux, hr_uy, hr_ien0]
     fields_cg_hr = [cg_hr_rho, cg_hr_temp, cg_hr_pres, cg_hr_ux, cg_hr_uy, cg_hr_ien]
     fields_sg = [sg_rho, sg_temp, sg_pres, sg_ux, sg_uy, sg_ien]
     fields_lr = [lr_rho, lr_temp, lr_pres, lr_ux, lr_uy, lr_ien]
@@ -1512,18 +1534,6 @@ def main():
 
     save_animation_funcanim(fig_e, update_subgrid_pdf, anim_frames,
                             str(out_dir / "subgrid_predicted_pdf_evolution.mp4"), fps=10, blit=True)
-
-    # =========================================================================
-    # CLIPPING DIAGNOSTICS: where/when the cooling-rate floor cap engaged
-    # =========================================================================
-    print("\n[7] Checking for cooling-rate clip log...")
-    clip_log_path = os.environ.get("CLIP_LOG_PATH", str(PROJECT_ROOT / "outputs" / "clip_events.csv"))
-    clip_data = load_clip_log(clip_log_path)
-    if clip_data is None:
-        print(f"  No clip log found at {clip_log_path} -- skipping "
-              f"(only the live source_module.py sim path writes this).")
-    else:
-        plot_clip_diagnostics(clip_data, out_dir)
 
     print("\n" + "=" * 75)
     print(f" ALL DIAGNOSTICS & ANIMATIONS COMPLETED! Saved to: {out_dir}")

@@ -187,6 +187,8 @@ $$
 $$
 For a capped cell this simplifies to $\Delta t_\mathrm{subgrid} \approx bdt \cdot e_\mathrm{int}/(e_\mathrm{int}-e_\mathrm{floor}) \approx bdt$ — i.e. it reports back "the step you just took was fine," instead of an unboundedly small number, so a single stiff cell can no longer collapse the global timestep. Cells that aren't capped still constrain $\Delta t_\mathrm{subgrid}$ normally. Both quantities are computed directly in Python and returned to C++ as an extra element of a tuple, alongside the source-term array.
 
+**Update (2026-09-24): the cap has been removed.** Later runs showed it had stopped doing the job above. In a `COOL_CLIP=0` test run (`runs/run_20260923_165714`) and a capped run, the minimum $\Delta t_\mathrm{cool}$ was identical with and without the cap, and the uncapped run reached 5 Myr with no deadlock. Every capped cell sat at $T \approx 10^4$ K, so the cap was acting as a temperature floor, not a stiffness limiter. `source_func` now applies the raw rate and computes $\Delta t_\mathrm{subgrid}$ from it. The only remaining guard is `subgrid.cpp`'s $e_\mathrm{int} \geq 0.05\,e_\mathrm{int}$ per stage. One consequence: coarse cold gas can now cool below $10^4$ K (about 7750 K was seen by 5 Myr in the uncapped run), unlike the HR runs, where cooling switches off below $1.05\times10^4$ K.
+
 ### Wiring it into `SourceTerms::dtnew`
 
 `Mesh::NewTimeStep()` already reads `pmb_pack->phydro->psrc->dtnew` at [mesh.cpp:613](../athenak/src/mesh/mesh.cpp#L613) — so instead of adding a new framework-level hook, `UserSourceTerm()` just writes directly into it:

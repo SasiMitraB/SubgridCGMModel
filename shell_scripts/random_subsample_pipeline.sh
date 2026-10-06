@@ -6,10 +6,14 @@
 # Steps:
 #   1. Train PDF CNN on random snapshot crops (random_snapshot_training.py)
 #   2. Benchmark PDF CNN model (pdf_plot.py)
-#   3. Low-resolution simulation 0 -> 5 Myr (athena; ISM cooling)
-#   4. lr_build — restart from 5 Myr rst (athena; ISM cooling, 5 -> 10 Myr)
-#   5. subgrid_model — restart from 5 Myr rst (athena; CNN subgrid, 5 -> 10 Myr)
+#   3. Downsample the HR eval snapshot at 5 Myr to the coarse grid (downsample_ic.py)
+#   4. lr_build — start from the downsampled IC (athena; ISM cooling, 5 -> 10 Myr)
+#   5. subgrid_model — start from the same IC (athena; CNN subgrid, 5 -> 10 Myr)
 #   6. Diagnostic comparison plots & animations (mock_sg.py)
+#   7. dt vs time comparison (plot_dt_comparison.py)
+#
+# Steps 4 and 5 both start from the coarse-grained HR state, so their first
+# frame matches the coarse-grained HR (CGHR) reference by construction.
 #
 # =============================================================================
 
@@ -86,11 +90,15 @@ export DOMAIN_X2MAX="${DOMAIN_X2MAX:-10.0}"
 export PROBLEM_SIGMA="${PROBLEM_SIGMA:-1.0}"
 export PROBLEM_A_CHAR="${PROBLEM_A_CHAR:-0.25}"
 export PROBLEM_COLD_FRAC="${PROBLEM_COLD_FRAC:-0.5}"
-export SIM_TLIM_LR="${SIM_TLIM_LR:-5.0}"
-export SIM_TLIM_RESTART="${SIM_TLIM_RESTART:-10.0}"
-export RESTART_TIME_MYR="${RESTART_TIME_MYR:-${SIM_TLIM_LR}}"
-export START_FRAME="${START_FRAME:-500}"
+# The coarse runs start from HR snapshot HR_START_FRAME (bin cadence 0.01 Myr),
+# i.e. physical time RESTART_TIME_MYR, and run until SIM_TLIM_RESTART.
+# Athena's clock starts at 0 for an IC-file start, so its tlim is the duration.
 export HR_START_FRAME="${HR_START_FRAME:-500}"
+export BIN_DT_MYR="${BIN_DT_MYR:-0.01}"
+export RESTART_TIME_MYR="${RESTART_TIME_MYR:-$(python3 -c "print(round(${HR_START_FRAME} * ${BIN_DT_MYR}, 6))")}"
+export SIM_TLIM_RESTART="${SIM_TLIM_RESTART:-10.0}"
+export SIM_DURATION_MYR="$(python3 -c "print(round(${SIM_TLIM_RESTART} - ${RESTART_TIME_MYR}, 6))")"
+export START_FRAME="${START_FRAME:-0}"   # coarse-run outputs begin at frame 0 (= RESTART_TIME_MYR)
 
 # ---- 3. Evaluation & Benchmark Reference ----
 # Benchmarks model against hr_build_512 reference
@@ -99,6 +107,8 @@ HR_EVAL_BIN_DIR="${HR_EVAL_OUTPUT}/bin"
 HR_EVAL_CACHE_DIR="${HR_EVAL_OUTPUT}/cache"
 HR_EVAL_RESOLUTION="${HR_EVAL_RESOLUTION:-512,256}"
 HR_EVAL_DOWNSAMPLE="${HR_EVAL_DOWNSAMPLE:-32}"
+# HR snapshot the coarse simulations are initialised from
+HR_IC_SNAPSHOT="${HR_IC_SNAPSHOT:-${HR_EVAL_BIN_DIR}/KH.hydro_w.$(printf '%05d' "${HR_START_FRAME}").bin}"
 
 # ---- 4. Training Hyperparameters ----
 export NUM_EPOCHS="${NUM_EPOCHS:-1000}"
@@ -112,6 +122,7 @@ export N_CROPS_VAL="${N_CROPS_VAL:-4}"
 export N_CROPS_TEST="${N_CROPS_TEST:-4}"
 export EMA_ALPHA="${EMA_ALPHA:-0.9}"
 export SEED="${SEED:-42}"
+export LOG_EVERY="${LOG_EVERY:-10}"   # evaluate/record losses every N epochs
 
 # Loss weights
 export PDF_CNN_ALPHA_ACTIVE_WASSERSTEIN="${PDF_CNN_ALPHA_ACTIVE_WASSERSTEIN:-${PDF_CNN_ALPHA_ACTIVE_KL:-10.0}}"
@@ -134,8 +145,6 @@ export LOGT_ACTIVE_END="${LOGT_ACTIVE_END:-5.9}"
 # =============================================================================
 
 # ---- Simulation Output Directories ----
-LR_OUTPUT_DIR="${PROJECT_ROOT}/simulation_outputs/lr_build"
-LR_RST_5MYR="${LR_OUTPUT_DIR}/rst/KH.00005.rst"
 LR_BUILD_OUTPUT_DIR="${PROJECT_ROOT}/simulation_outputs/lr_build_ism"
 SG_OUTPUT_DIR="${PROJECT_ROOT}/simulation_outputs/subgrid_model"
 
@@ -144,6 +153,7 @@ TIMESTAMP="$(date '+%Y%m%d_%H%M%S')"
 RUN_DIR="${PROJECT_ROOT}/runs/run_random_crop_${TIMESTAMP}"
 LOG_DIR="${RUN_DIR}/logs"
 ATHINPUT_CACHE_DIR="${RUN_DIR}/athinputs"
+DOWNSAMPLED_IC_FILE="${RUN_DIR}/ic_snap$(printf '%05d' "${HR_START_FRAME}")_${SIM_NX2}x${SIM_NX1}.bin"
 
 export MODEL_SAVES_DIR="${RUN_DIR}/model_saves"
 export LOSS_PLOTS_DIR="${RUN_DIR}/loss_plots"
@@ -157,7 +167,6 @@ mkdir -p \
     "${LOSS_PLOTS_DIR}" \
     "${PDF_MOCKS_DIR}" \
     "${SG_MOCKS_DIR}" \
-    "${LR_OUTPUT_DIR}" \
     "${LR_BUILD_OUTPUT_DIR}" \
     "${SG_OUTPUT_DIR}"
 
@@ -200,7 +209,8 @@ run_step() {
 }
 
 # ---------------------------------------------------------------------------
-# Helper: generate an athinput file with dynamic dimensions
+# Helper: generate an athinput file with dynamic dimensions.
+# Extra arguments are passed straight through to gen_athinput.py.
 # ---------------------------------------------------------------------------
 CONFIG_JSON="${PROJECT_ROOT}/shell_scripts/config.json"
 GEN_ATHINPUT="${PROJECT_ROOT}/shell_scripts/gen_athinput.py"
@@ -208,6 +218,7 @@ GEN_ATHINPUT="${PROJECT_ROOT}/shell_scripts/gen_athinput.py"
 generate_athinput() {
     local step="$1"
     local output="$2"
+    shift 2
     log "Generating ${step} athinput -> ${output}"
     python3 "${GEN_ATHINPUT}" \
         --config "${CONFIG_JSON}" \
@@ -223,7 +234,8 @@ generate_athinput() {
         --x2max "${DOMAIN_X2MAX}" \
         --sigma "${PROBLEM_SIGMA}" \
         --a_char "${PROBLEM_A_CHAR}" \
-        --cold_frac "${PROBLEM_COLD_FRAC}"
+        --cold_frac "${PROBLEM_COLD_FRAC}" \
+        "$@"
 }
 
 # ---------------------------------------------------------------------------
@@ -266,7 +278,8 @@ MANIFEST="${RUN_DIR}/manifest.txt"
     echo "Random crop size   : Coarse=(${CROP_H_CG}x${CROP_W_CG}), Fine=(${CROP_H}x${CROP_W})"
     echo "Athena simulation  : nx2=${SIM_NX2}, nx1=${SIM_NX1} (meshblock: ${SIM_MB_NX2}x${SIM_MB_NX1})"
     echo "Domain extents     : x1=[${DOMAIN_X1MIN}, ${DOMAIN_X1MAX}], x2=[${DOMAIN_X2MIN}, ${DOMAIN_X2MAX}]"
-    echo "Simulation times   : LR 0→${SIM_TLIM_LR} Myr, Restart ${RESTART_TIME_MYR}→${SIM_TLIM_RESTART} Myr (start_frame=${START_FRAME}, hr_start=${HR_START_FRAME})"
+    echo "Simulation times   : ${RESTART_TIME_MYR}→${SIM_TLIM_RESTART} Myr (tlim=${SIM_DURATION_MYR}, start_frame=${START_FRAME}, hr_start=${HR_START_FRAME})"
+    echo "Initial condition  : ${HR_IC_SNAPSHOT} -> ${DOWNSAMPLED_IC_FILE}"
     echo "Eval resolution    : ${HR_EVAL_RESOLUTION} (ds=${HR_EVAL_DOWNSAMPLE})"
     echo "Epochs             : ${NUM_EPOCHS}"
     echo "Batch size         : ${BATCH_SIZE}"
@@ -274,6 +287,7 @@ MANIFEST="${RUN_DIR}/manifest.txt"
     echo "Snapshot split     : train=${TRAIN_FRAC}, val=${VAL_FRAC}, test=$(python3 -c "print(round(1.0-${TRAIN_FRAC}-${VAL_FRAC}, 2))")"
     echo "Crops per snap     : train=${N_CROPS_TRAIN}, val=${N_CROPS_VAL}, test=${N_CROPS_TEST}"
     echo "EMA Alpha          : ${EMA_ALPHA}"
+    echo "Loss log interval  : every ${LOG_EVERY} epochs"
     echo ""
     echo "--- Loss Weights ---"
     echo "alpha_active_wass  : ${PDF_CNN_ALPHA_ACTIVE_WASSERSTEIN}"
@@ -284,10 +298,8 @@ MANIFEST="${RUN_DIR}/manifest.txt"
     echo "alpha_leak         : ${PDF_CNN_ALPHA_LEAK}"
     echo ""
     echo "--- Simulation outputs ---"
-    echo "LR sim (0→5 Myr)   : ${LR_OUTPUT_DIR}"
-    echo "lr_build (5→10 Myr): ${LR_BUILD_OUTPUT_DIR}  [ISM cooling restart]"
-    echo "subgrid_model      : ${SG_OUTPUT_DIR}         [CNN restart]"
-    echo "5 Myr restart file : ${LR_RST_5MYR}"
+    echo "lr_build           : ${LR_BUILD_OUTPUT_DIR}  [ISM cooling, from downsampled IC]"
+    echo "subgrid_model      : ${SG_OUTPUT_DIR}         [CNN, from downsampled IC]"
     echo ""
     echo "--- Model / plot outputs ---"
     echo "Model weights      : ${MODEL_SAVES_DIR}"
@@ -333,6 +345,7 @@ run_step 1 "train_random_snapshot_cnn" \
         --learning_rate "${LEARNING_RATE}" \
         --weight_decay "${WEIGHT_DECAY}" \
         --seed "${SEED}" \
+        --log_every "${LOG_EVERY}" \
         --alpha_active_wasserstein "${PDF_CNN_ALPHA_ACTIVE_WASSERSTEIN}" \
         --alpha_inactive_wasserstein "${PDF_CNN_ALPHA_INACTIVE_WASSERSTEIN}" \
         --alpha_gate "${PDF_CNN_ALPHA_GATE}" \
@@ -396,71 +409,67 @@ run_step 2 "benchmark_pdf_cnn" \
     "
 
 # ===========================================================================
-# STEP 3 — Low-resolution simulation: 0 → 5 Myr  (ISM cooling)
+# STEP 3 — Downsample the HR snapshot to the coarse initial condition
 # ===========================================================================
-LR_ATHINPUT="${ATHINPUT_CACHE_DIR}/lr_sim.athinput"
-generate_athinput "lr" "${LR_ATHINPUT}"
-
 separator
-log "STEP 3: lr_simulation  (${SIM_NX2}×${SIM_NX1} grid, 0 → ${SIM_TLIM_LR} Myr)"
-log "LR athinput mesh settings:"
-grep -E '^\s*nx[12]\s*=' "${LR_ATHINPUT}" | tee -a "${MASTER_LOG}" || true
-log "LR athinput tlim:"
-grep -E '^\s*tlim\s*=' "${LR_ATHINPUT}" | tee -a "${MASTER_LOG}" || true
+log "STEP 3: downsample_ic  (${HR_IC_SNAPSHOT} -> ${SIM_NX2}×${SIM_NX1})"
+log "Output IC file : ${DOWNSAMPLED_IC_FILE}"
 separator
 
-run_step 3 "lr_simulation_5myr" \
-    bash -c "
-        set -euo pipefail
-        cd '${PROJECT_ROOT}/builds/hr_build/src'
-        ./athena -i '${LR_ATHINPUT}' -d '${LR_OUTPUT_DIR}'
-    "
-
-if [[ ! -f "${LR_RST_5MYR}" ]]; then
-    log "ERROR: Expected 5 Myr restart file not found: ${LR_RST_5MYR}"
+if [[ ! -f "${HR_IC_SNAPSHOT}" ]]; then
+    log "ERROR: HR snapshot for the initial condition not found: ${HR_IC_SNAPSHOT}"
     exit 1
 fi
-log "5 Myr restart file confirmed: ${LR_RST_5MYR}"
+
+run_step 3 "downsample_ic" \
+    python3 "${PROJECT_ROOT}/data/downsample_ic.py" \
+        --input "${HR_IC_SNAPSHOT}" \
+        --nx1 "${SIM_NX1}" \
+        --nx2 "${SIM_NX2}" \
+        --output "${DOWNSAMPLED_IC_FILE}"
 
 # ===========================================================================
-# STEP 4 — lr_build: restart from 5 Myr with ISM cooling (no CNN)
+# STEP 4 — lr_build: ISM cooling (no CNN), starting from the downsampled IC
 # ===========================================================================
 LR_BUILD_ATHINPUT="${ATHINPUT_CACHE_DIR}/lr_build_sim.athinput"
-generate_athinput "lr_build" "${LR_BUILD_ATHINPUT}"
+generate_athinput "lr_build" "${LR_BUILD_ATHINPUT}" \
+    --iprob 2 --init_file "${DOWNSAMPLED_IC_FILE}" --tlim "${SIM_DURATION_MYR}"
 
 separator
-log "STEP 4: lr_build  (ISM cooling restart from ${LR_RST_5MYR})"
+log "STEP 4: lr_build  (ISM cooling, from ${DOWNSAMPLED_IC_FILE}, ${RESTART_TIME_MYR} → ${SIM_TLIM_RESTART} Myr)"
+grep -E '^\s*(nx[12]|iprob|init_file|tlim)\s*=' "${LR_BUILD_ATHINPUT}" | tee -a "${MASTER_LOG}" || true
 separator
 
-# Clean previous simulation outputs if any to prevent stale files from polluting restart frames
+# Clean previous simulation outputs if any to prevent stale files from polluting frames
 rm -rf "${LR_BUILD_OUTPUT_DIR:?}"/*
 mkdir -p "${LR_BUILD_OUTPUT_DIR}"
 
-run_step 4 "lr_build_ism_restart" \
+run_step 4 "lr_build_ism" \
     bash -c "
         set -euo pipefail
         cd '${PROJECT_ROOT}/builds/hr_build/src'
         ./athena \
             -i '${LR_BUILD_ATHINPUT}' \
-            -d '${LR_BUILD_OUTPUT_DIR}' \
-            -r '${LR_RST_5MYR}'
+            -d '${LR_BUILD_OUTPUT_DIR}'
     "
 
 # ===========================================================================
-# STEP 5 — subgrid_model: restart from same 5 Myr rst with CNN source terms
+# STEP 5 — subgrid_model: CNN source terms, starting from the same IC
 # ===========================================================================
 SG_ATHINPUT="${ATHINPUT_CACHE_DIR}/sg_sim.athinput"
-generate_athinput "sg" "${SG_ATHINPUT}"
+generate_athinput "sg" "${SG_ATHINPUT}" \
+    --iprob 2 --init_file "${DOWNSAMPLED_IC_FILE}" --tlim "${SIM_DURATION_MYR}"
 
 separator
-log "STEP 5: subgrid_model  (CNN restart from ${LR_RST_5MYR})"
+log "STEP 5: subgrid_model  (CNN, from ${DOWNSAMPLED_IC_FILE}, ${RESTART_TIME_MYR} → ${SIM_TLIM_RESTART} Myr)"
+grep -E '^\s*(nx[12]|iprob|init_file|tlim)\s*=' "${SG_ATHINPUT}" | tee -a "${MASTER_LOG}" || true
 separator
 
-# Clean previous simulation outputs if any to prevent stale files from polluting restart frames
+# Clean previous simulation outputs if any to prevent stale files from polluting frames
 rm -rf "${SG_OUTPUT_DIR:?}"/*
 mkdir -p "${SG_OUTPUT_DIR}"
 
-run_step 5 "subgrid_model_cnn_restart" \
+run_step 5 "subgrid_model_cnn" \
     bash -c "
         set -euo pipefail
         cd '${PROJECT_ROOT}/builds/subgrid_model/src'
@@ -477,14 +486,11 @@ run_step 5 "subgrid_model_cnn_restart" \
         export CROP_H_CG='${CROP_H_CG}'
         export CROP_W_CG='${CROP_W_CG}'
         export MODEL_SAVES_DIR='${MODEL_SAVES_DIR}'
-        export CLIP_LOG_PATH='${RUN_DIR}/clip_events.csv'
-        export DT_COOL_LOG_PATH='${RUN_DIR}/dt_cool_log.csv'
         export CNN_TILING_MODE='single'
 
         ./athena \
             -i '${SG_ATHINPUT}' \
-            -d '${SG_OUTPUT_DIR}' \
-            -r '${LR_RST_5MYR}'
+            -d '${SG_OUTPUT_DIR}'
     "
 
 # ===========================================================================
@@ -533,9 +539,8 @@ run_step 7 "dt_vs_time_plot" \
         export PROJECT_ROOT='${PROJECT_ROOT}'
         export LR_OUTPUT_DIR='${LR_BUILD_OUTPUT_DIR}'
         export SG_OUTPUT_DIR='${SG_OUTPUT_DIR}'
-        export LR_LOG='${LOG_DIR}/step4_lr_build_ism_restart.log'
-        export SG_LOG='${LOG_DIR}/step5_subgrid_model_cnn_restart.log'
-        export DT_COOL_LOG_PATH='${RUN_DIR}/dt_cool_log.csv'
+        export LR_LOG='${LOG_DIR}/step4_lr_build_ism.log'
+        export SG_LOG='${LOG_DIR}/step5_subgrid_model_cnn.log'
         export HR_OUTPUT_DIR='${HR_EVAL_OUTPUT}'
         export RESTART_TIME_MYR='${RESTART_TIME_MYR}'
         export SG_MOCKS_DIR='${SG_MOCKS_DIR}'
@@ -553,9 +558,10 @@ log "Run directory    : ${RUN_DIR}"
 log "Master log       : ${MASTER_LOG}"
 log "Manifest         : ${MANIFEST}"
 log ""
+log "Initial condition: ${HR_IC_SNAPSHOT} -> ${DOWNSAMPLED_IC_FILE}"
+log ""
 log "Key output directories:"
-log "  LR sim (0→5 Myr)       : ${LR_OUTPUT_DIR}"
-log "  lr_build (ISM restart) : ${LR_BUILD_OUTPUT_DIR}"
+log "  lr_build (ISM cooling) : ${LR_BUILD_OUTPUT_DIR}"
 log "  subgrid_model (CNN)    : ${SG_OUTPUT_DIR}"
 log "  Model weights          : ${MODEL_SAVES_DIR}"
 log "  PDF mock               : ${PDF_MOCKS_DIR}"

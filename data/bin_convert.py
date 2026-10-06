@@ -277,10 +277,8 @@ def make_2D_array(file_data, property):
             mb_logical_indices = file_data['mb_logical'][mb]    # Logical indices of the mesh block in the 2D grid 
             I = mb_logical_indices[0]*nx1                       # Logical index in the x1 direction (horizontal)
             J = mb_logical_indices[1]*nx2                       # Logical index in the x2 direction (vertical)
-            for i in range(nx1):
-                for j in range(nx2):
-                    # Fill the 2D array with the property data
-                    Arr[J + j][I + i] = property_arr[mb][0][j][i]
+            # Copy the whole mesh block at once
+            Arr[J:J + nx2, I:I + nx1] = property_arr[mb][0][:nx2, :nx1]
         return Arr
 
 def read_coarsened_binary(filename):

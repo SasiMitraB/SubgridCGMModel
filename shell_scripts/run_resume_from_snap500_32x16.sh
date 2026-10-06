@@ -86,7 +86,6 @@ export TILE_ROWS="${TILE_ROWS}"
 export TILE_COLS="${TILE_COLS}"
 export LOGT_ACTIVE_START="4.1"
 export LOGT_ACTIVE_END="5.9"
-export COOL_TFLOOR="1.0e4"
 
 # Simulation controls (can be overridden via environment variables)
 # HR runs 0-10 Myr; SG/LR restart from t=5 and run for 5 Myr (internal time) to reach t=10 Myr (absolute)
@@ -319,7 +318,6 @@ MANIFEST="${PLOTS_DIR}/manifest.txt"
     echo "PDF CNN resolution       : ${PDF_CNN_RESOLUTION}"
     echo "PDF CNN downsample       : ${PDF_CNN_DOWNSAMPLE}"
     echo "Active log10(T) range    : [${LOGT_ACTIVE_START}, ${LOGT_ACTIVE_END}]"
-    echo "Cooling temperature floor: ${COOL_TFLOOR} K"
     echo ""
     echo "--- Simulation & Initial Condition Setup ---"
     echo "Source HR snapshot 500   : ${SNAP500_BIN}"

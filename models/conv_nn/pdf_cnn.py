@@ -1119,12 +1119,15 @@ class ConvNN(nn.Module):
         self.gate_branch.train()
 
     def forward(self, x):
-        # Append 8 mixing-layer physics channels
-        x_enriched = self.mixing(x)  # (B, C+8, H, W)
+        # Mixing features and gate always run in fp32, even under autocast:
+        # the ratios/products in the features are sensitive to bf16 rounding
+        with torch.autocast(x.device.type, enabled=False):
+            # Append 8 mixing-layer physics channels
+            x_enriched = self.mixing(x.float())  # (B, C+8, H, W)
 
-        # Gate from the 8 mixing features (last 8 channels of x_enriched)
-        mixing_feats = x_enriched[:, -self._N_MIXING :, :, :]  # (B, 8, H, W)
-        gate = self.gate_branch(mixing_feats)  # (B, 1, H, W)
+            # Gate from the 8 mixing features (last 8 channels of x_enriched)
+            mixing_feats = x_enriched[:, -self._N_MIXING :, :, :]  # (B, 8, H, W)
+            gate = self.gate_branch(mixing_feats)  # (B, 1, H, W)
 
         # Main prediction path uses the full enriched tensor
         features = self.encoder(x_enriched)
@@ -1643,10 +1646,14 @@ def train_gate_branch(
     weight_decay=1e-5,
     grad_clip_max_norm=1.0,
     save_path=None,
+    eval_every=1,
 ):
     """
     Stage 1: Pre-train the MixingLayerGate branch independently on the binary target:
         gate_target = (active_mass > 1e-8).float()
+
+    Train/val BCE and accuracy (and best-checkpoint selection) are evaluated every
+    `eval_every` epochs and on the final epoch.
     """
     print(f"\n{'='*60}")
     print(f"STAGE 1: Pretraining Gate Branch ({epochs} epochs, lr={lr})")
@@ -1726,6 +1733,9 @@ def train_gate_branch(
             scheduler.step()
 
         # Evaluate epoch
+        if (epoch + 1) % eval_every != 0 and epoch != epochs - 1:
+            continue
+
         cnn_model.gate_branch.eval()
         with torch.no_grad():
             tr_loss, tr_correct, tr_total = 0.0, 0, 0

@@ -201,54 +201,19 @@ def load_history_file(history_path: str):
     return times, dts, dt_cfl, dt_cool
 
 
-def load_dt_cool_log(log_path: str):
-    """Load the per-call dt_cool log written by source_module.py.
-
-    Returns (time, dt_cool_clipped, dt_cool_noclip, n_clipped) with one entry per
-    cycle, taken from the cycle's LAST source call -- that is the dtnew AthenaK
-    uses for the next timestep (and what the history file's dt_cool reports).
-    Values are already scaled by cfl_no. n_clipped is summed over the cycle's stages.
-    The last element says whether the clip was applied (False for COOL_CLIP=0 runs).
-    """
-    if not log_path or not os.path.exists(log_path):
-        if log_path:
-            print(f"WARNING: dt_cool log not found: {log_path}", file=sys.stderr)
-        return None
-    try:
-        import pandas as pd
-        d = pd.read_csv(log_path)
-    except Exception as e:
-        print(f"WARNING: Could not load dt_cool log {log_path}: {e}", file=sys.stderr)
-        return None
-    if len(d) == 0:
-        return None
-    # Appended re-runs restart the clock; keep only the last run
-    resets = np.where(np.diff(d["time"].values) < 0)[0]
-    if len(resets) > 0:
-        d = d.iloc[resets[-1] + 1:]
-    g = d.groupby("time", sort=True)
-    last = g.tail(1).set_index("time")
-    n_clip = g["n_clipped"].sum()
-    applied = bool(d["clip_applied"].iloc[-1]) if "clip_applied" in d.columns else True
-    return (last.index.values, last["dt_cool_clipped"].values,
-            last["dt_cool_noclip"].values, n_clip.reindex(last.index).values, applied)
-
-
 def plot_dt_components(runs, output_dir: str, restart_time: float) -> str:
     """Plot dt (used), dt_CFL and dt_cool vs physical time, one panel per run.
 
-    runs: list of (label, history_path, shift, dt_cool_log_path) where shift=True
-    means the run's history time starts at 0 and must be offset by restart_time.
-    Runs whose history already starts at >= restart_time (restarts from an rst
-    file) are never shifted. dt_cool_log_path (or None) is source_module.py's
-    per-call log; when given, the panel shows dt_cool with and without the
-    cooling-rate clip, and marks the cycles where clipping happened.
+    runs: list of (label, history_path, shift) where shift=True means the run's
+    history time starts at 0 and must be offset by restart_time. Runs whose
+    history already starts at >= restart_time (restarts from an rst file) are
+    never shifted.
     """
     fig, axes = plt.subplots(1, len(runs), figsize=(6 * len(runs), 5.5), sharey=True, squeeze=False)
     axes = axes[0]
     any_data = False
 
-    for ax, (label, hst_path, shift, dt_log_path) in zip(axes, runs):
+    for ax, (label, hst_path, shift) in zip(axes, runs):
         ax.axvline(restart_time, color="gray", ls="--", lw=1.0, alpha=0.7)
         times, dts, dt_cfl, dt_cool = load_history_file(hst_path) if hst_path else (None,) * 4
         if times is None:
@@ -269,30 +234,13 @@ def plot_dt_components(runs, output_dir: str, restart_time: float) -> str:
         if dt_cfl is not None:
             ax.plot(times, dt_cfl * 1e3, label=r"$\Delta t_\mathrm{CFL}$", lw=1.5,
                     ls="--", marker="^", markersize=3, alpha=0.8)
-        dt_log = load_dt_cool_log(dt_log_path)
-        if dt_log is not None:
-            lt, dtc_clip, dtc_raw, nclip = dt_log[:4]
-            lt = lt + offset
-            keep = lt >= restart_time - 1e-6
-            lt, dtc_clip, dtc_raw, nclip = lt[keep], dtc_clip[keep], dtc_raw[keep], nclip[keep]
-            applied = dt_log[4]
-            clip_lbl = "used" if applied else "NOT used: COOL_CLIP=0"
-            ax.plot(lt, dtc_clip * 1e3, label=rf"$\Delta t_\mathrm{{cool}}$ (with clipping, {clip_lbl})",
-                    lw=1.2, color="tab:orange", alpha=0.85)
-            ax.plot(lt, dtc_raw * 1e3, label=r"$\Delta t_\mathrm{cool}$ (without clipping" + (")" if applied else ", used)"),
-                    lw=1.2, ls="--", color="tab:red", alpha=0.8)
-            clipped = nclip > 0
-            if np.any(clipped):
-                ax.plot(lt[clipped], np.full(clipped.sum(), 0.02), "|", color="tab:red",
-                        transform=ax.get_xaxis_transform(), markersize=8, alpha=0.6,
-                        label=f"cycle with {'clipping' if applied else 'would-be clipping'} ({clipped.sum()}/{len(lt)})")
-        elif dt_cool is not None and not np.all(np.isnan(dt_cool)):
+        if dt_cool is not None and not np.all(np.isnan(dt_cool)):
             ax.plot(times, dt_cool * 1e3, label=r"$\Delta t_\mathrm{cool}$", lw=1.5,
                     ls="--", marker="o", markersize=3, alpha=0.8)
         title = label
         if dt_cfl is None:
             title += "\n(history has no dt_cfl/dt_cool columns)"
-        elif dt_log is None and (dt_cool is None or np.all(np.isnan(dt_cool))):
+        elif dt_cool is None or np.all(np.isnan(dt_cool)):
             title += "\n(no cooling timestep reported)"
         ax.set_title(title, fontsize=13, weight="bold")
         ax.set_yscale("log")
@@ -354,13 +302,12 @@ def main():
     hr_output_dir = os.getenv("HR_OUTPUT_DIR", "")
     nx1, nx2 = os.getenv("SIM_NX1"), os.getenv("SIM_NX2")
     coarse = f" ({nx1}x{nx2})" if nx1 and nx2 else ""
-    dt_cool_log = os.getenv("DT_COOL_LOG_PATH", "")
     runs = []
     if hr_output_dir:
-        runs.append(("HR", os.path.join(hr_output_dir, "KH.hydro.hst"), False, None))
+        runs.append(("HR", os.path.join(hr_output_dir, "KH.hydro.hst"), False))
     runs += [
-        (f"SG{coarse}", os.path.join(sg_output_dir, "KH.hydro.hst"), True, dt_cool_log or None),
-        (f"LR{coarse}", os.path.join(lr_output_dir, "KH.hydro.hst"), True, None),
+        (f"SG{coarse}", os.path.join(sg_output_dir, "KH.hydro.hst"), True),
+        (f"LR{coarse}", os.path.join(lr_output_dir, "KH.hydro.hst"), True),
     ]
     components_path = plot_dt_components(runs, output_dir, restart_time)
 

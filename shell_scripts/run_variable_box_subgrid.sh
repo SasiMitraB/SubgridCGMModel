@@ -18,6 +18,11 @@
 #   5. Adjusts the CNN tile grid to fit the coarse domain exactly, and fails
 #      fast if the box size cannot be tiled evenly.
 #   6. Runs explore_data/mock_sg_tiled.py to produce the diagnostic plots.
+#   7. Moves the HR run to HR_ARCHIVE_ROOT on the HDD once plotting is done.
+#
+# If a complete HR run for this box (restart and final snapshots present) is
+# already in HR_ARCHIVE_ROOT, step 3 is skipped and the pipeline starts from
+# the downsample step using the archived run. Set FORCE_HR=1 to re-run it.
 #
 # Usage:
 #   LX=20 LY=40 CELL_SIZE=0.625 bash shell_scripts/run_variable_box_subgrid.sh [full_hr|subgrid|lr|both|all|postprocess]
@@ -37,6 +42,10 @@
 #   NLIM         - Cycle limit (default: -1)
 #   HR_FULL_EXE_DIR - Build dir for the full-resolution HR run
 #                  (default: builds/hr_build_gpu)
+#   HR_ARCHIVE_ROOT - HDD directory the HR run is moved to after plotting
+#                  (default: /data/sasi/variable_box_size_runs)
+#   FORCE_HR     - 1 to re-run the HR simulation even if a complete archived
+#                  run exists (default: 0)
 # =============================================================================
 
 set -euo pipefail
@@ -81,15 +90,16 @@ CELL_SIZE="${CELL_SIZE:-0.625}"
 
 if [ "${CELL_SIZE}" = "0.625" ]; then
     DS=16
-    TILE_ROWS=16
-    TILE_COLS=8
-    DEFAULT_MODEL_SAVES="${PROJECT_ROOT}/runs/run_random_crop_20260909_164548/model_saves"
+    TILE_ROWS=32
+    TILE_COLS=16
+    DEFAULT_MODEL_SAVES="${PROJECT_ROOT}/runs/run_random_crop_20260929_111014/model_saves"
     DEFAULT_NORM_PREFIX="cnn_(512, 256)_32"
 elif [ "${CELL_SIZE}" = "1.25" ] || [ "${CELL_SIZE}" = "1.26" ]; then
     DS=32
-    TILE_ROWS=8
-    TILE_COLS=4
-    DEFAULT_MODEL_SAVES="${PROJECT_ROOT}/runs/run_random_crop_20260904_191402/model_saves"
+    # Matches the 16x8 coarse random crops this model was trained on
+    TILE_ROWS=16
+    TILE_COLS=8
+    DEFAULT_MODEL_SAVES="${PROJECT_ROOT}/runs/run_random_crop_20260924_194824/model_saves"
     DEFAULT_NORM_PREFIX="cnn_(512, 256)_32"
 else
     echo "ERROR: Unsupported CELL_SIZE: ${CELL_SIZE}. Expected 0.625 or 1.25." >&2
@@ -228,7 +238,6 @@ export TILE_ROWS="${TILE_ROWS}"
 export TILE_COLS="${TILE_COLS}"
 export LOGT_ACTIVE_START="4.1"
 export LOGT_ACTIVE_END="5.9"
-export COOL_TFLOOR="1.0e4"
 
 # -----------------------------------------------------------------------------
 # Simulation time controls
@@ -249,6 +258,8 @@ print(m.group(1) if m else "0.01")
 PY
 )"
 SNAP_IDX="$(python3 -c "print(f'{round(${RESTART_TIME_MYR} / ${BIN_DT}):05d}')")"
+FINAL_SNAP_IDX="$(python3 -c "print(f'{round(${HR_TLIM} / ${BIN_DT}):05d}')")"
+FORCE_HR="${FORCE_HR:-0}"
 
 RUN_MODE="${1:-all}"  # full_hr, subgrid, lr, both, all, postprocess
 
@@ -262,7 +273,33 @@ HR_FULL_EXE_DIR="${HR_FULL_EXE_DIR:-${PROJECT_ROOT}/builds/hr_build_gpu}"
 LR_EXE_DIR="${PROJECT_ROOT}/builds/hr_build"
 SG_EXE_DIR="${PROJECT_ROOT}/builds/subgrid_model"
 
-HR_FULL_OUTPUT_DIR="${PROJECT_ROOT}/simulation_outputs/hr_gpu_${HR_NX1}x${HR_NX2}_${BOX_TAG}"
+# The HR run is written to the local (fast) disk while the pipeline runs, and
+# moved to HR_ARCHIVE_ROOT on the HDD once post-processing has finished.
+# Later invocations (subgrid/lr/postprocess) read it back from the archive.
+HR_ARCHIVE_ROOT="${HR_ARCHIVE_ROOT:-/data/sasi/variable_box_size_runs}"
+HR_FULL_NAME="hr_gpu_${HR_NX1}x${HR_NX2}_${BOX_TAG}"
+HR_FULL_LOCAL_DIR="${PROJECT_ROOT}/simulation_outputs/${HR_FULL_NAME}"
+HR_FULL_ARCHIVE_DIR="${HR_ARCHIVE_ROOT}/${HR_FULL_NAME}"
+
+# An HR run counts as complete if both the restart snapshot (needed for the
+# downsample) and the final snapshot (needed for the HR comparison plots) exist.
+hr_run_complete() {
+    [ -f "$1/bin/KH.hydro_u.${SNAP_IDX}.bin" ] && [ -f "$1/bin/KH.hydro_u.${FINAL_SNAP_IDX}.bin" ]
+}
+
+SKIP_HR=0
+if [ "${RUN_MODE}" = "full_hr" ] || [ "${RUN_MODE}" = "all" ]; then
+    if [ "${FORCE_HR}" != "1" ] && hr_run_complete "${HR_FULL_ARCHIVE_DIR}"; then
+        HR_FULL_OUTPUT_DIR="${HR_FULL_ARCHIVE_DIR}"
+        SKIP_HR=1
+    else
+        HR_FULL_OUTPUT_DIR="${HR_FULL_LOCAL_DIR}"
+    fi
+elif [ ! -d "${HR_FULL_LOCAL_DIR}/bin" ] && [ -d "${HR_FULL_ARCHIVE_DIR}/bin" ]; then
+    HR_FULL_OUTPUT_DIR="${HR_FULL_ARCHIVE_DIR}"
+else
+    HR_FULL_OUTPUT_DIR="${HR_FULL_LOCAL_DIR}"
+fi
 HR_FULL_BIN_DIR="${HR_FULL_OUTPUT_DIR}/bin"
 SNAP_BIN="${HR_FULL_BIN_DIR}/KH.hydro_u.${SNAP_IDX}.bin"
 
@@ -291,6 +328,10 @@ echo " CNN tile grid   : ${TILE_GRID} tiles of ${TILE_ROWS}x${TILE_COLS} cells"
 echo " Model saves dir : ${MODEL_SAVES_DIR}"
 echo " Restart snapshot: index ${SNAP_IDX} (t=${RESTART_TIME_MYR} Myr)"
 echo " Mode            : ${RUN_MODE}"
+echo " HR output dir   : ${HR_FULL_OUTPUT_DIR}"
+if [ "${SKIP_HR}" = "1" ]; then
+    echo " HR run          : found complete run on HDD, skipping HR evolution (FORCE_HR=1 to re-run)"
+fi
 echo "======================================================================"
 
 # -----------------------------------------------------------------------------
@@ -446,7 +487,10 @@ PY
 # -----------------------------------------------------------------------------
 # STEP 2: Run the fresh full-resolution HR simulation for HR_TLIM Myr
 # -----------------------------------------------------------------------------
-if [ "${RUN_MODE}" = "full_hr" ] || [ "${RUN_MODE}" = "all" ]; then
+if [ "${SKIP_HR}" = "1" ]; then
+    echo ""
+    echo "[Step 2] Skipping HR evolution: using archived run in ${HR_FULL_OUTPUT_DIR}"
+elif [ "${RUN_MODE}" = "full_hr" ] || [ "${RUN_MODE}" = "all" ]; then
     echo ""
     echo "======================================================================"
     echo "[Step 2] Evolving full-resolution HR (${HR_NX1}x${HR_NX2}, tlim=${HR_TLIM} Myr)"
@@ -584,7 +628,6 @@ if [ "${RUN_MODE}" != "full_hr" ]; then
         echo "Tile grid (rows,cols)    : ${TILE_GRID}"
         echo "Tile shape (cells)       : ${TILE_ROWS} rows x ${TILE_COLS} cols"
         echo "Active log10(T) range    : [${LOGT_ACTIVE_START}, ${LOGT_ACTIVE_END}]"
-        echo "Cooling floor temp       : ${COOL_TFLOOR} K"
         echo "======================================================================"
     } > "${MANIFEST}"
 
@@ -604,11 +647,27 @@ if [ "${RUN_MODE}" != "full_hr" ]; then
         --lr-athinput "${LR_ATHINPUT}" \
         --lr-bin "${LR_OUTPUT_DIR}/bin"
 
+    # -------------------------------------------------------------------------
+    # STEP 7: Move the HR run from the local disk to the HDD archive
+    # -------------------------------------------------------------------------
+    if [ "${HR_FULL_OUTPUT_DIR}" = "${HR_FULL_LOCAL_DIR}" ] && [ -d "${HR_FULL_LOCAL_DIR}" ]; then
+        echo ""
+        echo "======================================================================"
+        echo "[Step 7] Moving HR run to ${HR_FULL_ARCHIVE_DIR}"
+        echo "======================================================================"
+        mkdir -p "${HR_FULL_ARCHIVE_DIR}"
+        rsync -a --delete "${HR_FULL_LOCAL_DIR}/" "${HR_FULL_ARCHIVE_DIR}/"
+        rm -rf "${HR_FULL_LOCAL_DIR}"
+        HR_FULL_OUTPUT_DIR="${HR_FULL_ARCHIVE_DIR}"
+        echo "HR archive location      : ${HR_FULL_ARCHIVE_DIR}" >> "${MANIFEST}"
+    fi
+
     echo ""
     echo "======================================================================"
     echo " ALL TASKS COMPLETED SUCCESSFULLY!"
     echo " Plots & Animations saved in: ${PLOTS_DIR}"
     echo " Manifest file: ${MANIFEST}"
+    echo " HR run stored in: ${HR_FULL_OUTPUT_DIR}"
     echo "======================================================================"
 else
     echo ""

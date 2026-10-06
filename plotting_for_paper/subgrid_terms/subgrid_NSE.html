@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en" xml:lang="en"><head>
+
+<meta charset="utf-8">
+<meta name="generator" content="quarto-1.10.18">
+
+<meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=yes">
+
+
+<title>Subgrid Terms in the compressible Euler Equation</title>
+<style>
+/* Default styles provided by pandoc.
+** See https://pandoc.org/MANUAL.html#variables-for-html for config info.
+*/
+span.smallcaps{font-variant: small-caps;}
+div.columns{display: flex; gap: 1.5em;}
+div.column{flex: auto;}
+@media screen {
+div.columns{gap: min(4vw, 1.5em);}
+div.column{overflow-x: auto;}
+}
+div.hanging-indent{margin-left: 1.5em; text-indent: -1.5em;}
+ul.task-list{list-style: none;}
+ul.task-list li input[type="checkbox"] {
+  width: 0.8em;
+  margin: 0 0.8em 0.2em -1em; /* quarto-specific, see https://github.com/quarto-dev/quarto-cli/issues/4556 */ 
+  vertical-align: middle;
+}
+</style>
+
+
+<script src="subgrid_NSE_files/libs/clipboard/clipboard.min.js"></script>
+<script src="subgrid_NSE_files/libs/quarto-html/quarto.js" type="module"></script>
+<script src="subgrid_NSE_files/libs/quarto-html/tabsets/tabsets.js" type="module"></script>
+<script src="subgrid_NSE_files/libs/quarto-html/popper.min.js"></script>
+<script src="subgrid_NSE_files/libs/quarto-html/tippy.umd.min.js"></script>
+<script src="subgrid_NSE_files/libs/quarto-html/anchor.min.js"></script>
+<link href="subgrid_NSE_files/libs/quarto-html/tippy.css" rel="stylesheet">
+<link href="subgrid_NSE_files/libs/quarto-html/quarto-syntax-highlighting-64a204ab8560d761af7679ceaba22944.css" rel="stylesheet" id="quarto-text-highlighting-styles">
+<script src="subgrid_NSE_files/libs/bootstrap/bootstrap.min.js"></script>
+<link href="subgrid_NSE_files/libs/bootstrap/bootstrap-icons.css" rel="stylesheet">
+<link href="subgrid_NSE_files/libs/bootstrap/bootstrap-31b163c6b8bdf7074d97a737e186c0e0.min.css" rel="stylesheet" append-hash="true" id="quarto-bootstrap" data-mode="light">
+
+  <script>window.backupDefine = window.define; window.define = undefined;</script><script src="https://cdn.jsdelivr.net/npm/katex@latest/dist/katex.min.js"></script>
+  <script>document.addEventListener("DOMContentLoaded", function () {
+ var mathElements = document.getElementsByClassName("math");
+ var macros = [];
+ for (var i = 0; i < mathElements.length; i++) {
+  var texText = mathElements[i].firstChild;
+  if (mathElements[i].tagName == "SPAN") {
+   katex.render(texText.data, mathElements[i], {
+    displayMode: mathElements[i].classList.contains('display'),
+    throwOnError: false,
+    macros: macros,
+    fleqn: false
+   });
+}}});
+  </script>
+  <script>window.define = window.backupDefine; window.backupDefine = undefined;</script><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@latest/dist/katex.min.css">
+
+<script type="text/javascript">
+const typesetMath = (el) => {
+  if (window.MathJax) {
+    // MathJax Typeset
+    window.MathJax.typeset([el]);
+  } else if (window.katex) {
+    // KaTeX Render
+    var mathElements = el.getElementsByClassName("math");
+    var macros = [];
+    for (var i = 0; i < mathElements.length; i++) {
+      var texText = mathElements[i].firstChild;
+      if (mathElements[i].tagName == "SPAN" && texText && texText.data) {
+        window.katex.render(texText.data, mathElements[i], {
+          displayMode: mathElements[i].classList.contains('display'),
+          throwOnError: false,
+          macros: macros,
+          fleqn: false
+        });
+      }
+    }
+  }
+}
+window.Quarto = {
+  typesetMath
+};
+</script>
+
+</head>
+
+<body class="quarto-light">
+
+<div id="quarto-content" class="page-columns page-rows-contents page-layout-article">
+<div id="quarto-margin-sidebar" class="sidebar margin-sidebar">
+  <nav id="TOC" role="doc-toc" class="toc-active">
+    <h2 id="toc-title">Table of contents</h2>
+   
+  <ul>
+  <li><a href="#the-unfiltered-equations" id="toc-the-unfiltered-equations" class="nav-link active" data-scroll-target="#the-unfiltered-equations"><span class="header-section-number">1</span> The Unfiltered Equations</a></li>
+  <li><a href="#the-filtering-approach" id="toc-the-filtering-approach" class="nav-link" data-scroll-target="#the-filtering-approach"><span class="header-section-number">2</span> The Filtering Approach</a></li>
+  <li><a href="#coarse-graining-the-equations" id="toc-coarse-graining-the-equations" class="nav-link" data-scroll-target="#coarse-graining-the-equations"><span class="header-section-number">3</span> Coarse Graining the Equations</a></li>
+  <li><a href="#final-set-of-equations" id="toc-final-set-of-equations" class="nav-link" data-scroll-target="#final-set-of-equations"><span class="header-section-number">4</span> Final Set of Equations</a></li>
+  <li><a href="#constraining-the-cooling-term." id="toc-constraining-the-cooling-term." class="nav-link" data-scroll-target="#constraining-the-cooling-term."><span class="header-section-number">5</span> Constraining the Cooling term.</a>
+  <ul class="collapse">
+  <li><a href="#how-well-does-the-gate-identify-cooling-cells" id="toc-how-well-does-the-gate-identify-cooling-cells" class="nav-link" data-scroll-target="#how-well-does-the-gate-identify-cooling-cells"><span class="header-section-number">5.1</span> How well does the gate identify cooling cells?</a></li>
+  </ul></li>
+  </ul>
+<div class="quarto-alternate-formats"><h2>Other Formats</h2><ul><li><a href="subgrid_NSE.pdf"><i class="bi bi-file-pdf"></i>PDF</a></li></ul></div></nav>
+</div>
+<main class="content" id="quarto-document-content">
+
+<header id="title-block-header" class="quarto-title-block default">
+<div class="quarto-title">
+<h1 class="title">Subgrid Terms in the compressible Euler Equation</h1>
+</div>
+
+
+
+<div class="quarto-title-meta">
+
+    
+  
+    
+  </div>
+  
+
+
+</header>
+
+
+<section id="the-unfiltered-equations" class="level1" data-number="1">
+<h1 data-number="1"><span class="header-section-number">1</span> The Unfiltered Equations</h1>
+<p>We begin with the Euler Equations in conservative form:</p>
+<p><span id="eq-euler"><span class="math display">
+\begin{aligned}
+\partial_t \rho + \nabla\cdot(\rho\mathbf{v}) &amp;= 0 \\
+\partial_t (\rho\mathbf{v}) + \nabla\cdot(\rho\mathbf{v}\mathbf{v} + P\,\mathsf{I}) &amp;= 0 \\
+\partial_t \left( \frac 1 2 \rho \mathbf{v}^2 + \frac{P}{\gamma - 1} \right) + \nabla\cdot\big[\left(\frac 1 2 \rho \mathbf{v}^2 + \frac{\gamma P}{\gamma -1} \right)\mathbf{v}\big] &amp;= -\dot{\mathcal{E}}
+\end{aligned}
+\tag{1}</span></span></p>
+<p>where <span class="math inline">\rho</span> is the gas mass density, <span class="math inline">\mathbf v</span> is the fluid velocity, <span class="math inline">P</span> is the thermal pressure, <span class="math inline">\mathsf I</span> is the identity tensor. The total energy density can be written as</p>
+<p><span class="math display">
+E = \frac{P}{\gamma - 1} + \frac 1 2 \rho \left|\mathbf v\right|^2
+</span></p>
+<p>where <span class="math inline">\gamma = 5/3</span>. Using the ideal gas EOS,</p>
+<p><span class="math display">
+P = \frac{\rho k_B T}{\mu m_p}
+</span></p>
+<p>where <span class="math inline">T</span> is the gas temperature, <span class="math inline">k_B</span> is the Boltzmann constant, <span class="math inline">m_p</span> is the mass of the proton, and <span class="math inline">\mu = 0.62</span> is the mean molecular weight. The radiative cooling per unit volume is given by</p>
+<p><span class="math display">
+\dot{\mathcal{E}} = n^2 \Lambda(T), \qquad n = \frac{\rho}{\mu m_p}
+</span></p>
+<p>where <span class="math inline">n</span> is the number density and <span class="math inline">\Lambda(T)</span> is the cooling function.</p>
+</section>
+<section id="the-filtering-approach" class="level1" data-number="2">
+<h1 data-number="2"><span class="header-section-number">2</span> The Filtering Approach</h1>
+<p>Given a filtering kernel <span class="math inline">G_\Delta(\mathbf x)</span> , The filtering operation can be defined as:</p>
+<p><span class="math display">
+\bar{f}(\mathbf x, t) = \int G_\Delta(\mathbf x - \mathbf x')f(\mathbf x', t)\mathrm{d}^3 x', \qquad \tilde{f} = \frac{\overline{\rho f}}{\bar \rho}
+</span></p>
+<p>Where <span class="math inline">\tilde f</span> is the density weighted average or the Favre average.</p>
+<p>For a top hat kernel, the filtering can be written as</p>
+<p><span class="math display">
+\langle f \rangle = \frac{1}{V_\mathrm{cell}} \int f d^3x
+</span></p>
+<p>Germano’s generalised central moments for a pair of fields <span class="math inline">a</span> and <span class="math inline">b</span> is defined as</p>
+<p><span class="math display">
+\tau(a,b) = \widetilde{ab}- \tilde a\tilde b= \widetilde{\delta a \delta b}
+</span></p>
+<p>where <span class="math inline">\delta a = a - \tilde a</span> is the fluctuations about the mean of the field. By construction, <span class="math inline">\widetilde{\delta a} = 0</span>.</p>
+<p>For three fields <span class="math inline">a, b,</span> and <span class="math inline">c</span>, we can write</p>
+<p><span class="math display">
+\tau(a, b, c) = \widetilde{a b c} - \tilde a \tau(b,c) - \tilde b \tau(c, a) - \tilde c \tau(a, b) - \tilde a \tilde b \tilde c
+</span></p>
+</section>
+<section id="coarse-graining-the-equations" class="level1" data-number="3">
+<h1 data-number="3"><span class="header-section-number">3</span> Coarse Graining the Equations</h1>
+<p><span id="eq-filtered"><span class="math display">
+\begin{aligned}
+\frac{\partial}{\partial t} \langle \rho \rangle + \mathbf{\nabla} \cdot \langle \rho \mathbf{v} \rangle &amp;= 0 \\
+\frac{\partial}{\partial t} \langle \rho \mathbf{v} \rangle + \mathbf{\nabla}\cdot\left[ \langle \rho \mathbf{v} \mathbf{v} \rangle + \langle P \rangle \mathsf{I} \right] &amp;= 0 \\
+\frac{\partial}{\partial t} \left\langle \frac 1 2 \rho \mathbf{v}^2 + \frac{P}{\gamma - 1}\right\rangle + \mathbf{\nabla}\cdot\left\langle \left(\frac 1 2 \rho \mathbf{v}^2 + \frac{\gamma P}{\gamma -1}\right) \mathbf{v} \right\rangle &amp;= - \langle n^2 \Lambda(T) \rangle
+\end{aligned}
+\tag{2}</span></span></p>
+<p>We can expand the term <span class="math inline">\langle \rho \mathbf{v} \mathbf{v} \rangle</span> to get</p>
+<p><span id="eq-rhovv"><span class="math display">
+\langle \rho \mathbf{v} \mathbf{v} \rangle = \frac{\langle\rho \mathbf{v} \rangle \langle\rho \mathbf{v} \rangle}{\langle \rho \rangle} + \mathsf{R}_{\rho vv}
+\tag{3}</span></span></p>
+<p><span class="math inline">\mathsf{R}_{\rho vv}</span> is a symmetrical tensor that can be read as the residual momentum-flux tensor. We can also write it in terms of Favre averaged velocities,</p>
+<p><span class="math display">
+\mathsf R_{\rho vv} = \langle \rho \rangle \widetilde{\mathbf v \mathbf v} - \tilde v \tilde v
+</span></p>
+<p>Using Germano’s central moments, we can write the components of the tensor.</p>
+<p><span class="math display">
+\mathsf R_{ij} = \langle\rho  \rangle \tau(v_i, v_j)
+</span></p>
+<p>We can expand the term <span class="math inline">\langle \rho \mathbf{v}^2 / 2\rangle</span> as</p>
+<p><span class="math display">
+\langle\frac{\rho \mathbf{v}^2}{2} \rangle = \mathrm{Tr}\langle \frac{\rho \mathbf v \mathbf v}{2} \rangle
+</span></p>
+<p>We can decompose this with the relation in <a href="#eq-rhovv" class="quarto-xref">Equation&nbsp;3</a>.</p>
+<p><span class="math display">
+\left\langle\frac{\rho \mathbf{v}^2}{2} \right\rangle  = \frac 1 2\mathrm{Tr}\left\langle  \frac{\langle\rho \mathbf{v} \rangle \langle\rho \mathbf{v} \rangle}{\langle \rho \rangle}\right\rangle + \frac 1 2 \mathrm{Tr}\left(\mathsf{R}_{\rho v v}\right)
+</span></p>
+<p>We can use this decomposition to find pressure from the total energy.</p>
+<p><span id="eq-pressure"><span class="math display">
+\frac{\langle P \rangle}{\gamma -1} = \langle E \rangle - \left[ \frac 1 2\mathrm{Tr}\left\langle  \frac{\langle\rho \mathbf{v} \rangle \langle\rho \mathbf{v} \rangle}{\langle \rho \rangle}\right\rangle + \frac 1 2\mathrm{Tr}\left(\mathsf{R}_{\rho v v}\right) \right]
+\tag{4}</span></span></p>
+<div class="callout callout-style-default callout-tip callout-titled" title="The Subgrid Momentum Flux is Invariant to Galilean Transform">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Tip</span>The Subgrid Momentum Flux is Invariant to Galilean Transform
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p><strong>Claim:</strong> Under a Galilean boost <span class="math inline">\mathbf{v} \to \mathbf{v}' = \mathbf{v} + \mathbf{V}</span> (constant <span class="math inline">\mathbf{V}</span>, with <span class="math inline">\mathbf{x}' = \mathbf{x} + \mathbf{V}t</span>), the subgrid terms <span class="math inline">\mathsf{R}_{\rho vv}</span>, is unchanged.</p>
+<p><strong>Proof:</strong> Under the boost, the scalars <span class="math inline">\rho</span>, <span class="math inline">P</span>, <span class="math inline">T</span> are unchanged, so <span class="math inline">\langle\rho\rangle' = \langle\rho\rangle</span> and <span class="math inline">\langle P\rangle' = \langle P\rangle</span>. The momentum transforms as</p>
+<p><span class="math display">
+\langle \rho\mathbf{v}\rangle' = \langle\rho(\mathbf{v}+\mathbf{V})\rangle = \langle\rho\mathbf{v}\rangle + \mathbf{V}\langle\rho\rangle .
+</span></p>
+<p>Define the resolved velocity <span class="math inline">\tilde{\mathbf{v}} \equiv \langle\rho\mathbf{v}\rangle/\langle\rho\rangle</span>, so that <span class="math inline">\tilde{\mathbf{v}}' = \tilde{\mathbf{v}} + \mathbf{V}</span>. From the definition,</p>
+<p><span class="math display">
+\mathsf{R}_{\rho vv} = \langle\rho\mathbf{v}\mathbf{v}\rangle - \langle\rho\rangle\tilde{\mathbf{v}}\tilde{\mathbf{v}} .
+</span></p>
+<p>Boosting the first term:</p>
+<p><span class="math display">
+&nbsp;\langle\rho\mathbf{v}'\mathbf{v}'\rangle = \langle\rho\mathbf{v}\mathbf{v}\rangle + \mathbf{V}\langle\rho\mathbf{v}\rangle + \langle\rho\mathbf{v}\rangle\mathbf{V} + \langle\rho\rangle\mathbf{V}\mathbf{V}.&nbsp;
+</span></p>
+<p>Boosting the second term:</p>
+<p><span class="math display">
+\langle\rho\rangle\,\tilde{\mathbf{v}}'\tilde{\mathbf{v}}' = \langle\rho\rangle\tilde{\mathbf{v}}\tilde{\mathbf{v}} + \mathbf{V}\langle\rho\mathbf{v}\rangle + \langle\rho\mathbf{v}\rangle\mathbf{V} + \langle\rho\rangle\mathbf{V}\mathbf{V}.
+</span></p>
+<p>The cross terms and the <span class="math inline">\mathbf{V}\mathbf{V}</span> term are identical and cancel in the difference, so</p>
+<p><span class="math display">
+\mathsf{R}'_{\rho vv} = \mathsf{R}_{\rho vv}.
+</span></p>
+</div>
+</div>
+<p>We can also define a similar Energy Flux term <span class="math inline">\mathsf{Q}</span>, such that</p>
+<p><span id="eq-energy-flux"><span class="math display">
+\langle(E + P) \mathbf{v} \rangle = \left( \langle E \rangle + \langle P \rangle \right) \frac{\langle \rho \mathbf{v} \rangle}{\langle \rho \rangle} + \mathsf{Q}_E
+\tag{5}</span></span></p>
+<p>Let us define the specific total enthalpy, <span class="math inline">h_t \equiv (E+ P)/\rho</span>. Then we can expand <span class="math inline">\langle (E +P) \mathbf v \rangle = \langle \rho \rangle \widetilde{h_t \mathbf v}</span> and <span class="math inline">\langle E \rangle + \langle P \rangle = \langle \rho \rangle \widetilde{h_t}</span>. With this setup, the energy flux can be written as</p>
+<p><span class="math display">
+\mathsf{Q}_i = \langle\rho \rangle \left[ \widetilde{h_t v_i} - \widetilde{h_t}\tilde{v_i} \right] = \langle \rho \rangle \tau(h_t, v_i)
+</span></p>
+<p><span class="math inline">h_t</span> can be decomposed further into a thermal and kinetic part.</p>
+<p><span class="math display">
+h_t = h + \frac 1 2 v_j v_j \qquad h\equiv \frac{\gamma}{\gamma - 1} \frac{P}{\rho}
+</span></p>
+<p>Since <span class="math inline">\tau</span> is linear in its first argument,</p>
+<p><span class="math display">
+\mathsf Q_i = \langle \rho \rangle \tau(h, v_i) + \frac{1}{2}\langle \rho \rangle \tau(v_j v_j, v_i)
+</span></p>
+<p>The first term can be written as</p>
+<p><span class="math display">
+\mathsf{Q}_i^{(\mathrm{th})} = \langle \rho \rangle \tau(h, v_i) = \frac{\gamma }{\gamma - 1}\left[ \langle P v_i\rangle - \langle P \rangle \tilde v_i \right]
+</span></p>
+<p>This gives us a thermal/enthalpy flux.</p>
+<p>Let’s write <span class="math inline">v_j = \tilde v_j + \delta v_j</span> to expand the second term.</p>
+<p><span class="math display">
+v_j v_j = \tilde v_j \tilde v_j + 2 \tilde v_j \delta v_j + \delta v_j \delta v_j
+</span></p>
+<p><span class="math inline">\tau(v_j v_j, v_i)</span> becomes <span class="math inline">2 \tilde v_j \tau(v_j, v_i) + \tau(v_j, v_j, v_i)</span>, which can be substituted into the kinetic part to get</p>
+<p><span class="math display">
+\mathsf{Q}_i^{(\mathrm{kin})} = \langle \rho \rangle \left[ 2 \tilde v_j \tau(v_j, v_i) + \tau(v_j, v_j, v_i) \right]
+</span></p>
+<p>The first term can be written in terms of the momentum flux tensor, giving us the total energy flux term as</p>
+<p><span id="eq-Q-total"><span class="math display">
+\mathsf{Q}_i = \tilde v_j \mathsf{R}_{ij} + \frac 1 2 \langle \rho\rangle\tau(v_j, v_j, v_i)+ \langle \rho \rangle \tau(h, v_i)
+\tag{6}</span></span></p>
+<div class="callout callout-style-default callout-warning callout-titled" title="The Energy Flux term is not Galilean Invariant">
+<div class="callout-header d-flex align-content-center">
+<div class="callout-icon-container">
+<i class="callout-icon"></i>
+</div>
+<div class="callout-title-container flex-fill">
+<span class="screen-reader-only">Warning</span>The Energy Flux term is not Galilean Invariant
+</div>
+</div>
+<div class="callout-body-container callout-body">
+<p>Consider a Galilean transform to <span class="math inline">\mathbf v \to \mathbf v' = \mathbf v + \mathbf V</span>.</p>
+<p>Under the boost, <span class="math inline">\delta \mathbf{v}</span> and all the scalars remain unchanged. But <span class="math inline">\tilde v_j \mathsf{R}_{ij}</span> term is not going to be invariant. So,</p>
+<p><span class="math display">
+\mathsf{Q}_i ' = \mathsf{Q}_i + V_j \mathsf{R}_{ij}
+</span></p>
+</div>
+</div>
+<p>Finally, we write the emissivity <span class="math inline">\langle \dot{\mathcal{E}}  \rangle</span> with a correction term <span class="math inline">\mathsf{C}</span>.</p>
+<p><span id="eq-cooling"><span class="math display">
+\langle n^2 \Lambda(T)\rangle = \left[ \left(\frac{\langle \rho \rangle}{\mu m_p}\right)^2 \Lambda \left(T \right) \right] + \mathsf{C}
+\tag{7}</span></span></p>
+<p>The first term in <a href="#eq-cooling" class="quarto-xref">Equation&nbsp;7</a> is the coarse/resolved cooling, and the second term is just how much it is off by, a cooling correction term. Everything we’re dealing with here are scalars, so this will be invariant.</p>
+</section>
+<section id="final-set-of-equations" class="level1" data-number="4">
+<h1 data-number="4"><span class="header-section-number">4</span> Final Set of Equations</h1>
+<p>Let us write <span class="math inline">\mathbf m = \rho \mathbf v</span> as the momentum density.</p>
+<p><span id="eq-final"><span class="math display">
+\begin{aligned}
+\frac{\partial}{\partial t} \langle \rho \rangle + \mathbf{\nabla}\cdot \langle \mathbf m \rangle &amp;= 0 \\
+\frac{\partial}{\partial t} \langle \mathbf m \rangle + \mathbf{\nabla}\cdot \left(\frac{\langle \mathbf m \rangle \langle \mathbf m \rangle}{\langle \rho \rangle} + \mathsf{R}_{\rho vv} \right) + \mathbf{\nabla}\langle P \rangle &amp;= 0 \\
+\frac{\partial}{\partial t} \langle E \rangle + \mathbf{\nabla}\cdot \left[ \frac{\left(\langle E \rangle + \langle P \rangle\right) \langle \mathbf m \rangle}{\langle \rho \rangle} + \mathsf{Q} \right] &amp;= -\left( \frac{\langle \rho \rangle}{\mu m_p} \right)^2 \Lambda(T) - \mathsf{C}
+\end{aligned}
+\tag{8}</span></span></p>
+<p><span class="math inline">\mathsf{R}_{\rho vv}</span> has 9 components, but is a symmetric tensor so only 6 independent quantities <span class="math inline">(xx, yy, zz, xy, xz, yz)</span>. <span class="math inline">\mathsf{Q}</span> will have 3 components. <span class="math inline">\mathsf C</span> has one component, totalling to 10 unknowns we have to learn.</p>
+</section>
+<section id="constraining-the-cooling-term." class="level1" data-number="5">
+<h1 data-number="5"><span class="header-section-number">5</span> Constraining the Cooling term.</h1>
+<p>From <a href="#eq-cooling" class="quarto-xref">Equation&nbsp;7</a>, we have the subgrid cooling term <span class="math inline">\mathsf{C}</span>.We can also write the resolved cooling given by <span class="math display">
+\mathcal C_{CG} = \left( \frac{\langle \rho \rangle}{\mu m_p} \right)^2 \Lambda(T_{CG})
+</span> which is just the first term in <a href="#eq-cooling" class="quarto-xref">Equation&nbsp;7</a>.</p>
+<div id="fig-subgrid-cooling" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-subgrid-cooling-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="assets/subgrid_cooling_snapshot.png" class="img-fluid figure-img">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-subgrid-cooling-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;1: The subgrid cooling term for the <span class="math inline">512 \times 1024</span> run at <span class="math inline">t = 8</span> Myr, coarse-grained onto blocks of <span class="math inline">32 \times 32</span> cells. From left to right: the high-resolution temperature, the coarse temperature <span class="math inline">T_{CG}</span>, and the map of <span class="math inline">\mathsf C = \langle n^2\Lambda(T)\rangle - \mathcal C_{CG}</span>. Blue cells (<span class="math inline">\mathsf C &lt; 0</span>) are where <span class="math inline">\mathcal C_{CG}</span> overestimates the cooling; red cells (<span class="math inline">\mathsf C &gt; 0</span>) are where it underestimates it.
+</figcaption>
+</figure>
+</div>
+<p><a href="#fig-subgrid-cooling" class="quarto-xref">Figure&nbsp;1</a> shows that <span class="math inline">\mathsf C</span> is only non-zero in the mixing layer, where a coarse cell contains both hot and cold gas. Pure hot or pure cold cells have <span class="math inline">\mathsf C = 0</span>, because the fine and coarse temperatures then agree. Within the layer, <span class="math inline">\mathsf C</span> is negative in the upper, hot-side cells and positive in the lower, cold-side cells, so the sign of the correction depends on where the cell sits in the layer.</p>
+<div id="fig-cooling-maps" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-cooling-maps-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="assets/cooling_maps_snapshot.png" class="img-fluid figure-img">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-cooling-maps-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;2: The two cooling estimates and their difference for the same snapshot as <a href="#fig-subgrid-cooling" class="quarto-xref">Figure&nbsp;1</a>. From left to right: the true coarse-grained cooling <span class="math inline">\langle n^2\Lambda(T)\rangle</span>, the resolved cooling <span class="math inline">\mathcal C_{CG} = \langle n\rangle^2\Lambda(T_{CG})</span> on the same colour scale, and <span class="math inline">\mathsf C = \langle n^2\Lambda(T)\rangle - \mathcal C_{CG}</span>. Grey cells have zero cooling.
+</figcaption>
+</figure>
+</div>
+<p><a href="#fig-cooling-maps" class="quarto-xref">Figure&nbsp;2</a> shows why. On the hot side of the layer, <span class="math inline">\mathcal C_{CG}</span> is roughly an order of magnitude larger than the true cooling: averaging hot and cold gas puts <span class="math inline">T_{CG}</span> in the range where <span class="math inline">\Lambda</span> is large, even though little of the gas in the cell is actually at that temperature. On the cold side, <span class="math inline">T_{CG}</span> falls below the lower cooling cutoff, so <span class="math inline">\mathcal C_{CG} = 0</span> even though the cell contains thin filaments of warm gas that are cooling.</p>
+<div id="fig-subgrid-cooling-distribution" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-subgrid-cooling-distribution-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="assets/subgrid_cooling_distribution.png" class="img-fluid figure-img">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-subgrid-cooling-distribution-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;3: Distribution of <span class="math inline">|\mathsf C|</span> over all coarse cells for <span class="math inline">t = 5</span>–<span class="math inline">10</span> Myr, split by sign. Cells with <span class="math inline">\mathsf C = 0</span> (pure hot or pure cold gas) are not shown.
+</figcaption>
+</figure>
+</div>
+<p>Over <span class="math inline">t = 5</span>–<span class="math inline">10</span> Myr, 17% of the coarse cells have <span class="math inline">\mathsf C \neq 0</span>, split almost evenly between the two signs (<a href="#fig-subgrid-cooling-distribution" class="quarto-xref">Figure&nbsp;3</a>). The two distributions are offset, however: the median <span class="math inline">|\mathsf C|</span> is about 20 times larger for <span class="math inline">\mathsf C &lt; 0</span> than for <span class="math inline">\mathsf C &gt; 0</span>. Integrated over the domain, <span class="math inline">\mathcal C_{CG}</span> therefore overestimates the total cooling by a factor of about 4.6. At the same time, 35% of the cooling cells have <span class="math inline">\mathcal C_{CG} = 0</span>, and these carry 17% of the true cooling.</p>
+<div id="fig-subgrid-cooling-vs-temperature" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-subgrid-cooling-vs-temperature-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="assets/subgrid_cooling_vs_temperature.png" class="img-fluid figure-img">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-subgrid-cooling-vs-temperature-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;4: Joint distribution of the coarse temperature <span class="math inline">T_{CG}</span> and <span class="math inline">|\mathsf C|</span> for <span class="math inline">t = 5</span>–<span class="math inline">10</span> Myr. Top: cells where <span class="math inline">\mathcal C_{CG}</span> undercools (<span class="math inline">\mathsf C &gt; 0</span>). Bottom: cells where it overcools (<span class="math inline">\mathsf C &lt; 0</span>), with the <span class="math inline">|\mathsf C|</span> axis flipped. Dashed lines mark the cooling cutoffs.
+</figcaption>
+</figure>
+</div>
+<p><a href="#fig-subgrid-cooling-vs-temperature" class="quarto-xref">Figure&nbsp;4</a> shows that the sign of <span class="math inline">\mathsf C</span> is set mostly by <span class="math inline">T_{CG}</span>:</p>
+<ul>
+<li>For <span class="math inline">10^{4.1} &lt; T_{CG} &lt; 10^{5.2}</span> K, essentially every cell overcools, with <span class="math inline">|\mathsf C| \sim 10^{-24}</span> erg cm<span class="math inline">^{-3}</span> s<span class="math inline">^{-1}</span>. The error is largest just above the lower cutoff.</li>
+<li>For <span class="math inline">T_{CG} &gt; 10^{5.5}</span> K, essentially every cell undercools.</li>
+<li>Below the lower cutoff, <span class="math inline">\mathcal C_{CG} = 0</span> and every cell undercools by its full true cooling.</li>
+<li>Between <span class="math inline">10^{5.2}</span> and <span class="math inline">10^{5.5}</span> K both signs occur in similar numbers, so <span class="math inline">T_{CG}</span> alone does not determine <span class="math inline">\mathsf C</span> there.</li>
+</ul>
+<p>A model for <span class="math inline">\mathsf C</span> therefore needs more than the coarse temperature. It has to know how the gas in the cell is distributed in temperature, which is what the PDF approach for <span class="math inline">\mathcal C</span> above is designed to provide.</p>
+<section id="how-well-does-the-gate-identify-cooling-cells" class="level2" data-number="5.1">
+<h2 data-number="5.1" class="anchored" data-anchor-id="how-well-does-the-gate-identify-cooling-cells"><span class="header-section-number">5.1</span> How well does the gate identify cooling cells?</h2>
+<p>The CNN predicts a gate <span class="math inline">g \in (0, 1)</span> for each coarse cell. It switches the predicted temperature PDF between a single sharp peak (<span class="math inline">g \to 0</span>) and a broad multiphase distribution (<span class="math inline">g \to 1</span>). The gate is trained against the binary target “the cell’s temperature PDF has mass in the active cooling window”, which is the same as <span class="math inline">\langle n^2\Lambda(T)\rangle &gt; 0</span>. Here we ignore the cooling rate the CNN predicts and only ask how well the gate identifies the cells that should cool. We evaluate the two models used in <code>run_variable_box_subgrid.sh</code> (0.625 pc and 1.25 pc cells) on the <span class="math inline">512 \times 1024</span> run for <span class="math inline">t = 5</span>–<span class="math inline">10</span> Myr, coarse-grained to each model’s cell size. Neither model was trained on this run. The figure is produced by <code>gate_evaluation.py</code>.</p>
+<div id="fig-gate" class="quarto-float quarto-figure quarto-figure-center anchored">
+<figure class="quarto-float quarto-float-fig figure">
+<div aria-describedby="fig-gate-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+<img src="assets/gate_vs_cooling.png" class="img-fluid figure-img">
+</div>
+<figcaption class="quarto-float-caption-bottom quarto-float-caption quarto-float-fig" id="fig-gate-caption-0ceaefa1-69ba-4598-a22c-09a6ac19f8ca">
+Figure&nbsp;5: Gate of the 0.625 pc (top) and 1.25 pc (bottom) models. Left: the gate at <span class="math inline">t = 8</span> Myr, with the cells where <span class="math inline">\langle n^2\Lambda\rangle &gt; 0</span> outlined in red. Middle: the distribution of the gate for cells that cool and cells that do not, with the threshold <span class="math inline">g = 0.5</span> dashed. Right: the gate against <span class="math inline">|\mathsf C|</span> for cells with <span class="math inline">\mathsf C &gt; 0</span> (red) and <span class="math inline">\mathsf C &lt; 0</span> (blue).
+</figcaption>
+</figure>
+</div>
+<p><a href="#fig-gate" class="quarto-xref">Figure&nbsp;5</a> shows that the gate works well as a detector of where cooling happens:</p>
+<ul>
+<li>The gate is almost binary. Most cells have <span class="math inline">g &lt; 0.05</span> or <span class="math inline">g &gt; 0.95</span>, and the two populations separate cleanly at <span class="math inline">g = 0.5</span>.</li>
+<li>With <span class="math inline">g &gt; 0.5</span> as “on”, both models turn the gate on for 91% of the cooling cells (recall), and 95% of the cells where the gate is on are cooling (precision).</li>
+<li>The cooling cells the gate misses are weak. They carry 2.0% (0.625 pc) and 1.5% (1.25 pc) of the true cooling, and less than 1% of the total <span class="math inline">|\mathsf C|</span>.</li>
+<li>Almost all of the misses (98–99%) are undercooling cells (<span class="math inline">\mathsf C &gt; 0</span>). About three quarters of them have <span class="math inline">T_{CG}</span> below the lower cooling cutoff (median <span class="math inline">T_{CG} \approx 10^{3.95}</span> K): cold-dominated cells containing only thin filaments of warm gas. By contrast, the gate is on in more than 99.6% of the overcooling cells (<span class="math inline">\mathsf C &lt; 0</span>), which carry most of <span class="math inline">|\mathsf C|</span>.</li>
+</ul>
+<p>The gate is therefore not the limiting factor for the subgrid cooling. It finds almost all of the cells that matter, and its errors are confined to weakly cooling cells on the cold side of the mixing layer.</p>
+</section>
+</section>
+
+</main>
+<!-- /main column -->
+<script id="quarto-html-after-body" type="application/javascript">
+  window.document.addEventListener("DOMContentLoaded", function (event) {
+    const icon = "";
+    const anchorJS = new window.AnchorJS();
+    anchorJS.options = {
+      placement: 'right',
+      icon: icon
+    };
+    anchorJS.add('.anchored');
+    const isCodeAnnotation = (el) => {
+      for (const clz of el.classList) {
+        if (clz.startsWith('code-annotation-')) {                     
+          return true;
+        }
+      }
+      return false;
+    }
+    const onCopySuccess = function(e) {
+      // button target
+      const button = e.trigger;
+      // don't keep focus
+      button.blur();
+      // flash "checked"
+      button.classList.add('code-copy-button-checked');
+      var currentTitle = button.getAttribute("title");
+      button.setAttribute("title", "Copied!");
+      let tooltip;
+      if (window.bootstrap) {
+        button.setAttribute("data-bs-toggle", "tooltip");
+        button.setAttribute("data-bs-placement", "left");
+        button.setAttribute("data-bs-title", "Copied!");
+        tooltip = new bootstrap.Tooltip(button, 
+          { trigger: "manual", 
+            customClass: "code-copy-button-tooltip",
+            offset: [0, -8]});
+        tooltip.show();    
+      }
+      setTimeout(function() {
+        if (tooltip) {
+          tooltip.hide();
+          button.removeAttribute("data-bs-title");
+          button.removeAttribute("data-bs-toggle");
+          button.removeAttribute("data-bs-placement");
+        }
+        button.setAttribute("title", currentTitle);
+        button.classList.remove('code-copy-button-checked');
+      }, 1000);
+      // clear code selection
+      e.clearSelection();
+    }
+    const getTextToCopy = function(trigger) {
+      const outerScaffold = trigger.parentElement.cloneNode(true);
+      const codeEl = outerScaffold.querySelector('code');
+      for (const childEl of codeEl.children) {
+        if (isCodeAnnotation(childEl)) {
+          childEl.remove();
+        }
+      }
+      return codeEl.innerText;
+    }
+    const clipboard = new window.ClipboardJS('.code-copy-button:not([data-in-quarto-modal])', {
+      text: getTextToCopy
+    });
+    clipboard.on('success', onCopySuccess);
+    if (window.document.getElementById('quarto-embedded-source-code-modal')) {
+      const clipboardModal = new window.ClipboardJS('.code-copy-button[data-in-quarto-modal]', {
+        text: getTextToCopy,
+        container: window.document.getElementById('quarto-embedded-source-code-modal')
+      });
+      clipboardModal.on('success', onCopySuccess);
+    }
+      var localhostRegex = new RegExp(/^(?:http|https):\/\/localhost\:?[0-9]*\//);
+      var mailtoRegex = new RegExp(/^mailto:/);
+        var filterRegex = new RegExp('/' + window.location.host + '/');
+      var isInternal = (href) => {
+          return filterRegex.test(href) || localhostRegex.test(href) || mailtoRegex.test(href);
+      }
+      // Inspect non-navigation links and adorn them if external
+     var links = window.document.querySelectorAll('a[href]:not(.nav-link):not(.navbar-brand):not(.toc-action):not(.sidebar-link):not(.sidebar-item-toggle):not(.pagination-link):not(.no-external):not([aria-hidden]):not(.dropdown-item):not(.quarto-navigation-tool):not(.about-link)');
+      for (var i=0; i<links.length; i++) {
+        const link = links[i];
+        if (!isInternal(link.href)) {
+          // undo the damage that might have been done by quarto-nav.js in the case of
+          // links that we want to consider external
+          if (link.dataset.originalHref !== undefined) {
+            link.href = link.dataset.originalHref;
+          }
+        }
+      }
+    function tippyHover(el, contentFn, onTriggerFn, onUntriggerFn) {
+      const config = {
+        allowHTML: true,
+        maxWidth: 500,
+        delay: 100,
+        arrow: false,
+        appendTo: function(el) {
+            return el.parentElement;
+        },
+        interactive: true,
+        interactiveBorder: 10,
+        theme: 'quarto',
+        placement: 'bottom-start',
+      };
+      if (contentFn) {
+        config.content = contentFn;
+      }
+      if (onTriggerFn) {
+        config.onTrigger = onTriggerFn;
+      }
+      if (onUntriggerFn) {
+        config.onUntrigger = onUntriggerFn;
+      }
+      window.tippy(el, config); 
+    }
+    const noterefs = window.document.querySelectorAll('a[role="doc-noteref"]');
+    for (var i=0; i<noterefs.length; i++) {
+      const ref = noterefs[i];
+      tippyHover(ref, function() {
+        // use id or data attribute instead here
+        let href = ref.getAttribute('data-footnote-href') || ref.getAttribute('href');
+        try { href = new URL(href).hash; } catch {}
+        const id = href.replace(/^#\/?/, "");
+        const note = window.document.getElementById(id);
+        if (note) {
+          return note.innerHTML;
+        } else {
+          return "";
+        }
+      });
+    }
+    const xrefs = window.document.querySelectorAll('a.quarto-xref');
+    const processXRef = (id, note) => {
+      // Strip column container classes
+      const stripColumnClz = (el) => {
+        el.classList.remove("page-full", "page-columns");
+        if (el.children) {
+          for (const child of el.children) {
+            stripColumnClz(child);
+          }
+        }
+      }
+      stripColumnClz(note)
+      if (id === null || id.startsWith('sec-')) {
+        // Special case sections, only their first couple elements
+        const container = document.createElement("div");
+        if (note.children && note.children.length > 2) {
+          container.appendChild(note.children[0].cloneNode(true));
+          for (let i = 1; i < note.children.length; i++) {
+            const child = note.children[i];
+            if (child.tagName === "P" && child.innerText === "") {
+              continue;
+            } else {
+              container.appendChild(child.cloneNode(true));
+              break;
+            }
+          }
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(container);
+          }
+          return container.innerHTML
+        } else {
+          if (window.Quarto?.typesetMath) {
+            window.Quarto.typesetMath(note);
+          }
+          return note.innerHTML;
+        }
+      } else {
+        // Remove any anchor links if they are present
+        const anchorLink = note.querySelector('a.anchorjs-link');
+        if (anchorLink) {
+          anchorLink.remove();
+        }
+        if (window.Quarto?.typesetMath) {
+          window.Quarto.typesetMath(note);
+        }
+        if (note.classList.contains("callout")) {
+          return note.outerHTML;
+        } else {
+          return note.innerHTML;
+        }
+      }
+    }
+    for (var i=0; i<xrefs.length; i++) {
+      const xref = xrefs[i];
+      tippyHover(xref, undefined, function(instance) {
+        instance.disable();
+        let url = xref.getAttribute('href');
+        let hash = undefined; 
+        if (url.startsWith('#')) {
+          hash = url;
+        } else {
+          try { hash = new URL(url).hash; } catch {}
+        }
+        if (hash) {
+          const id = hash.replace(/^#\/?/, "");
+          const note = window.document.getElementById(id);
+          if (note !== null) {
+            try {
+              const html = processXRef(id, note.cloneNode(true));
+              instance.setContent(html);
+            } finally {
+              instance.enable();
+              instance.show();
+            }
+          } else {
+            // See if we can fetch this
+            fetch(url.split('#')[0])
+            .then(res => res.text())
+            .then(html => {
+              const parser = new DOMParser();
+              const htmlDoc = parser.parseFromString(html, "text/html");
+              const note = htmlDoc.getElementById(id);
+              if (note !== null) {
+                const html = processXRef(id, note);
+                instance.setContent(html);
+              } 
+            }).finally(() => {
+              instance.enable();
+              instance.show();
+            });
+          }
+        } else {
+          // See if we can fetch a full url (with no hash to target)
+          // This is a special case and we should probably do some content thinning / targeting
+          fetch(url)
+          .then(res => res.text())
+          .then(html => {
+            const parser = new DOMParser();
+            const htmlDoc = parser.parseFromString(html, "text/html");
+            const note = htmlDoc.querySelector('main.content');
+            if (note !== null) {
+              // This should only happen for chapter cross references
+              // (since there is no id in the URL)
+              // remove the first header
+              if (note.children.length > 0 && note.children[0].tagName === "HEADER") {
+                note.children[0].remove();
+              }
+              const html = processXRef(null, note);
+              instance.setContent(html);
+            } 
+          }).finally(() => {
+            instance.enable();
+            instance.show();
+          });
+        }
+      }, function(instance) {
+      });
+    }
+        let selectedAnnoteEl;
+        const selectorForAnnotation = ( cell, annotation) => {
+          let cellAttr = 'data-code-cell="' + cell + '"';
+          let lineAttr = 'data-code-annotation="' +  annotation + '"';
+          const selector = 'span[' + cellAttr + '][' + lineAttr + ']';
+          return selector;
+        }
+        const selectCodeLines = (annoteEl) => {
+          const doc = window.document;
+          const targetCell = annoteEl.getAttribute("data-target-cell");
+          const targetAnnotation = annoteEl.getAttribute("data-target-annotation");
+          const annoteSpan = window.document.querySelector(selectorForAnnotation(targetCell, targetAnnotation));
+          const lines = annoteSpan.getAttribute("data-code-lines").split(",");
+          const lineIds = lines.map((line) => {
+            return targetCell + "-" + line;
+          })
+          let top = null;
+          let height = null;
+          let parent = null;
+          if (lineIds.length > 0) {
+              //compute the position of the single el (top and bottom and make a div)
+              const el = window.document.getElementById(lineIds[0]);
+              top = el.offsetTop;
+              height = el.offsetHeight;
+              parent = el.parentElement.parentElement;
+            if (lineIds.length > 1) {
+              const lastEl = window.document.getElementById(lineIds[lineIds.length - 1]);
+              const bottom = lastEl.offsetTop + lastEl.offsetHeight;
+              height = bottom - top;
+            }
+            if (top !== null && height !== null && parent !== null) {
+              // cook up a div (if necessary) and position it 
+              let div = window.document.getElementById("code-annotation-line-highlight");
+              if (div === null) {
+                div = window.document.createElement("div");
+                div.setAttribute("id", "code-annotation-line-highlight");
+                div.style.position = 'absolute';
+                parent.appendChild(div);
+              }
+              div.style.top = top - 2 + "px";
+              div.style.height = height + 4 + "px";
+              div.style.left = 0;
+              let gutterDiv = window.document.getElementById("code-annotation-line-highlight-gutter");
+              if (gutterDiv === null) {
+                gutterDiv = window.document.createElement("div");
+                gutterDiv.setAttribute("id", "code-annotation-line-highlight-gutter");
+                gutterDiv.style.position = 'absolute';
+                const codeCell = window.document.getElementById(targetCell);
+                const gutter = codeCell.querySelector('.code-annotation-gutter');
+                gutter.appendChild(gutterDiv);
+              }
+              gutterDiv.style.top = top - 2 + "px";
+              gutterDiv.style.height = height + 4 + "px";
+            }
+            selectedAnnoteEl = annoteEl;
+          }
+        };
+        const unselectCodeLines = () => {
+          const elementsIds = ["code-annotation-line-highlight", "code-annotation-line-highlight-gutter"];
+          elementsIds.forEach((elId) => {
+            const div = window.document.getElementById(elId);
+            if (div) {
+              div.remove();
+            }
+          });
+          selectedAnnoteEl = undefined;
+        };
+          // Handle positioning of the toggle
+      window.addEventListener(
+        "resize",
+        throttle(() => {
+          elRect = undefined;
+          if (selectedAnnoteEl) {
+            selectCodeLines(selectedAnnoteEl);
+          }
+        }, 10)
+      );
+      function throttle(fn, ms) {
+      let throttle = false;
+      let timer;
+        return (...args) => {
+          if(!throttle) { // first call gets through
+              fn.apply(this, args);
+              throttle = true;
+          } else { // all the others get throttled
+              if(timer) clearTimeout(timer); // cancel #2
+              timer = setTimeout(() => {
+                fn.apply(this, args);
+                timer = throttle = false;
+              }, ms);
+          }
+        };
+      }
+        // Attach click handler to the DT
+        const annoteDls = window.document.querySelectorAll('dt[data-target-cell]');
+        for (const annoteDlNode of annoteDls) {
+          annoteDlNode.addEventListener('click', (event) => {
+            const clickedEl = event.target;
+            if (clickedEl !== selectedAnnoteEl) {
+              unselectCodeLines();
+              const activeEl = window.document.querySelector('dt[data-target-cell].code-annotation-active');
+              if (activeEl) {
+                activeEl.classList.remove('code-annotation-active');
+              }
+              selectCodeLines(clickedEl);
+              clickedEl.classList.add('code-annotation-active');
+            } else {
+              // Unselect the line
+              unselectCodeLines();
+              clickedEl.classList.remove('code-annotation-active');
+            }
+          });
+        }
+    const findCites = (el) => {
+      const parentEl = el.parentElement;
+      if (parentEl) {
+        const cites = parentEl.dataset.cites;
+        if (cites) {
+          return {
+            el,
+            cites: cites.split(' ')
+          };
+        } else {
+          return findCites(el.parentElement)
+        }
+      } else {
+        return undefined;
+      }
+    };
+    var bibliorefs = window.document.querySelectorAll('a[role="doc-biblioref"]');
+    for (var i=0; i<bibliorefs.length; i++) {
+      const ref = bibliorefs[i];
+      const citeInfo = findCites(ref);
+      if (citeInfo) {
+        tippyHover(citeInfo.el, function() {
+          var popup = window.document.createElement('div');
+          citeInfo.cites.forEach(function(cite) {
+            var citeDiv = window.document.createElement('div');
+            citeDiv.classList.add('hanging-indent');
+            citeDiv.classList.add('csl-entry');
+            var biblioDiv = window.document.getElementById('ref-' + cite);
+            if (biblioDiv) {
+              citeDiv.innerHTML = biblioDiv.innerHTML;
+            }
+            popup.appendChild(citeDiv);
+          });
+          return popup.innerHTML;
+        });
+      }
+    }
+  });
+  </script>
+</div> <!-- /content -->
+
+
+
+
+</body></html>

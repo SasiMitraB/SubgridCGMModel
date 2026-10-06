@@ -1,0 +1,45 @@
+======================================================================
+ Variable-Box Subgrid Pipeline Run Manifest
+======================================================================
+Timestamp                : 20260924_203741 (Thursday 24 September 2026 08:37:41 PM IST)
+Script                   : /home/sasi/Projects/SubgridCGMModel/shell_scripts/run_variable_box_subgrid.sh
+Project root             : /home/sasi/Projects/SubgridCGMModel
+Execution mode           : all
+
+--- Box Geometry ---
+Box length X1 (width)    : 20 pc
+Box length X2 (height)   : 40 pc
+Domain extents X1        : [-10.000000, 10.000000] pc
+Domain extents X2        : [-20.000000, 20.000000] pc
+Shear layer width a_char : 0.250000 pc
+Perturbation sigma       : 1.000000 pc
+
+--- High Resolution (HR) ---
+HR grid                  : nx1=512 (X1), nx2=1024 (X2)
+HR cell size             : 0.0390625 pc
+HR meshblock             : 128 x 128
+HR athinput              : /home/sasi/Projects/SubgridCGMModel/simulation_outputs/athinputs_box_20x40_32x16/kh_full_512x1024.athinput
+HR output directory      : /home/sasi/Projects/SubgridCGMModel/simulation_outputs/hr_gpu_512x1024_box_20x40
+HR executable            : /home/sasi/Projects/SubgridCGMModel/builds/hr_build_gpu/src/athena
+HR time limit            : 10.0 Myr
+
+--- Coarse (Subgrid / LR) ---
+Coarse cell size (CNN)   : 1.25 pc
+Downsample factor (DS)   : 32
+Coarse grid              : nx1=16 (X1), nx2=32 (X2)
+Restart snapshot         : index 00500 (t=5.0 Myr)
+Downsampled IC binary    : /home/sasi/Projects/SubgridCGMModel/simulation_outputs/downsampled_ic/ic_snap00500_box_20x40_32x16.bin
+Subgrid athinput         : /home/sasi/Projects/SubgridCGMModel/simulation_outputs/athinputs_box_20x40_32x16/subgrid_32x16.athinput
+Subgrid output directory : /home/sasi/Projects/SubgridCGMModel/simulation_outputs/subgrid_box_20x40_32x16_from_snap00500
+LR athinput              : /home/sasi/Projects/SubgridCGMModel/simulation_outputs/athinputs_box_20x40_32x16/hr_build_32x16.athinput
+LR output directory      : /home/sasi/Projects/SubgridCGMModel/simulation_outputs/hr_build_box_20x40_32x16_from_snap00500
+Subgrid/LR internal tlim : 5.05 Myr (absolute end ~10.05 Myr)
+Cycle limit (nlim)       : -1
+
+--- CNN Model & Tiling ---
+Model saves dir          : /home/sasi/Projects/SubgridCGMModel/runs/run_random_crop_20260924_194824/model_saves
+Norm prefix              : cnn_(512, 256)_32
+Tile grid (rows,cols)    : 4,4
+Tile shape (cells)       : 8 rows x 4 cols
+Active log10(T) range    : [4.1, 5.9]
+======================================================================

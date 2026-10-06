@@ -29,7 +29,7 @@ if str(DATA_DIR) not in sys.path:
 
 try:
     from data_preprocess import simulation_data
-    from coarse_grain_utils import block_mean
+    from coarse_grain_utils import cache_scheme_matches, cnn_input_fields, write_cache_scheme
 except ImportError as e:
     print(f"Error importing data preprocessing utilities: {e}")
     sys.exit(1)
@@ -117,11 +117,9 @@ def regenerate_cache(bin_dir, cache_dir, force=False):
     pdfs_file = cache_dir / "cg_pdfs.npy"
 
     # Check if cache is up-to-date
-    if inputs_file.exists() and pdfs_file.exists() and not force:
-        # Quick check: see if files are reasonably sized
-        if inputs_file.stat().st_size > 1e6 and pdfs_file.stat().st_size > 1e6:
-            print(f"  ✓ Cache already exists, skipping (use --force to regenerate)")
-            return True
+    if inputs_file.exists() and pdfs_file.exists() and not force and cache_scheme_matches(cache_dir):
+        print(f"  ✓ Cache already up to date, skipping (use --force to regenerate)")
+        return True
 
     print(f"  Generating cache with resolution={resolution}, downsample={downsample}, bins={bins}")
 
@@ -141,53 +139,25 @@ def regenerate_cache(bin_dir, cache_dir, force=False):
         cg_nx = sim_data.rho.shape[1] // downsample
         cg_ny = sim_data.rho.shape[2] // downsample
 
-        # Determine number of input fields (will adjust based on what we have)
-        # Standard: rho, P, ux, uy, temp, s0, s1 = 7 channels
-        num_channels = 7
-        cg_inputs = np.zeros((num_snapshots, num_channels, cg_nx, cg_ny), dtype=np.float32)
-
+        # Channel layout and averaging shared with training and pdf_plot:
+        # (rho, T, ux, uy, s0), see coarse_grain_utils.cnn_input_fields
+        cg_inputs = np.zeros((num_snapshots, 5, cg_nx, cg_ny), dtype=np.float32)
         for i in range(num_snapshots):
-            # Volume-averaged density and pressure
-            cg_rho = block_mean(sim_data.rho[i], downsample)
-            cg_P = block_mean(sim_data.pressure[i], downsample)
-
-            # Mass-weighted velocity averages
-            cg_ux = block_mean(sim_data.rho[i] * sim_data.ux[i], downsample) / np.maximum(cg_rho, 1e-30)
-            cg_uy = block_mean(sim_data.rho[i] * sim_data.uy[i], downsample) / np.maximum(cg_rho, 1e-30)
-
-            # Temperature from equation of state
-            cg_T = (cg_P * sim_data.P_unit / cg_rho) * (sim_data.mu / sim_data.kb)
-
-            # Passive scalars (mass-weighted)
-            cg_s0 = block_mean(sim_data.rho[i] * sim_data.ps[i], downsample) / np.maximum(cg_rho, 1e-30)
-
-            # Cold mass fraction (s1) - mass-weighted
-            cg_s1 = np.zeros_like(cg_s0)
-            if hasattr(sim_data, 'frho') and sim_data.frho is not None and sim_data.frho[i].sum() > 0:
-                cg_s1 = block_mean(sim_data.rho[i] * (sim_data.frho[i] / np.maximum(sim_data.rho[i], 1e-30)), downsample) / np.maximum(cg_rho, 1e-30)
-
-            cg_inputs[i, 0] = cg_rho
-            cg_inputs[i, 1] = cg_P
-            cg_inputs[i, 2] = cg_ux
-            cg_inputs[i, 3] = cg_uy
-            cg_inputs[i, 4] = cg_T
-            cg_inputs[i, 5] = cg_s0
-            cg_inputs[i, 6] = cg_s1
+            cg_inputs[i] = cnn_input_fields(
+                sim_data.rho[i], sim_data.ux[i], sim_data.uy[i],
+                sim_data.pressure[i], sim_data.ps[i], downsample,
+                P_unit=sim_data.P_unit, mu=sim_data.mu, k_b=sim_data.kb,
+            )
 
         print(f"    Computing PDFs...")
-        # Generate PDFs
-        cg_pdfs = np.zeros((num_snapshots, bins, cg_nx, cg_ny), dtype=np.float32)
-
-        for i in range(num_snapshots):
-            temp_pdf = sim_data.calc_pixel_pdf(bins=bins)
-            if i < len(temp_pdf):
-                cg_pdfs[i] = temp_pdf[i]
+        cg_pdfs = np.asarray(sim_data.calc_pixel_pdf(bins=bins), dtype=np.float32)
 
         # Save cache
         print(f"    Saving cache to {cache_dir}...")
         cache_dir.mkdir(parents=True, exist_ok=True)
         np.save(inputs_file, cg_inputs)
         np.save(pdfs_file, cg_pdfs)
+        write_cache_scheme(cache_dir)
 
         size_mb = (cg_inputs.nbytes + cg_pdfs.nbytes) / (1024**2)
         print(f"  ✓ Cache regenerated ({size_mb:.1f} MB)")
