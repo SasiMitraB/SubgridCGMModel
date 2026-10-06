@@ -1,35 +1,0 @@
-rm: cannot remove 'mocks/pdf/log_pdf_animation.mp4': No such file or directory
-rm: cannot remove 'mocks/pdf/log_pdf_compare_animation.mp4': No such file or directory
-Calculating pixel PDFs:   0%|          | 0/500 [00:00<?, ?it/s]Calculating pixel PDFs:   2%|▏         | 11/500 [00:00<00:04, 108.98it/s]Calculating pixel PDFs:   5%|▍         | 24/500 [00:00<00:04, 115.73it/s]Calculating pixel PDFs:   7%|▋         | 37/500 [00:00<00:03, 117.80it/s]Calculating pixel PDFs:  10%|█         | 50/500 [00:00<00:03, 118.81it/s]Calculating pixel PDFs:  13%|█▎        | 63/500 [00:00<00:03, 119.59it/s]Calculating pixel PDFs:  15%|█▌        | 76/500 [00:00<00:03, 120.02it/s]Calculating pixel PDFs:  18%|█▊        | 89/500 [00:00<00:03, 120.31it/s]Calculating pixel PDFs:  20%|██        | 102/500 [00:00<00:03, 120.18it/s]Calculating pixel PDFs:  23%|██▎       | 115/500 [00:00<00:03, 120.16it/s]Calculating pixel PDFs:  26%|██▌       | 128/500 [00:01<00:03, 120.26it/s]Calculating pixel PDFs:  28%|██▊       | 141/500 [00:01<00:02, 120.36it/s]Calculating pixel PDFs:  31%|███       | 154/500 [00:01<00:02, 120.23it/s]Calculating pixel PDFs:  33%|███▎      | 167/500 [00:01<00:02, 120.33it/s]Calculating pixel PDFs:  36%|███▌      | 180/500 [00:01<00:02, 120.39it/s]Calculating pixel PDFs:  39%|███▊      | 193/500 [00:01<00:02, 119.50it/s]Calculating pixel PDFs:  41%|████      | 205/500 [00:01<00:02, 119.46it/s]Calculating pixel PDFs:  43%|████▎     | 217/500 [00:01<00:02, 118.99it/s]Calculating pixel PDFs:  46%|████▌     | 229/500 [00:01<00:02, 118.20it/s]Calculating pixel PDFs:  48%|████▊     | 241/500 [00:02<00:02, 117.87it/s]Calculating pixel PDFs:  51%|█████     | 253/500 [00:02<00:02, 118.08it/s]Calculating pixel PDFs:  53%|█████▎    | 265/500 [00:02<00:01, 118.57it/s]Calculating pixel PDFs:  55%|█████▌    | 277/500 [00:02<00:01, 118.38it/s]Calculating pixel PDFs:  58%|█████▊    | 289/500 [00:02<00:01, 118.69it/s]Calculating pixel PDFs:  60%|██████    | 301/500 [00:02<00:01, 118.10it/s]Calculating pixel PDFs:  63%|██████▎   | 313/500 [00:02<00:01, 118.61it/s]Calculating pixel PDFs:  65%|██████▌   | 326/500 [00:02<00:01, 119.23it/s]Calculating pixel PDFs:  68%|██████▊   | 339/500 [00:02<00:01, 119.63it/s]Calculating pixel PDFs:  70%|███████   | 352/500 [00:02<00:01, 119.87it/s]Calculating pixel PDFs:  73%|███████▎  | 365/500 [00:03<00:01, 120.10it/s]Calculating pixel PDFs:  76%|███████▌  | 378/500 [00:03<00:01, 120.21it/s]Calculating pixel PDFs:  78%|███████▊  | 391/500 [00:03<00:00, 120.34it/s]Calculating pixel PDFs:  81%|████████  | 404/500 [00:03<00:00, 120.24it/s]Calculating pixel PDFs:  83%|████████▎ | 417/500 [00:03<00:00, 120.39it/s]Calculating pixel PDFs:  86%|████████▌ | 430/500 [00:03<00:00, 120.41it/s]Calculating pixel PDFs:  89%|████████▊ | 443/500 [00:03<00:00, 120.51it/s]Calculating pixel PDFs:  91%|█████████ | 456/500 [00:03<00:00, 120.62it/s]Calculating pixel PDFs:  94%|█████████▍| 469/500 [00:03<00:00, 120.58it/s]Calculating pixel PDFs:  96%|█████████▋| 482/500 [00:04<00:00, 120.42it/s]Calculating pixel PDFs:  99%|█████████▉| 495/500 [00:04<00:00, 120.66it/s]Calculating pixel PDFs: 100%|██████████| 500/500 [00:04<00:00, 119.59it/s]
-ffmpeg version 7.1.1 Copyright (c) 2000-2025 the FFmpeg developers
-  built with gcc 9 (Ubuntu 9.4.0-1ubuntu1~20.04.2)
-  configuration: --enable-nonfree --enable-gpl --enable-openssl --enable-libdav1d --enable-libsvtav1 --enable-libx264 --enable-libx265 --enable-libvpx --enable-libxvid --enable-libvidstab --enable-libaom --enable-libzimg --enable-lv2 --enable-libopencore_amrnb --enable-libopencore_amrwb --enable-libmp3lame --enable-libopus --enable-libvorbis --enable-libtheora --enable-libfdk-aac --enable-libjxl --enable-libwebp --enable-libfreetype --enable-vapoursynth --enable-libsrt --enable-libzvbi --enable-libzmq --disable-ffnvcodec --enable-amf --disable-debug --disable-shared --enable-pthreads --enable-static --enable-version3 --extra-cflags='-I/builds/khr/ffmpeg-build-script/workspace/include -Wno-int-conversion -fPIC -I/builds/khr/ffmpeg-build-script/workspace/include/lilv-0' --extra-ldexeflags='-static -fPIC' --extra-ldflags=-L/builds/khr/ffmpeg-build-script/workspace/lib --extra-libs='-ldl -lpthread -lm -lz' --pkgconfigdir=/builds/khr/ffmpeg-build-script/workspace/lib/pkgconfig --pkg-config-flags=--static --prefix=/builds/khr/ffmpeg-build-script/workspace --extra-version=
-  libavutil      59. 39.100 / 59. 39.100
-  libavcodec     61. 19.101 / 61. 19.101
-  libavformat    61.  7.100 / 61.  7.100
-  libavdevice    61.  3.100 / 61.  3.100
-  libavfilter    10.  4.100 / 10.  4.100
-  libswscale      8.  3.100 /  8.  3.100
-  libswresample   5.  3.100 /  5.  3.100
-  libpostproc    58.  3.100 / 58.  3.100
-[in#0 @ 0x14bb4300] Error opening input: No such file or directory
-Error opening input file mocks/pdf/log_pdf_animation.gif.
-Error opening input files: No such file or directory
-ffmpeg version 7.1.1 Copyright (c) 2000-2025 the FFmpeg developers
-  built with gcc 9 (Ubuntu 9.4.0-1ubuntu1~20.04.2)
-  configuration: --enable-nonfree --enable-gpl --enable-openssl --enable-libdav1d --enable-libsvtav1 --enable-libx264 --enable-libx265 --enable-libvpx --enable-libxvid --enable-libvidstab --enable-libaom --enable-libzimg --enable-lv2 --enable-libopencore_amrnb --enable-libopencore_amrwb --enable-libmp3lame --enable-libopus --enable-libvorbis --enable-libtheora --enable-libfdk-aac --enable-libjxl --enable-libwebp --enable-libfreetype --enable-vapoursynth --enable-libsrt --enable-libzvbi --enable-libzmq --disable-ffnvcodec --enable-amf --disable-debug --disable-shared --enable-pthreads --enable-static --enable-version3 --extra-cflags='-I/builds/khr/ffmpeg-build-script/workspace/include -Wno-int-conversion -fPIC -I/builds/khr/ffmpeg-build-script/workspace/include/lilv-0' --extra-ldexeflags='-static -fPIC' --extra-ldflags=-L/builds/khr/ffmpeg-build-script/workspace/lib --extra-libs='-ldl -lpthread -lm -lz' --pkgconfigdir=/builds/khr/ffmpeg-build-script/workspace/lib/pkgconfig --pkg-config-flags=--static --prefix=/builds/khr/ffmpeg-build-script/workspace --extra-version=
-  libavutil      59. 39.100 / 59. 39.100
-  libavcodec     61. 19.101 / 61. 19.101
-  libavformat    61.  7.100 / 61.  7.100
-  libavdevice    61.  3.100 / 61.  3.100
-  libavfilter    10.  4.100 / 10.  4.100
-  libswscale      8.  3.100 /  8.  3.100
-  libswresample   5.  3.100 /  5.  3.100
-  libpostproc    58.  3.100 / 58.  3.100
-[in#0 @ 0x44a38300] Error opening input: No such file or directory
-Error opening input file mocks/pdf/log_pdf_compare_animation.gif.
-Error opening input files: No such file or directory
-rm: cannot remove 'mocks/pdf/pdf_animation.gif': No such file or directory
-rm: cannot remove 'mocks/pdf/log_pdf_animation.gif': No such file or directory
-rm: cannot remove 'mocks/pdf/pdf_animation.gif': No such file or directory
-rm: cannot remove 'mocks/pdf/log_pdf_compare_animation.gif': No such file or directory
