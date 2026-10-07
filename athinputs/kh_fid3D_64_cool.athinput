@@ -1,0 +1,99 @@
+# Recreation of /data/sasi/fid3D_64_cool (3D KH shear layer with ISM cooling).
+# Parameters taken from the PAR_DUMP in fid3D_64_cool/bin/*.bin, with the
+# runtime-added defaults removed. Problem generator: kh_radiative_cooling.cpp
+# Adapted to current athenak: iprob 2->1, cooling moved to <hydro_srcterms>.
+#
+# Fiducial family (same deck, change only <mesh> nx* and <meshblock> nx*):
+#   16 :  4 x  16 x  4   meshblock 4 x  8 x 4    (dx = 2.5    pc)
+#   32 :  8 x  32 x  8   meshblock 4 x  8 x 4    (dx = 1.25   pc)
+#   64 : 16 x  64 x 16   meshblock 8 x 16 x 8    (dx = 0.625  pc)  <-- this file
+#  128 : 32 x 128 x 32   meshblock 16 x 32 x 16  (dx = 0.3125 pc)
+#
+# Units: 1 pc, 1 Myr, rho_unit = 1 m_p cm^-3, v_unit = 0.978 km/s.
+# Cold: rho = 0.1  (n ~ 0.16 cm^-3, T ~ 1e4 K)
+# Hot : rho = 0.001 (n ~ 1.6e-3 cm^-3, T ~ 1e6 K)
+# P/k ~ 1625 K cm^-3; shear dv = 31 code = 30.3 km/s
+
+<comment>
+problem   = Kelvin-Helmholtz instability
+reference = Lecoanet et al., Fielding et al.
+
+<job>
+basename  = KH
+
+<mesh>
+nghost    = 2
+nx1       = 16          # Number of zones in X1-direction
+x1min     = -5.0
+x1max     = 5.0
+ix1_bc    = periodic
+ox1_bc    = periodic
+
+nx2       = 64          # Number of zones in X2-direction
+x2min     = -20.0
+x2max     = 20.0
+ix2_bc    = reflect
+ox2_bc    = user        # constant_bcs in kh_radiative_cooling.cpp
+
+nx3       = 16          # Number of zones in X3-direction
+x3min     = -5.0
+x3max     = 5.0
+ix3_bc    = periodic
+ox3_bc    = periodic
+
+<meshblock>
+nx1       = 8
+nx2       = 16
+nx3       = 8
+
+<time>
+evolution  = dynamic
+integrator = rk2
+cfl_number = 0.4
+nlim       = -1
+tlim       = 10.0       # Myr
+ndiag      = 1000
+
+<hydro>
+eos         = ideal
+reconstruct = plm
+rsolver     = hllc
+nscalars    = 1
+fofc        = false
+gamma       = 1.666667
+
+# current AthenaK reads cooling from <hydro_srcterms> (fid runs had it under <hydro>)
+<hydro_srcterms>
+ism_cooling = true
+hrate       = 0
+
+<problem>
+iprob     = 1           # analytic tanh shear layer (fid runs used iprob=2, which is now 'read init_file')
+amp       = 0.05        # amplitude of sinusoidal perturbation
+sigma     = 0.5         # width of gaussian profile
+vx_hot    = 28.18181822 # hot phase velocity  (+27.56 km/s)
+vx_cold   = -2.8181818  # cold phase velocity (-2.76 km/s)
+a_char    = 0.125       # width of tanh profile
+rho_cold  = 0.1
+rho_hot   = 0.001
+press     = 14.02645    # P/k ~ 1625 K cm^-3
+cold_frac = 0.6666667   # fraction of y-extent occupied by cold gas
+
+<units>
+length_cgs = 3.08568e+18  # 1 pc
+mass_cgs   = 4.91417e+31  # rho_unit = 1.6726e-24 g/cm^3
+time_cgs   = 3.15576e+13  # 1 Myr
+mu         = 0.62
+
+<output1>
+file_type = hst
+dt        = 0.04
+
+<output2>
+file_type = bin
+variable  = hydro_w
+dt        = 0.08
+
+<output3>
+file_type = rst
+dt        = 1

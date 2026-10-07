@@ -1,6 +1,6 @@
-[submodule "ergane"]
-	path = ergane
-	url = git@github.com:SasiMitraB/ergane.git
 [submodule "athenak"]
 	path = athenak
-	url = git@github.com:IAS-Astrophysics/athenak.git
+	url = git@github.com:SasiMitraB/athenak.git
+[submodule "vis_athenak"]
+	path = vis_athenak
+	url = git@github.com:SasiMitraB/vis_athenak.git
