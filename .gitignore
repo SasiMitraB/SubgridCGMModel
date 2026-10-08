@@ -44,3 +44,6 @@ builds/**
 # ── Media ─────────────────────────────────────────────────────────────────────
 **/*.mp4
 **/*.gif
+
+# Overleaf project clone (has its own git remote on overleaf.com)
+theory/notes/Overleaf/

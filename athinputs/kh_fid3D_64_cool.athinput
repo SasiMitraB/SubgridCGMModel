@@ -1,7 +1,9 @@
 # Recreation of /data/sasi/fid3D_64_cool (3D KH shear layer with ISM cooling).
 # Parameters taken from the PAR_DUMP in fid3D_64_cool/bin/*.bin, with the
 # runtime-added defaults removed. Problem generator: kh_radiative_cooling.cpp
-# Adapted to current athenak: iprob 2->1, cooling moved to <hydro_srcterms>.
+# Adapted to current athenak: cooling moved to <hydro_srcterms>. iprob = 2 is the
+# white-noise interface of the fid runs (iprob = 1 seeds only x1 modes, so a 3D run
+# stays exactly x3-invariant, i.e. 2D).
 #
 # Fiducial family (same deck, change only <mesh> nx* and <meshblock> nx*):
 #   16 :  4 x  16 x  4   meshblock 4 x  8 x 4    (dx = 2.5    pc)
@@ -68,8 +70,8 @@ ism_cooling = true
 hrate       = 0
 
 <problem>
-iprob     = 1           # analytic tanh shear layer (fid runs used iprob=2, which is now 'read init_file')
-amp       = 0.05        # amplitude of sinusoidal perturbation
+iprob     = 2           # tanh shear layer + white-noise vy at the interface (as the fid runs)
+amp       = 0.05        # amplitude of the vy perturbation (in units of du)
 sigma     = 0.5         # width of gaussian profile
 vx_hot    = 28.18181822 # hot phase velocity  (+27.56 km/s)
 vx_cold   = -2.8181818  # cold phase velocity (-2.76 km/s)

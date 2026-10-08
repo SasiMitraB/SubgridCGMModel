@@ -4,7 +4,7 @@
 # Location: shell_scripts/run_3d.sh
 #
 # Runs the 3D Kelvin-Helmholtz + ISM cooling setup (kh_radiative_cooling,
-# iprob=1 analytic shear layer) on a fixed box:
+# iprob=2 tanh shear layer with white-noise vy at the interface) on a fixed box:
 #   x1, x3 (short) : [-5, 5] pc      x2 (long, shear-normal) : [-20, 20] pc
 # The resolution is set by N = cells along the short dimension; the long
 # dimension gets 4N so cells are cubic (dx = 10/N pc). The base deck is
