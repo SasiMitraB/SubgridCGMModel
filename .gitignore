@@ -47,3 +47,9 @@ builds/**
 
 # Overleaf project clone (has its own git remote on overleaf.com)
 theory/notes/Overleaf/
+
+# ── Model runs and coarse-grained caches ─────────────────────────────────────
+outputs/
+models/*_dataset_b16/
+models/*_dataset_b16.npz
+**/cache/
