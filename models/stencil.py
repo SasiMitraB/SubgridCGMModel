@@ -65,12 +65,14 @@ def frame_path(cache, i):
     return cache / f"frame_{i:05d}.npz"
 
 
-def save_frame(cache, i, x, y, t):
+def save_frame(cache, i, x, y, t, extra=None):
     """Write frame i atomically (temporary file, then rename), so a build that is killed
-    midway never leaves a truncated frame behind."""
+    midway never leaves a truncated frame behind.  extra: further named arrays stored with
+    the frame but not loaded by load_dataset."""
     tmp = cache / f".frame_{i:05d}.npz.tmp"
     with open(tmp, "wb") as f:
-        np.savez(f, X=np.asarray(x), Y=np.asarray(y), time=t)
+        np.savez(f, X=np.asarray(x), Y=np.asarray(y), time=t,
+                 **{k: np.asarray(v) for k, v in (extra or {}).items()})
     tmp.replace(frame_path(cache, i))
 
 
@@ -80,7 +82,8 @@ def load_dataset(every, cache, fields, coarse_frame):
 
     Each frame is written as soon as it is coarse-grained, so an interrupted build resumes
     where it stopped, frames the run gains later are the only ones computed, and any
-    --every reuses the same files.  coarse_frame(frame, params) -> (x, y) is called with
+    --every reuses the same files.  coarse_frame(frame, params) -> (x, y) or (x, y, extra),
+    extra a dict of arrays saved with the frame (save_frame), is called with
     fields loaded on the frame and the run's parameters.  The next frame is read in the
     background while this one is coarse-grained: the run sits on a spinning disk, so the
     read is the slow part."""
@@ -104,9 +107,9 @@ def load_dataset(every, cache, fields, coarse_frame):
                 frame = pending.result()
                 if k + 1 < len(todo):
                     pending = pool.submit(read, todo[k + 1])
-                x, y = coarse_frame(frame, sim.params)
+                out = coarse_frame(frame, sim.params)
                 frame.unload()
-                save_frame(cache, todo[k], x, y, frame.time)
+                save_frame(cache, todo[k], *out[:2], frame.time, *out[2:])
 
     X, Y, t = [], [], []
     for i in frames:
@@ -176,6 +179,32 @@ def standardise(Xtr, types):
     return x_mean, x_std + 1e-8
 
 
+LOG_FLOOR = 1e-12  # added to each loss term before the log of the auto weighting
+
+
+def weighted(loss, weighting):
+    """loss(params, x, y) -> (total, parts) with its total replaced according to weighting:
+
+    fixed: the model's own total, sum_k w_k L_k with the weights it was given.
+    auto:  mean_k ln L_k.  This is the uncertainty weighting of Kendall et al. (2018),
+           sum_k [L_k / (2 sigma_k^2) + ln sigma_k], with every sigma_k set to its optimum
+           sigma_k^2 = L_k: the gradient is mean_k grad L_k / L_k, so each term is weighted
+           by the inverse of its current size, whatever its units, and there is nothing
+           extra to learn.  The model's weights w_k drop out (ln w_k L_k = ln w_k + ln L_k).
+           The total is negative once the terms are below 1."""
+    if weighting == "fixed":
+        return loss
+    def auto(params, x, y):
+        _, parts = loss(params, x, y)
+        return combine(parts), parts
+    return auto
+
+
+def combine(parts):
+    """The auto-weighted total of the loss terms parts (see weighted)."""
+    return jnp.mean(jnp.log(jnp.stack(parts) + LOG_FLOOR))
+
+
 def make_step(optimizer, loss):
     """Jitted optimiser step; loss(params, x, y) -> (total, parts)."""
     @jax.jit
@@ -186,18 +215,76 @@ def make_step(optimizer, loss):
     return step
 
 
+def symmetrised(loss, n_parts, in_types, y_types, weighting, x, y, chunk=None):
+    """loss(params, x, y) -> (total, parts) averaged over the 48 O_h images of (x, y).
+
+    The loss terms are averaged over the images first and then combined as in weighted, so
+    the result is the objective the Adam stage samples one image at a time.  The images are
+    grouped by the orientation of the rotated grid (three groups of 16, each one lax.scan
+    over a lax.switch of its 16 elements) and every image is checkpointed, so the backward
+    pass holds the activations of one image at a time and nothing is compiled 48 times.
+
+    With chunk, the frames are taken chunk at a time (a lax.scan, plus one call for the
+    remainder) and the terms averaged over the chunks weighted by their frame count, so the
+    backward pass holds the activations of chunk frames.  A term that is a masked mean is
+    then a mean of per-chunk masked means, which differs slightly from the masked mean over
+    all frames but is just as deterministic."""
+    n = len(x)
+    chunk = min(chunk or n, n)
+    full, rest = divmod(n, chunk)
+    groups = {}
+    for g in augment.GROUP:
+        shape = jax.eval_shape(lambda g=g: augment.grid(jnp.zeros(x.shape[-3:]), g)).shape
+        groups.setdefault(shape, []).append(g)
+    zeros = (jnp.zeros(()), (jnp.zeros(()),) * n_parts)
+    add = lambda a, b, w=1: jax.tree.map(lambda u, v: u + w * v, a, b)
+
+    def images(params, x, y):
+        """Sum of (total, parts) over the 48 images of (x, y)."""
+        acc = zeros
+        for gs in groups.values():
+            branches = [lambda x, y, g=g: (augment.transform(x, in_types, g),
+                                           augment.transform(y, y_types, g)) for g in gs]
+
+            @jax.checkpoint
+            def image(params, i):
+                return loss(params, *jax.lax.switch(i, branches, x, y))
+
+            acc, _ = jax.lax.scan(lambda acc, i: (add(acc, image(params, i)), None),
+                                  acc, jnp.arange(len(gs)))
+        return acc
+
+    def objective(params):
+        split = lambda a: a[:full * chunk].reshape(full, chunk, *a.shape[1:])
+        acc, _ = jax.lax.scan(lambda acc, xy: (add(acc, images(params, *xy), chunk), None),
+                              zeros, (split(x), split(y)))
+        if rest:
+            acc = add(acc, images(params, x[full * chunk:], y[full * chunk:]), rest)
+        total, parts = jax.tree.map(lambda a: a / (len(augment.GROUP) * n), acc)
+        return (total if weighting == "fixed" else combine(parts)), parts
+    return objective
+
+
 def fit(params, loss, parts, Xtr, Ytr, Xva, Yva, key, args, in_types, out_types):
     """Train params on (Xtr, Ytr) with AdamW, a warmup-cosine schedule and global-norm
-    clipping, validating on (Xva, Yva) every args.log_every epochs.  X are padded frames.
+    clipping, then optionally refine them with full-batch L-BFGS, validating on (Xva, Yva)
+    every args.log_every epochs / steps.  X are padded frames.
 
-    With args.augment every step draws one of the 48 elements of O_h and applies it to the
-    batch, inputs tagged with in_types and targets with out_types (augment.transform).  The
-    step is compiled once per grid orientation (y along z, y or x), so three times.
+    With args.augment every Adam step draws one of the 48 elements of O_h and applies it to
+    the batch, inputs tagged with in_types and targets with out_types (augment.transform).
+    The step is compiled once per grid orientation (y along z, y or x), so three times.
 
-    loss(params, x, y) -> (total, tuple of len(parts)).  Returns params and the history:
-    train / val are the total loss, train_<part> / val_<part> its components, val_rot the
-    total validation loss averaged over all 48 images of the validation frames (equal to
-    val for a model that has learnt the symmetry)."""
+    The L-BFGS stage (args.lbfgs_steps > 0) minimises the loss on all training frames
+    averaged over all 48 images (symmetrised), the deterministic objective that the
+    augmented Adam steps sample, with optax's zoom line search.  Its steps continue the
+    epoch axis of the history after args.epochs; it has no weight decay.
+
+    loss(params, x, y) -> (total, tuple of len(parts)), its total replaced by
+    weighted(loss, args.weighting).  Returns params and the history: train / val are the
+    total loss, train_<part> / val_<part> its components, val_rot the total validation loss
+    averaged over all 48 images of the validation frames (equal to val for a model that has
+    learnt the symmetry), lbfgs_start the epoch at which L-BFGS took over."""
+    loss = weighted(loss, args.weighting)
     steps_per_epoch = max(1, len(Xtr) // args.batch)
     schedule = optax.warmup_cosine_decay_schedule(0.0, args.lr, 10 * steps_per_epoch,
                                                   args.epochs * steps_per_epoch)
@@ -212,8 +299,29 @@ def fit(params, loss, parts, Xtr, Ytr, Xva, Yva, key, args, in_types, out_types)
         return augment.transform(x, in_types, g), augment.transform(y, y_types, g)
 
     history = {"epoch": [], "train": [], "val_epoch": [], "val": [], "val_rot": [], "time": [],
-               **{f"{s}_{k}": [] for s in ("train", "val") for k in parts}}
+               **{f"{s}_{k}": [] for s in ("train", "val") for k in parts},
+               "lbfgs_start": args.epochs}
     t0 = time.perf_counter()
+
+    def record(epoch, losses, validate, stage):
+        history["epoch"].append(epoch)
+        history["train"].append(float(losses[0]))
+        for k, v in zip(parts, losses[1:]):
+            history[f"train_{k}"].append(float(v))
+        history["time"].append(time.perf_counter() - t0)
+        if not validate:
+            return
+        history["val_epoch"].append(epoch)
+        total, comps = val_loss(params, Xva, Yva)
+        history["val"].append(float(total))
+        for k, v in zip(parts, comps):
+            history[f"val_{k}"].append(float(v))
+        history["val_rot"].append(float(jnp.mean(jnp.array(
+            [val_loss(params, *rotated(g, Xva, Yva))[0] for g in augment.GROUP]))))
+        tqdm.write(f"{stage} {epoch:4d}  train {history['train'][-1]:.4e}  "
+                   f"val {history['val'][-1]:.4e}  val_rot {history['val_rot'][-1]:.4e}  ("
+                   + ", ".join(f"{k} {history[f'val_{k}'][-1]:.3e}" for k in parts) + ")")
+
     for epoch in tqdm(range(args.epochs), desc="Training Epoch:"):
         key, perm_key, g_key = jax.random.split(key, 3)
         perm = jax.random.permutation(perm_key, len(Xtr))
@@ -227,22 +335,32 @@ def fit(params, loss, parts, Xtr, Ytr, Xva, Yva, key, args, in_types, out_types)
             params, opt_state, total, comps = step(params, opt_state, x, y)
             losses.append((total, *comps))
         losses = jnp.mean(jnp.array(losses), axis=0).tolist()  # syncs the device
-        history["epoch"].append(epoch)
-        history["train"].append(float(losses[0]))
-        for k, v in zip(parts, losses[1:]):
-            history[f"train_{k}"].append(float(v))
-        history["time"].append(time.perf_counter() - t0)
-        if epoch % args.log_every == 0 or epoch == args.epochs - 1:
-            history["val_epoch"].append(epoch)
-            total, comps = val_loss(params, Xva, Yva)
-            history["val"].append(float(total))
-            for k, v in zip(parts, comps):
-                history[f"val_{k}"].append(float(v))
-            history["val_rot"].append(float(jnp.mean(jnp.array(
-                [val_loss(params, *rotated(g, Xva, Yva))[0] for g in augment.GROUP]))))
-            tqdm.write(f"epoch {epoch:4d}  train {history['train'][-1]:.4e}  "
-                       f"val {history['val'][-1]:.4e}  val_rot {history['val_rot'][-1]:.4e}  ("
-                       + ", ".join(f"{k} {history[f'val_{k}'][-1]:.3e}" for k in parts) + ")")
+        record(epoch, losses, epoch % args.log_every == 0 or epoch == args.epochs - 1, "epoch")
+
+    if args.lbfgs_steps > 0:
+        solver = optax.lbfgs(memory_size=args.lbfgs_memory)
+        objective = jax.jit(lambda p, x, y: symmetrised(loss, len(parts), in_types, y_types,
+                                                        args.weighting, x, y,
+                                                        args.lbfgs_chunk)(p))
+
+        @jax.jit
+        def lbfgs_step(params, state, x, y):
+            value_fn = lambda p: symmetrised(loss, len(parts), in_types, y_types,
+                                             args.weighting, x, y, args.lbfgs_chunk)(p)[0]
+            value, grad = optax.value_and_grad_from_state(value_fn)(params, state=state)
+            updates, state = solver.update(grad, state, params, value=value, grad=grad,
+                                           value_fn=value_fn)
+            return optax.apply_updates(params, updates), state
+
+        state = solver.init(params)
+        for k in tqdm(range(args.lbfgs_steps), desc="L-BFGS step:"):
+            params, state = lbfgs_step(params, state, Xtr, Ytr)
+            total, comps = objective(params, Xtr, Ytr)
+            if not jnp.isfinite(total):
+                tqdm.write(f"L-BFGS step {k}: non-finite loss, stopping")
+                break
+            record(args.epochs + k, [total, *comps],
+                   k % args.log_every == 0 or k == args.lbfgs_steps - 1, "lbfgs")
     return params, history
 
 
@@ -260,6 +378,17 @@ def add_training_args(parser, cache, out):
     parser.add_argument("--weight-decay", type=float, default=1e-4)
     parser.add_argument("--seed", type=int, default=0)
     parser.add_argument("--log-every", type=int, default=10)
+    parser.add_argument("--weighting", choices=("fixed", "auto"), default="fixed",
+                        help="fixed: the model's weighted sum of its loss terms; auto: the mean "
+                             "of their logs (uncertainty weighting, see stencil.weighted)")
+    parser.add_argument("--lbfgs-steps", type=int, default=0,
+                        help="full-batch L-BFGS steps after the Adam epochs, on the loss "
+                             "averaged over all 48 O_h images (0: none)")
+    parser.add_argument("--lbfgs-memory", type=int, default=10,
+                        help="number of past updates L-BFGS keeps")
+    parser.add_argument("--lbfgs-chunk", type=int, default=None,
+                        help="frames per chunk of the L-BFGS objective, to bound its memory "
+                             "(default: all training frames at once)")
     parser.add_argument("--augment", action=argparse.BooleanOptionalAction, default=True,
                         help="train on a random O_h rotation / reflection of every batch")
     parser.add_argument("--cache", default=str(here / cache))
@@ -269,4 +398,5 @@ def add_training_args(parser, cache, out):
 def common_meta(args):
     """The run settings every saved model records."""
     return {"b": b, "stencil": args.stencil, "hidden": args.hidden, "every": args.every,
-            "val_every": args.val_every, "cache": args.cache, "augment": args.augment}
+            "val_every": args.val_every, "cache": args.cache, "augment": args.augment,
+            "weighting": args.weighting, "lbfgs_steps": args.lbfgs_steps}

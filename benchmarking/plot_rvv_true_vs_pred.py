@@ -10,9 +10,13 @@ Writes
                  (mixing-layer cells, f > f_shape)
   --tensor-out   2D histograms of the six components of 2 f S_ij over all cells
                  (log axes on the diagonal, symlog off it)
+  --temp-out     coarse-grained temperature T_CG = (mu m_u / k_B)(gamma - 1) k_max (1 - f)
+                 (eq-temperature, eq-f), predicted against true over all cells, and the
+                 error in log10 T_CG of the model and of no subgrid model (f = 0, all the
+                 unresolved energy taken as heat) against true T_CG
   --anim-out     mid-z (x-y) slice of log10 f, 2 f S_xy and ||S - I/3||_F: true, predicted
                  and their difference, over the selected frames
-  --loss-out     training / validation loss (total, trace, shape) against epoch
+  --loss-out     training / validation loss (total, trace, temp, shape) against epoch
 
   python benchmarking/plot_rvv_true_vs_pred.py --model models/rvv_tensor_model.pkl
 """
@@ -29,7 +33,10 @@ from matplotlib.colors import LogNorm
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from benchmarking.common import load_model_and_split, model_input, plot_loss
-from models.rvv_tensor_model import PAIRS, load_dataset, predict, unpack_S
+from models.rvv_tensor_model import PAIRS, channels, load_dataset, predict, unpack_S
+from models.stencil import athinput, run
+from vis_athenak import SimulationData
+from vis_athenak.utils.units import Units
 
 NAMES = ["xx", "yy", "zz", "xy", "xz", "yz"]
 LINTHRESH = 1e-5  # linear range of symlog(2 f S_ij) off the diagonal
@@ -116,6 +123,41 @@ def plot_tensor(f_t, f_p, S_t, S_p, title, out):
     print(f"saved {out}")
 
 
+def plot_temperature(f_t, f_p, k_max, title, out, nbins=150):
+    """T_CG [K] from <P>/<rho> = (gamma - 1) k_max (1 - f), f true and predicted, all cells:
+    predicted against true, and Delta log10 T_CG = log10(T_pred / T_true) against true for
+    the model and for f = 0.  Since <rho> and k_max are inputs, Delta log10 T_CG is the
+    error in log10 <P> as well."""
+    sim = SimulationData(athinput, f"{run}/bin")
+    gamma = float(sim.params["hydro"]["gamma"])
+    T_unit = Units.from_params(sim.params).temperature_cgs * (gamma - 1) * k_max
+    T_t, T_p, T_0 = T_unit * (1 - f_t), T_unit * (1 - f_p), T_unit
+    logT = np.log10(T_t)
+    d_p, d_0 = np.log10(T_p / T_t), np.log10(T_0 / T_t)
+
+    fig, axes = plt.subplots(1, 3, figsize=(17, 5.2), layout="constrained")
+    lims = (np.floor(logT.min() * 4) / 4, np.ceil(logT.max() * 4) / 4)
+    im = hist_panel(axes[0], logT, np.log10(T_p), lims, r"$\log_{10} T_{CG}$ [K]", nbins)
+    axes[0].set_title("all cells")
+    dlim = 1.05 * max(np.abs(d_p).max(), np.abs(d_0).max())
+    for ax, d, name in ((axes[1], d_p, "model"), (axes[2], d_0, r"no subgrid model, $f = 0$")):
+        *_, im = ax.hist2d(logT, d, bins=[np.linspace(*lims, nbins + 1),
+                                          np.linspace(-dlim, dlim, nbins + 1)],
+                           norm=LogNorm(), cmap="viridis", rasterized=True)
+        ax.axhline(0, color="k", ls="--", lw=0.8)
+        ax.set(xlabel=r"true $\log_{10} T_{CG}$ [K]",
+               ylabel=r"$\log_{10}(T_{CG}^{pred} / T_{CG}^{true})$", title=name)
+        ax.text(0.03, 0.97, f"RMS {np.sqrt(np.mean(d**2)):.3g} dex\n"
+                f"max |error| {np.abs(d).max():.3g} dex", transform=ax.transAxes,
+                ha="left", va="top", fontsize=8, bbox=dict(fc="w", ec="none", alpha=0.7))
+    fig.colorbar(im, ax=axes, label="coarse cells", shrink=0.8)
+    fig.suptitle(title)
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+    print(f"saved {out}  (log10 T_CG RMS error: model {np.sqrt(np.mean(d_p**2)):.3g} dex, "
+          f"f = 0 {np.sqrt(np.mean(d_0**2)):.3g} dex)")
+
+
 def animate(f_t, f_p, S_t, S_p, f_shape, t, out, fps=8):
     """Mid-z slice of log10 f, symlog 2 f S_xy and ||S - I/3||_F (mixing-layer cells only):
     true, predicted and predicted - true, one frame per snapshot."""
@@ -170,6 +212,8 @@ if __name__ == "__main__":
     parser.add_argument("--out", default="benchmarking/rvv_true_vs_pred.png")
     parser.add_argument("--tensor-out", default="benchmarking/rvv_tensor_true_vs_pred.png",
                         help="components of 2 f S_ij; empty string to skip")
+    parser.add_argument("--temp-out", default="benchmarking/rvv_temperature_true_vs_pred.png",
+                        help="predicted vs true T_CG; empty string to skip")
     parser.add_argument("--anim-out", default="benchmarking/rvv_true_vs_pred_slice.mp4",
                         help="mid-z slice animation (.mp4 or .gif); empty string to skip")
     parser.add_argument("--fps", type=int, default=8)
@@ -189,8 +233,12 @@ if __name__ == "__main__":
     if args.tensor_out:
         plot_tensor(f_t.ravel(), f_p.ravel(), S_t.reshape(-1, 3, 3), S_p.reshape(-1, 3, 3),
                     title, args.tensor_out)
+    if args.temp_out:
+        k_max = 10.0**X[:, channels.index("log_kmax")].astype(np.float64)
+        plot_temperature(f_t.ravel(), f_p.ravel(), k_max.ravel(), title, args.temp_out)
     if args.loss_out:
         plot_loss(m["history"], [("", "total"), ("_trace", r"trace: MSE of $\ln f$"),
+                                 ("_temp", r"temp: MSE of $\ln T_{CG}$"),
                                  ("_shape", r"shape: $\Vert\Delta\mathsf{S}\Vert_F^2$, $f > f_{shape}$")],
                   "loss", args.loss_out)
     if args.anim_out:

@@ -15,7 +15,8 @@ The network, padding and training loop are in stencil.py.  The velocity weights 
 stencil convolution are projected to sum to zero over the stencil, so the model only sees
 velocity differences and R is Galilean invariant, as it is by definition.
 
-  python models/rvv_tensor_model.py --every 2 --epochs 200
+  python models/rvv_tensor_model.py                  # separate 256^3 networks, 3^3 stencil, 2100 epochs
+  python models/rvv_tensor_model.py --lbfgs-steps 200 --lbfgs-chunk 20
 """
 
 import argparse
@@ -25,6 +26,7 @@ from pathlib import Path
 
 import jax
 import jax.numpy as jnp
+import numpy as np
 from jax.scipy.linalg import expm
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -37,7 +39,7 @@ fields = ["dens", "velx", "vely", "velz", "eint", "s_00"]
 velocity_channels = [2, 3, 4]
 targets = ["f", "S_xx", "S_yy", "S_zz", "S_xy", "S_xz", "S_yz"]
 in_types = ["scalar", "scalar", "vector", "scalar"]  # augment.py field types
-out_types = ["scalar", "sym_tensor"]  # S in PAIRS order, as augment.PAIRS
+out_types = ["scalar", "sym_tensor", "sym_tensor"]  # f, S and log S (added in train), PAIRS order
 PAIRS = [(0, 0), (1, 1), (2, 2), (0, 1), (0, 2), (1, 2)]
 
 # orthonormal basis E^(1..5) of the symmetric traceless 3x3 matrices (sec:R-matrix)
@@ -127,13 +129,20 @@ def rvv(f, S, rho, k_max):
 
 # ----------------------------------------------------------------------------- model
 
-def init_params(key, n_in, stencil_width, hidden, z0_bias=0.0):
+def init_params(key, n_in, stencil_width, hidden, z0_bias=0.0, separate=False):
     """stencil.init_params with 6 outputs and the last layer at zero, so the model starts
-    from S = I/3 and f = sigmoid(z0_bias)."""
-    params = stencil.init_params(key, n_in, stencil_width, hidden, 6)
-    params[-1]["w"] = jnp.zeros_like(params[-1]["w"])
-    params[-1]["b"] = params[-1]["b"].at[0].set(z0_bias)
-    return params
+    from S = I/3 and f = sigmoid(z0_bias).  separate: two networks of the same size, one
+    for z_0 (f) and one for z_1..z_5 (S), as a dict {"f": ..., "S": ...}, so that the
+    two targets do not compete for the hidden units."""
+    def net(key, n_out):
+        params = stencil.init_params(key, n_in, stencil_width, hidden, n_out)
+        params[-1]["w"] = jnp.zeros_like(params[-1]["w"])
+        params[-1]["b"] = params[-1]["b"].at[0].set(z0_bias if n_out != 5 else 0.0)
+        return params
+    if not separate:
+        return net(key, 6)
+    key_f, key_S = jax.random.split(key)
+    return {"f": net(key_f, 1), "S": net(key_S, 5)}
 
 
 def galilean(w0):
@@ -144,8 +153,11 @@ def galilean(w0):
 
 def apply(params, x):
     """(B, C, nz + 2h, ny + 2h, nx + 2h) normalised, padded inputs -> (B, nz, ny, nx, 6)
-    outputs z_0..z_5."""
-    return stencil.apply(params, x, galilean(params[0]["w"]))
+    outputs z_0..z_5, from one network or from the two of init_params(separate=True)."""
+    net = lambda params: stencil.apply(params, x, galilean(params[0]["w"]))
+    if isinstance(params, dict):
+        return jnp.concatenate([net(params["f"]), net(params["S"])], axis=-1)
+    return net(params)
 
 
 def predict(params, x):
@@ -155,41 +167,82 @@ def predict(params, x):
     return jax.nn.sigmoid(z[..., 0]), shape_tensor(z[..., 1:])
 
 
-def unpack_S(y):
-    """(B, 7, nz, ny, nx) targets -> S (B, nz, ny, nx, 3, 3)."""
+def unpack_S(y, start=1):
+    """(B, C, nz, ny, nx) targets -> the symmetric tensor in channels start..start+5
+    (PAIRS order) as (B, nz, ny, nx, 3, 3): S for start = 1, log S for start = 7."""
     S = jnp.zeros(y.shape[:1] + y.shape[2:] + (3, 3), y.dtype)
-    for c, (i, j) in enumerate(PAIRS, start=1):
+    for c, (i, j) in enumerate(PAIRS, start=start):
         S = S.at[..., i, j].set(y[:, c]).at[..., j, i].set(y[:, c])
     return S
 
 
-def loss_fn(params, x, y, f_floor, f_shape, w_shape):
-    """Trace and shape losses, kept separate since f spans ~15 decades and S is O(1).
+LOG_FLOOR = 1e-6  # eigenvalue floor of S (unit trace) before the log, ~ float32 resolution
+
+def log_shape(Y, floor=LOG_FLOOR):
+    """(frames, 7, nz, ny, nx) targets -> traceless log S (frames, 6, nz, ny, nx) in PAIRS
+    order, whose components on BASIS are the z_1..z_5 that give S, and the fraction of
+    eigenvalues raised to floor.  Taken in float64 from the cached float32 S, whose entries
+    resolve eigenvalues down to ~1e-6; below that they would be rounding noise.  After the
+    initial transient (t >~ 2.5) the smallest eigenvalue is ~1e-4, so the floor is a guard."""
+    S = np.asarray(unpack_S(jnp.asarray(Y)), dtype=np.float64)
+    s, V = np.linalg.eigh(S)
+    clipped = float(np.mean(s < floor))
+    logs = np.log(np.maximum(s, floor))
+    logs -= logs.mean(axis=-1, keepdims=True)
+    L = np.einsum("...ik,...k,...jk->...ij", V, logs, V)
+    return jnp.asarray(np.stack([L[..., i, j] for i, j in PAIRS], axis=1), jnp.float32), clipped
+
+
+def loss_fn(params, x, y, f_floor, f_shape, w_trace, w_temp, w_shape):
+    """Trace, temperature and shape losses, kept separate since f spans ~15 decades and S is O(1).
 
     trace: MSE of ln f over all cells, the target floored at f_floor (pure hot or cold
            cells have f -> 0, and ln f = -softplus(-z_0) is stable for any z_0).
-    shape: mean ||S_pred - S||_F^2 over cells with f > f_shape.  Below it R is negligible
-           and S is set by velocity noise.  Bounded, and defined for degenerate S, unlike
-           the log-Euclidean distance |z - z_true|^2.
-    Returns (total, (trace, shape))."""
+    temp:  MSE of ln T over all cells.  With <P> = (gamma-1) <rho> k_max (1 - f) (eq-f) and
+           T = (mu m_p / k_B) <P>/<rho> (eq-temperature), and <rho>, k_max known inputs,
+             ln T_pred - ln T = ln P_pred - ln P = ln(1 - f_pred) - ln(1 - f),
+           so this one term is both the temperature and the pressure loss.  It weighs the
+           cells where k_sg takes a real share of the unresolved energy, and ignores the
+           ln f error of cells with f -> 0, whose T is right either way.
+           ln(1 - f_pred) = -softplus(z_0) is stable for any z_0.
+    shape: log-Euclidean distance sum_k (z_k - z_k^true)^2 = ||A - (log S)_traceless||_F^2,
+           the outputs z_1..z_5 against the components of log S on BASIS (log_shape), in
+           every cell weighted by min(1, f/f_shape).  It measures eigenvalue ratios, so an
+           error in a small eigenvalue of S counts as much as one in a large one: the
+           error ln(l_pred/l_true) is twice the log of the factor by which R^(1/2), and so
+           the energy flux q, is off in that direction.  Rotation invariant (BASIS is
+           orthonormal).  Unbounded as l_true -> 0, which only happens in the initial
+           transient that train drops (--t-min).  The weight keeps the mixing layer
+           in charge while cells with small f still get some gradient.
+    The w_* weights only apply with --weighting fixed; the default auto weighting
+    (stencil.weighted) balances the three terms by their size.
+    Returns (total, (trace, temp, shape))."""
     z = apply(params, x)
     f = y[:, 0]
     trace = jnp.mean((-jax.nn.softplus(-z[..., 0]) - jnp.log(jnp.maximum(f, f_floor)))**2)
-    se = jnp.sum((shape_tensor(z[..., 1:]) - unpack_S(y))**2, axis=(-2, -1))
-    shape = masked_mean(se, f > f_shape)
-    return trace + w_shape * shape, (trace, shape)
+    temp = jnp.mean((-jax.nn.softplus(z[..., 0]) - jnp.log1p(-f))**2)
+    z_true = jnp.einsum("...ij,kij->...k", unpack_S(y, start=7), BASIS)
+    se = jnp.sum((z[..., 1:] - z_true)**2, axis=-1)
+    shape = masked_mean(se, jnp.clip(f / f_shape, 0.0, 1.0))
+    return w_trace * trace + w_temp * temp + w_shape * shape, (trace, temp, shape)
 
 
 # ----------------------------------------------------------------------------- training
 
 def train(args):
     X, Y, t = load_dataset(args.every, Path(args.cache))
-    print(f"{len(X)} frames of {X.shape[2:]} coarse cells, t = {t.min():.1f}-{t.max():.1f}")
+    # the split is made on all frames, so the validation frames are the same whatever t_min
+    val = stencil.val_mask(len(X), args.val_every)
+    keep = t >= args.t_min
+    X, Y, t, val = X[keep], Y[keep], t[keep], val[keep]
+    logS, clipped = log_shape(Y)
+    Y = jnp.concatenate([Y, logS], axis=1)
+    print(f"{len(X)} frames of {X.shape[2:]} coarse cells, t = {t.min():.2f}-{t.max():.2f} "
+          f"(t_min = {args.t_min:g}), {clipped:.2e} of S eigenvalues raised to {LOG_FLOOR:g}")
     print(f"f: median {float(jnp.median(Y[:, 0])):.2e}, "
           f"{float(jnp.mean(Y[:, 0] > args.f_shape)):.1%} of cells "
           f"above f_shape = {args.f_shape:g}")
 
-    val = stencil.val_mask(len(X), args.val_every)
     Xtr, Ytr, Xva, Yva = X[~val], Y[~val], X[val], Y[val]
 
     x_mean, x_std = stencil.standardise(Xtr, in_types)
@@ -201,17 +254,19 @@ def train(args):
     key, init_key = jax.random.split(key)
     f0 = jnp.exp(jnp.mean(jnp.log(jnp.maximum(Ytr[:, 0], args.f_floor))))
     params = init_params(init_key, X.shape[1], args.stencil, args.hidden,
-                         z0_bias=float(jnp.log(f0 / (1 - f0))))
+                         z0_bias=float(jnp.log(f0 / (1 - f0))), separate=args.separate)
 
-    loss = lambda p, x, y: loss_fn(p, x, y, args.f_floor, args.f_shape, args.w_shape)
-    params, history = stencil.fit(params, loss, ("trace", "shape"), Xtr, Ytr, Xva, Yva, key, args,
+    loss = lambda p, x, y: loss_fn(p, x, y, args.f_floor, args.f_shape,
+                                   args.w_trace, args.w_temp, args.w_shape)
+    params, history = stencil.fit(params, loss, ("trace", "temp", "shape"), Xtr, Ytr, Xva, Yva, key, args,
                                   in_types, out_types)
 
     with open(args.out, "wb") as f:
         pickle.dump({"params": jax.device_get(params),
                      "x_mean": jax.device_get(x_mean), "x_std": jax.device_get(x_std),
                      "channels": channels, "targets": targets,
-                     "f_floor": args.f_floor, "f_shape": args.f_shape, "w_shape": args.w_shape,
+                     "f_floor": args.f_floor, "f_shape": args.f_shape, "t_min": args.t_min, "log_floor": LOG_FLOOR, "w_trace": args.w_trace,
+                     "w_temp": args.w_temp, "w_shape": args.w_shape, "separate": args.separate,
                      **stencil.common_meta(args), "history": history}, f)
     print(f"saved {args.out}")
 
@@ -223,6 +278,15 @@ if __name__ == "__main__":
     parser.add_argument("--f-floor", type=float, default=1e-8,
                         help="floor on the target f in the ln f loss")
     parser.add_argument("--f-shape", type=float, default=1e-3,
-                        help="the shape loss uses cells with f above this (mixing layer)")
-    parser.add_argument("--w-shape", type=float, default=10.0, help="weight of the shape loss")
+                        help="the shape loss weights a cell by min(1, f / f_shape)")
+    parser.add_argument("--t-min", type=float, default=2.5,
+                        help="drop frames before this time: the initial transient, before "
+                             "the layer is turbulent, where S is near-degenerate")
+    parser.set_defaults(weighting="auto", hidden=[256, 256, 256], stencil=3, epochs=2100)
+    parser.add_argument("--separate", action=argparse.BooleanOptionalAction, default=True,
+                        help="separate networks for f and S (each of size --hidden)")
+    parser.add_argument("--w-trace", type=float, default=1.0, help="weight of the ln f loss (--weighting fixed)")
+    parser.add_argument("--w-temp", type=float, default=1e4,
+                        help="weight of the ln T (= ln <P>) loss (--weighting fixed)")
+    parser.add_argument("--w-shape", type=float, default=10.0, help="weight of the shape loss (--weighting fixed)")
     train(parser.parse_args())

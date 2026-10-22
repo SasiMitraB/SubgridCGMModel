@@ -23,25 +23,30 @@ def model_input(m, x):
 
 def load_model_and_split(path, load_dataset, split):
     """The pickled model at path and its X, Y, t restricted to split ("val", "train", "all"),
-    split exactly as in training."""
+    split exactly as in training, frames before the model's t_min (if it has one) dropped."""
     with open(path, "rb") as f:
         m = pickle.load(f)
     X, Y, t = map(np.asarray, load_dataset(m["every"], Path(m["cache"])))
     val = np.asarray(val_mask(len(X), m["val_every"]))
-    sel = {"val": val, "train": ~val, "all": np.ones_like(val)}[split]
+    sel = {"val": val, "train": ~val, "all": np.ones_like(val)}[split] & (t >= m.get("t_min", -np.inf))
     return m, X[sel], Y[sel], t[sel]
 
 
 def plot_loss(history, terms, ylabel, out):
     """Training (every epoch) and validation (every log_every epochs) loss, one panel per
-    (suffix, label) in terms whose history is recorded; suffix "" is the total."""
+    (suffix, label) in terms whose history is recorded; suffix "" is the total.  A panel
+    with values <= 0 (the auto-weighted total, a mean of logs) is drawn on a linear axis,
+    and a dotted line marks where L-BFGS took over, if it did."""
     terms = [(k, label) for k, label in terms if f"train{k}" in history]
     fig, axes = plt.subplots(1, len(terms), figsize=(4.5 * len(terms), 4), squeeze=False,
                              layout="constrained")
     for ax, (k, label) in zip(axes[0], terms):
         ax.plot(history["epoch"], history[f"train{k}"], lw=1, label="train")
         ax.plot(history["val_epoch"], history[f"val{k}"], "o-", ms=3, lw=1, label="validation")
-        ax.set(xlabel="epoch", yscale="log",
+        positive = min(history[f"train{k}"] + history[f"val{k}"]) > 0
+        if history.get("lbfgs_start", history["epoch"][-1] + 1) <= history["epoch"][-1]:
+            ax.axvline(history["lbfgs_start"], color="0.5", ls=":", lw=1)
+        ax.set(xlabel="epoch", yscale="log" if positive else "linear",
                title=f"{label}\ntrain {history[f'train{k}'][-1]:.3e}, val {history[f'val{k}'][-1]:.3e}")
         ax.grid(alpha=0.3, which="both")
     axes[0, 0].set_ylabel(ylabel)

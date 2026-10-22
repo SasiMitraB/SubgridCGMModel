@@ -1,10 +1,11 @@
 #!/usr/bin/env bash
 # Train the cooling-correction stencil model and benchmark it on the held-out frames.
 # Everything lands in outputs/cooling_<timestamp>/: train.log, cooling_model.pkl,
-# true_vs_pred.png (validation) and true_vs_pred_train.png, plus mid-slice animations
-# true_vs_pred_slice{,_train}.mp4 and loss.png.
+# true_vs_pred.png (z inside / outside the window and C; validation) and
+# true_vs_pred_train.png, plus mid-slice animations true_vs_pred_slice{,_train}.mp4 and loss.png.
 #
-# Usage: ./run_cooling_model.sh [training args, e.g. --every 2 --epochs 200 --stencil 3]
+# Usage: ./run_cooling_model.sh [training args, e.g. --every 2 --epochs 200 --stencil 3
+#                                --gate-model outputs/gate_<timestamp>/gate_model.pkl]
 set -euo pipefail
 
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
