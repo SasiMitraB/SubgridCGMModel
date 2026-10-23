@@ -12,7 +12,7 @@ with tau = R/rho_c and R^{1/2} the symmetric root; psi_c = gamma e_th + k_sg.
 The ratio c = |w|/B in [0, 1] is how much of the Cauchy-Schwarz bound a cell uses.
 
 Figures (Overleaf/images/chapter2/):
-  w_distribution.pdf    distributions of w_x, w_y, w_z, |w|, B and c, by phase
+  w_distribution.pdf    distributions of B, c, |w|, w-hat and w_x, w_y, w_z, by phase
   w_vs_f.pdf            B, |w| and c against f
   w_vs_targets.pdf      w_x, w_y, w_z and c against the outputs z_0..z_5 of R
 
@@ -97,7 +97,7 @@ def flux_params(d):
     W = np.linalg.norm(w, axis=1)
     B = np.sqrt(d["B2"])
     with np.errstate(invalid="ignore", divide="ignore"):
-        return dict(B=B, W=W, c=W / B, n=w / W[:, None])
+        return dict(B=B, W=W, c=W / B, n=w / W[:, None], w=w)
 
 
 # (label, range, ticks) of each quantity, and how to get it from flux_params
@@ -109,6 +109,21 @@ QUANT = {
     "ny": (r"$\hat{w}_y$", (-1, 1), [-1, 0, 1], lambda p: p["n"][:, 1]),
     "nz": (r"$\hat{w}_z$", (-1, 1), [-1, 0, 1], lambda p: p["n"][:, 2]),
 }
+
+
+# w itself spans ~1e-4 to ~4 in |w_i| and changes sign, so it is shown on a
+# symmetric-log axis: linear for |w_i| < W_LIN, logarithmic beyond
+W_LIN, W_MAX = 1e-4, 5.0
+W_TICKS = [-1, -1e-2, 0, 1e-2, 1]
+
+
+def symlog(x):
+    return np.sign(x) * np.log10(1 + np.abs(x) / W_LIN)
+
+
+for _i, _c in enumerate("xyz"):
+    QUANT["w" + _c] = (rf"$w_{_c}$", (-symlog(W_MAX), symlog(W_MAX)), symlog(np.array(W_TICKS)),
+                       lambda p, i=_i: symlog(p["w"][:, i]))
 
 
 def phase_cells(d, sh, p):
@@ -126,8 +141,8 @@ def phase_legend(fig, **kwargs):
 
 def plot_distribution(d, sh, p, out):
     masks = phase_cells(d, sh, p)
-    keys = ["logB", "c", "logW", "nx", "ny", "nz"]
-    fig, axes = plt.subplots(2, 3, figsize=ns.figsize(9.0, ns.WIDE), layout="constrained")
+    keys = ["logB", "c", "logW", "nx", "ny", "nz", "wx", "wy", "wz"]
+    fig, axes = plt.subplots(3, 3, figsize=ns.figsize(15.0, ns.WIDE), layout="constrained")
     fig.get_layout_engine().set(wspace=0.08)   # keep the end ticks of neighbours apart
     for ax, k in zip(axes.flat, keys):
         label, rng, ticks, get = QUANT[k]
@@ -136,9 +151,14 @@ def plot_distribution(d, sh, p, out):
         for key, _, colour in PHASES:
             ax.hist(np.clip(x[masks[key]], *rng), bins=edges, density=True,
                     histtype="step", color=colour, lw=1)
-        ax.set(xlabel=label, xlim=rng, xticks=ticks, yticks=[])
-        ax.spines["left"].set_visible(False)
-        if k[0] == "n":
+        ax.set(xlabel=label, xlim=rng, xticks=ticks, ylim=(0, None))
+        if k[0] == "w":
+            ax.set_xticklabels([
+                "0" if t == 0 else rf"${'-' if t < 0 else ''}10^{{{int(np.log10(abs(t)))}}}$"
+                for t in W_TICKS])
+        if ax in axes[:, 0]:
+            ax.set_ylabel("density")
+        if k[0] in "nw":
             ax.axvline(0, color=ns.HAIRLINE, lw=0.5)
     phase_legend(fig, loc="outside upper center", ncols=3)
     ns.save(fig, out)
