@@ -6,6 +6,10 @@ selected frames (default: the held-out validation frames):
               probability of the mixing (gate = 1) and non-mixing (gate = 0) cells, the
               precision-recall and ROC curves, and the recall of the mixing cells against their
               mixing mass fraction f_mix (are the misses the cells with a trace of mixing gas?)
+  --fmix-out  the number and the share of TN / FP / FN / TP cells against the mixing mass
+              fraction f_mix [%] computed from the simulation (the cells with f_mix = 0 in a bin
+              of their own, then log-spaced bins), plus a .csv of the counts; written next to
+              --out as <out>_fmix.png / .csv unless given (empty string to skip)
   --anim-out  mid-z (x-y) slice of the true gate, the predicted probability and the outcome
               (TP / FP / FN / TN) of every cell, one frame per snapshot
   --loss-out  training / validation loss against epoch
@@ -29,6 +33,8 @@ from models.gate_model import apply, features, gate, load_dataset
 
 OUTCOMES = ["TN", "FP", "FN", "TP"]  # index 2 * true + predicted
 OUTCOME_COLORS = ["#f2f2f2", "#e8a33d", "#c0392b", "#2e86c1"]
+LINE_COLORS = ["0.55", "#e8a33d", "#c0392b", "#2e86c1"]  # OUTCOMES, visible on white
+FMIX_PER_DECADE = 4
 
 
 def predict(m, X):
@@ -129,6 +135,74 @@ def plot(p, y, f_mix, threshold, title, out):
     print(f"saved {out}  (precision {precision:.4f}, recall {recall:.4f}, F1 {f1:.4f}, AP {ap:.4f}, AUC {auc:.4f})")
 
 
+def outcomes_by_fmix(pred, yb, f_mix):
+    """Cells of each outcome (rows in OUTCOMES order) per bin of f_mix: column 0 holds the
+    cells with f_mix = 0, columns 1.. log-spaced bins of f_mix > 0 (FMIX_PER_DECADE per
+    decade, from the decade of the smallest f_mix up to 1, the last bin closed).
+    Returns the bin edges (of the columns 1..) and the counts (4, len(edges))."""
+    positive = f_mix > 0
+    lo = min(np.floor(np.log10(f_mix[positive].min())), -1.0) if positive.any() else -6.0
+    edges = np.logspace(lo, 0, int(-lo) * FMIX_PER_DECADE + 1)
+    idx = np.where(positive, np.clip(np.digitize(f_mix, edges) - 1, 0, len(edges) - 2) + 1, 0)
+    outcome = 2 * yb + pred
+    counts = np.bincount(outcome * len(edges) + idx, minlength=4 * len(edges))
+    return edges, counts.reshape(4, len(edges))
+
+
+def plot_outcomes_by_fmix(pred, yb, f_mix, threshold, min_frac, title, out):
+    """TN / FP / FN / TP against f_mix [%]: the cell counts (top) and the share of the cells
+    of each bin in each outcome (bottom).  The narrow left panels are the cells with
+    f_mix = 0, which hold every true negative when min_frac = 0.  The counts are also
+    written to <out>.csv."""
+    edges, counts = outcomes_by_fmix(pred, yb, f_mix)
+    pct = 100 * edges
+    centres = np.sqrt(pct[:-1] * pct[1:])
+    share = counts / np.maximum(counts.sum(axis=0), 1)
+
+    fig, axes = plt.subplots(2, 2, figsize=(13, 8), width_ratios=[1, 8], sharey="row",
+                             layout="constrained")
+    axes[0, 1].sharex(axes[1, 1])
+    (zero_n, ax_n), (zero_s, ax_s) = axes
+
+    zero_n.bar(range(4), counts[:, 0], color=LINE_COLORS)
+    zero_n.set(xticks=range(4), xticklabels=OUTCOMES, yscale="log", ylabel="coarse cells",
+               title=r"$f_\mathrm{mix} = 0$")
+    for k, name in enumerate(OUTCOMES):
+        ax_n.plot(centres, np.where(counts[k, 1:] > 0, counts[k, 1:], np.nan), "o-", ms=3,
+                  lw=1, color=LINE_COLORS[k], label=name)
+    ax_n.set(xscale="log", yscale="log", ylim=(0.5, None),
+             title=f"outcomes against $f_\\mathrm{{mix}}$, threshold {threshold}")
+    ax_n.legend(fontsize=8, ncols=4)
+
+    for k in (3, 2, 1, 0):  # stacked: TP at the bottom, then FN, FP, TN
+        below = share[[j for j in (3, 2, 1, 0) if j > k]].sum(axis=0)
+        zero_s.bar(0, share[k, 0], bottom=below[0], color=LINE_COLORS[k], width=0.8)
+        ax_s.bar(pct[:-1], share[k, 1:], bottom=below[1:], width=np.diff(pct), align="edge",
+                 color=LINE_COLORS[k], label=OUTCOMES[k])
+    zero_s.set(xticks=[0], xticklabels=["0"], xlim=(-0.6, 0.6), ylim=(0, 1),
+               ylabel="share of the cells in the bin")
+    ax_s.set(xscale="log", xlabel=r"mixing mass fraction $f_\mathrm{mix}$ [%]")
+    for ax in (ax_n, ax_s):
+        ax.grid(alpha=0.3, which="both")
+        if min_frac > 0:
+            ax.axvline(100 * min_frac, color="0.3", ls="--", lw=1)
+    ax_s.set_xlim(pct[0], 100)
+    ax_n.tick_params(labelleft=False)
+    ax_s.tick_params(labelleft=False)
+
+    fig.suptitle(title)
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+
+    csv = Path(out).with_suffix(".csv")
+    lo = np.r_[0, pct[:-1]]
+    hi = np.r_[0, pct[1:]]
+    np.savetxt(csv, np.column_stack([lo, hi, counts.T]), delimiter=",", fmt=["%.6g", "%.6g"] + ["%d"] * 4,
+               header="f_mix_lo_percent,f_mix_hi_percent," + ",".join(OUTCOMES), comments="")
+    print(f"saved {out} and {csv}  (f_mix = 0: {counts[:, 0].sum()} cells, f_mix > 0: "
+          f"{counts[:, 1:].sum()} cells)")
+
+
 def animate(y, p, threshold, t, out, fps=8):
     """Mid-z slice of the true gate, predicted probability and outcome, one frame per snapshot.
     y, p are (frames, nz, ny, nx); y is the vertical axis of each panel."""
@@ -170,6 +244,9 @@ if __name__ == "__main__":
     parser.add_argument("--threshold", type=float, default=0.5,
                         help="gate = 1 where the predicted probability exceeds this")
     parser.add_argument("--out", default="benchmarking/gate_true_vs_pred.png")
+    parser.add_argument("--fmix-out", default=None,
+                        help="TN / FP / FN / TP against f_mix (.png, plus a .csv of the counts); "
+                             "default: --out with _fmix appended; empty string to skip")
     parser.add_argument("--anim-out", default="benchmarking/gate_true_vs_pred_slice.mp4",
                         help="mid-z slice animation (.mp4 or .gif); empty string to skip")
     parser.add_argument("--fps", type=int, default=8)
@@ -183,8 +260,16 @@ if __name__ == "__main__":
     plot(P.ravel(), Y.ravel(), F.ravel(), args.threshold,
          f"{args.split}: {len(X)} frames, {Y.size} cells, gate = 1 where f_mix > {m['min_frac']:g}",
          args.out)
+    fmix_out = (args.fmix_out if args.fmix_out is not None
+                else str(Path(args.out).with_name(Path(args.out).stem + "_fmix.png")))
+    if fmix_out:
+        plot_outcomes_by_fmix(P.ravel() > args.threshold, Y.ravel() > 0.5, F.ravel(),
+                              args.threshold, m["min_frac"],
+                              f"{args.split}: outcomes of the gate against f_mix, "
+                              f"gate = 1 where f_mix > {m['min_frac']:g}", fmix_out)
     if args.loss_out:
         plot_loss(m["history"], [("", "total"), ("_pos", "BCE, gate = 1"),
-                                 ("_neg", "BCE, gate = 0")], "binary cross-entropy", args.loss_out)
+                                 ("_neg", "BCE, gate = 0"), ("_aux", "MSE, f_mix (auxiliary)")],
+                  "loss", args.loss_out)
     if args.anim_out:
         animate(Y, P, args.threshold, t, args.anim_out, args.fps)

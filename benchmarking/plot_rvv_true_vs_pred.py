@@ -10,6 +10,9 @@ Writes
                  (mixing-layer cells, f > f_shape)
   --tensor-out   2D histograms of the six components of 2 f S_ij over all cells
                  (log axes on the diagonal, symlog off it)
+  --z-out        2D histograms of the six network outputs z_0..z_5 (f = sigmoid(z_0),
+                 S = e^A / Tr e^A with A = sum_k z_k E^(k)); z_0 over all cells, z_1..z_5
+                 over the mixing-layer cells (f > f_shape)
   --temp-out     coarse-grained temperature T_CG = (mu m_u / k_B)(gamma - 1) k_max (1 - f)
                  (eq-temperature, eq-f), predicted against true over all cells, and the
                  error in log10 T_CG of the model and of no subgrid model (f = 0, all the
@@ -33,7 +36,8 @@ from matplotlib.colors import LogNorm
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from benchmarking.common import load_model_and_split, model_input, plot_loss
-from models.rvv_tensor_model import PAIRS, channels, load_dataset, predict, unpack_S
+from models.rvv_tensor_model import (BASIS, PAIRS, apply, channels, load_dataset, log_shape,
+                                     predict, unpack_S)
 from models.stencil import athinput, run
 from vis_athenak import SimulationData
 from vis_athenak.utils.units import Units
@@ -48,6 +52,35 @@ def predict_frames(m, X):
     out = [predict(m["params"], model_input(m, x)) for x in X]
     return (np.concatenate([np.asarray(f) for f, _ in out]),
             np.concatenate([np.asarray(S) for _, S in out]))
+
+
+def predict_z(m, X):
+    """Raw outputs z_0..z_5, (frames, nz, ny, nx, 6), for inputs X, a frame at a time."""
+    return np.concatenate([np.asarray(apply(m["params"], model_input(m, x))) for x in X])
+
+
+def true_z(Y):
+    """z_0 = logit f and z_1..z_5 = components of traceless log S on BASIS (as in the loss)."""
+    f = np.clip(Y[:, 0].astype(np.float64), 1e-10, 1 - 1e-7)
+    L, _ = log_shape(jnp.asarray(Y))
+    z = np.asarray(jnp.einsum("...ij,kij->...k", unpack_S(L, start=0), BASIS), dtype=np.float64)
+    return np.concatenate([np.log(f / (1 - f))[..., None], z], axis=-1)
+
+
+def plot_z(z_t, z_p, f_t, f_shape, title, out):
+    """The six network outputs; z_0 over all cells, z_1..z_5 over the mixing layer."""
+    mix = f_t > f_shape
+    fig, axes = plt.subplots(2, 3, figsize=(14, 9), layout="constrained")
+    for k, ax in enumerate(axes.flat):
+        sel = slice(None) if k == 0 else mix
+        t, p = z_t[sel, k], z_p[sel, k]
+        lo, hi = np.percentile(np.concatenate([t, p]), [0.01, 99.99])
+        im = hist_panel(ax, t, p, (lo, hi), rf"$z_{k}$" + (r" (= logit $f$)" if k == 0 else ""))
+    fig.colorbar(im, ax=axes, label="coarse cells", shrink=0.6)
+    fig.suptitle(title + rf"  (z$_1$-z$_5$: $f > f_{{shape}}$ = {f_shape:g} cells)")
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+    print(f"saved {out}")
 
 
 def symlog(x, linthresh=LINTHRESH):
@@ -212,6 +245,8 @@ if __name__ == "__main__":
     parser.add_argument("--out", default="benchmarking/rvv_true_vs_pred.png")
     parser.add_argument("--tensor-out", default="benchmarking/rvv_tensor_true_vs_pred.png",
                         help="components of 2 f S_ij; empty string to skip")
+    parser.add_argument("--z-out", default="benchmarking/rvv_z_true_vs_pred.png",
+                        help="the six outputs z_0..z_5; empty string to skip")
     parser.add_argument("--temp-out", default="benchmarking/rvv_temperature_true_vs_pred.png",
                         help="predicted vs true T_CG; empty string to skip")
     parser.add_argument("--anim-out", default="benchmarking/rvv_true_vs_pred_slice.mp4",
@@ -233,6 +268,9 @@ if __name__ == "__main__":
     if args.tensor_out:
         plot_tensor(f_t.ravel(), f_p.ravel(), S_t.reshape(-1, 3, 3), S_p.reshape(-1, 3, 3),
                     title, args.tensor_out)
+    if args.z_out:
+        plot_z(true_z(Y).reshape(-1, 6), predict_z(m, X).reshape(-1, 6), f_t.ravel(),
+               m["f_shape"], title, args.z_out)
     if args.temp_out:
         k_max = 10.0**X[:, channels.index("log_kmax")].astype(np.float64)
         plot_temperature(f_t.ravel(), f_p.ravel(), k_max.ravel(), title, args.temp_out)

@@ -18,6 +18,11 @@ Inputs are the coarse fields of cooling_model.py plus their gradients on the coa
 (central differences, in units of a coarse cell): grad log rho, grad log T, grad s0, the
 strain rate S_ij and the vorticity of the resolved velocity (features).
 
+The network has two outputs per cell: the logit of the gate and, as an auxiliary target, the
+mixing mass fraction f_mix itself (through a sigmoid, trained with mean squared error).  The
+gate is all that is used at prediction time (apply); f_mix gives the shared layers graded
+information on how much mixing gas a cell holds, which the binary label throws away.
+
   python models/gate_model.py --every 2 --epochs 200
 """
 
@@ -46,7 +51,7 @@ channels = [*base_channels,
             "w_x", "w_y", "w_z"]
 in_types = ["scalar", "scalar", "vector", "scalar",                     # augment.py types
             "vector", "vector", "vector", "sym_tensor", "pseudovector"]
-out_types = None  # the gate is a bare scalar field
+out_types = ["scalar", "scalar"]  # targets: gate, f_mix
 fields = ["dens", "velx", "vely", "velz", "eint", "s_00"]
 PAIRS = [(0, 0), (1, 1), (2, 2), (0, 1), (0, 2), (1, 2)]
 
@@ -134,26 +139,34 @@ def gate(f_mix, min_frac=0.0):
 
 def apply(params, x):
     """(B, C, nz + 2h, ny + 2h, nx + 2h) normalised, padded inputs -> (B, nz, ny, nx) logit
-    of the gate."""
+    of the gate.  Works on models with or without the auxiliary f_mix output."""
     return stencil.apply(params, x)[..., 0]
 
 
-def loss_fn(params, x, y, w_pos=1.0, w_neg=1.0):
-    """Binary cross-entropy averaged separately over the mixing (y = 1) and non-mixing
-    (y = 0) cells, so neither class is swamped by the other whatever their ratio.
-    Returns (total, (pos, neg))."""
-    z = apply(params, x)
-    bce = jnp.maximum(z, 0) - z * y + jnp.log1p(jnp.exp(-jnp.abs(z)))
-    pos, neg = masked_mean(bce, y > 0.5), masked_mean(bce, y < 0.5)
-    return w_pos * pos + w_neg * neg, (pos, neg)
+def loss_fn(params, x, y, w_pos=1.0, w_neg=1.0, w_aux=1.0):
+    """Gate loss plus the auxiliary f_mix loss on padded inputs x and targets y (B, 2, nz,
+    ny, nx) = (gate, f_mix).
+
+    The gate term is the binary cross-entropy averaged separately over the mixing (gate = 1)
+    and non-mixing (gate = 0) cells, so neither class is swamped by the other whatever their
+    ratio; w_neg > w_pos penalises false positives harder.  The auxiliary term is the mean
+    squared error of sigmoid(second output) against f_mix over all cells.
+    Returns (total, (pos, neg, aux)), the terms unweighted."""
+    out = stencil.apply(params, x)
+    z, f_hat, gate_true, f_true = out[..., 0], jax.nn.sigmoid(out[..., 1]), y[:, 0], y[:, 1]
+    bce = jnp.maximum(z, 0) - z * gate_true + jnp.log1p(jnp.exp(-jnp.abs(z)))
+    pos, neg = masked_mean(bce, gate_true > 0.5), masked_mean(bce, gate_true < 0.5)
+    aux = jnp.mean((f_hat - f_true) ** 2)
+    return w_pos * pos + w_neg * neg + w_aux * aux, (pos, neg, aux)
 
 
 def scores(params, X, Y, threshold=0.5, batch=8):
     """Classification scores of the gate (probability > threshold) on padded frames X with
-    targets Y: base rate, accuracy, precision, recall, F1 and IoU of the mixing class."""
+    targets Y (frames, 2, ...) (gate first): base rate, accuracy, precision, recall, F1 and
+    IoU of the mixing class."""
     p = jnp.concatenate([jax.nn.sigmoid(apply(params, X[i:i + batch]))
                          for i in range(0, len(X), batch)])
-    pred, true = p > threshold, Y > 0.5
+    pred, true = p > threshold, Y[:, 0] > 0.5
     tp, fp, fn = (jnp.sum(pred & true), jnp.sum(pred & ~true), jnp.sum(~pred & true))
     precision, recall = tp / jnp.maximum(tp + fp, 1), tp / jnp.maximum(tp + fn, 1)
     return {"base_rate": float(jnp.mean(true)), "accuracy": float(jnp.mean(pred == true)),
@@ -167,12 +180,12 @@ def scores(params, X, Y, threshold=0.5, batch=8):
 def train(args):
     X, F, t = load_dataset(args.every, Path(args.cache))
     print(f"{len(X)} frames of {X.shape[2:]} coarse cells, t = {t.min():.1f}-{t.max():.1f}")
-    X, Y = features(X), gate(F, args.min_frac)
+    X, Y = features(X), jnp.stack([gate(F, args.min_frac), F], axis=1)  # (frames, 2, ...)
 
     val = stencil.val_mask(len(X), args.val_every)
     Xtr, Ytr, Xva, Yva = X[~val], Y[~val], X[val], Y[val]
-    print(f"mixing cells (gate = 1): {float(jnp.mean(Ytr)):.1%} train, "
-          f"{float(jnp.mean(Yva)):.1%} validation")
+    print(f"mixing cells (gate = 1): {float(jnp.mean(Ytr[:, 0])):.1%} train, "
+          f"{float(jnp.mean(Yva[:, 0])):.1%} validation")
 
     x_mean, x_std = stencil.standardise(Xtr, in_types)
     norm = lambda X: stencil.pad((X - x_mean) / x_std, args.stencil // 2)
@@ -180,10 +193,10 @@ def train(args):
 
     key = jax.random.PRNGKey(args.seed)
     key, init_key = jax.random.split(key)
-    params = stencil.init_params(init_key, X.shape[1], args.stencil, args.hidden, 1)
+    params = stencil.init_params(init_key, X.shape[1], args.stencil, args.hidden, 2)
 
-    loss = lambda p, x, y: loss_fn(p, x, y, args.w_pos, args.w_neg)
-    params, history = stencil.fit(params, loss, ("pos", "neg"),
+    loss = lambda p, x, y: loss_fn(p, x, y, args.w_pos, args.w_neg, args.w_aux)
+    params, history = stencil.fit(params, loss, ("pos", "neg", "aux"),
                                   Xtr, Ytr, Xva, Yva, key, args, in_types, out_types)
 
     metrics = {"train": scores(params, Xtr, Ytr), "val": scores(params, Xva, Yva)}
@@ -194,7 +207,8 @@ def train(args):
         pickle.dump({"params": jax.device_get(params),
                      "x_mean": jax.device_get(x_mean), "x_std": jax.device_get(x_std),
                      "channels": channels, "min_frac": args.min_frac, "t_mix": T_MIX,
-                     "w_pos": args.w_pos, "w_neg": args.w_neg, "metrics": metrics,
+                     "w_pos": args.w_pos, "w_neg": args.w_neg, "w_aux": args.w_aux,
+                     "metrics": metrics,
                      **stencil.common_meta(args), "history": history}, f)
     print(f"saved {args.out}")
 
@@ -208,5 +222,8 @@ if __name__ == "__main__":
     parser.add_argument("--w-pos", type=float, default=1.0,
                         help="weight of the cross-entropy over mixing cells (gate = 1)")
     parser.add_argument("--w-neg", type=float, default=1.0,
-                        help="weight of the cross-entropy over non-mixing cells (gate = 0)")
+                        help="weight of the cross-entropy over non-mixing cells (gate = 0); "
+                             "above --w-pos it penalises false positives harder")
+    parser.add_argument("--w-aux", type=float, default=1.0,
+                        help="weight of the auxiliary mean squared error on f_mix (0: unused)")
     train(parser.parse_args())

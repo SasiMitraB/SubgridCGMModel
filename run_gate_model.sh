@@ -2,8 +2,8 @@
 # Train the mixing-layer gate stencil model and benchmark it on the held-out frames.
 # Everything lands in outputs/gate_<timestamp>/: train.log, gate_model.pkl,
 # true_vs_pred.png (confusion matrix, probabilities, precision-recall, ROC, recall vs f_mix;
-# validation), its *_train.png counterpart, mid-slice animations true_vs_pred_slice{,_train}.mp4
-# and loss.png.
+# validation), its *_train.png counterpart, true_vs_pred{,_train}_fmix.{png,csv} (TN / FP / FN / TP
+# against f_mix), mid-slice animations true_vs_pred_slice{,_train}.mp4 and loss.png.
 #
 # Usage: ./run_gate_model.sh [training args, e.g. --every 2 --epochs 200 --min-frac 1e-3]
 set -euo pipefail

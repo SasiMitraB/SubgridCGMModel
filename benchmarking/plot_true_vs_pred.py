@@ -7,7 +7,11 @@ predicted correction C (eq-cooling, eq-cooling-model), against the true one:
   --out       four panels: predicted against true z on the gated cells with T_CG inside the
               cooling window and outside it; predicted against true net cooling (log10) over
               every cell; and the net cooling summed over each frame against time, with the
-              uncorrected coarse cooling (C = 0) as a reference
+              uncorrected coarse cooling (C = 0) as a reference; with --separate each panel is
+              also saved as a figure of its own
+  --total-out two panels: the total cooling of each frame (net cooling summed over its cells),
+              predicted against true with a 1:1 line, and its relative error against time;
+              written next to --out as <out>_total.png unless given (empty string to skip)
   --anim-out  mid-z (x-y) slice of the true net cooling, the predicted one and their difference
   --loss-out  training / validation loss against epoch
 
@@ -43,44 +47,108 @@ def hist(ax, x, y, lim, xlabel, ylabel, title):
     plt.colorbar(im, ax=ax, label="coarse cells")
 
 
-def plot(z_true, z_pred, g, inside, net_true, net_pred, net_coarse, t_cells, s, title, out):
+def plot(z_true, z_pred, g, inside, net_true, net_pred, net_coarse, t_cells, s, title, out,
+         separate=False):
     """net_true, net_pred: net cooling of every cell (flat); net_coarse: the coarse cooling
-    alone, i.e. net_pred with C = 0; t_cells: the time of every cell."""
+    alone, i.e. net_pred with C = 0; t_cells: the time of every cell.  With separate, every
+    panel is also saved as a figure of its own, <out>_<panel>.png."""
     positive = np.concatenate([net_true, net_pred])
     positive = positive[positive > 0]
     floor = 10**np.floor(np.log10(positive.min())) / 10
     n_zero = int(np.sum(net_true == 0))
+
+    def z_panel(sel, name, key):
+        def draw(ax):
+            lo, hi = np.floor(z_true[sel].min()) - 0.5, np.ceil(z_true[sel].max()) + 0.5
+            hist(ax, z_true[sel], z_pred[sel], (lo, hi), "true $z$", "predicted $z$",
+                 f"$g = 1$, $T_\\mathrm{{CG}}$ {name}: {sel.sum()} cells, RMSE {s[key]:.3f}")
+        return draw
+
+    def net_panel(ax):
+        lt, lp = log_net(net_true, floor), log_net(net_pred, floor)
+        lo, hi = np.floor(lt.min()), np.ceil(max(lt.max(), lp.max()))
+        hist(ax, lt, lp, (lo, hi), r"true $\log_{10}\langle n^2\Lambda\rangle$",
+             r"predicted $\log_{10}\langle n^2\Lambda\rangle$",
+             f"net cooling, all cells: $\\sum|\\Delta|/\\sum\\langle n^2\\Lambda\\rangle$ = {s['abs_err']:.3f}\n"
+             f"{n_zero} cells with zero true cooling drawn at $10^{{{np.log10(floor):.0f}}}$")
+
+    def time_panel(ax):
+        frames = np.unique(t_cells)
+        per_frame = lambda q: np.array([q[t_cells == f].sum() for f in frames])
+        ax.plot(frames, per_frame(net_true), "k-", lw=1.4, label="true")
+        ax.plot(frames, per_frame(net_pred), "o-", ms=3, lw=1, label="predicted, with C")
+        ax.plot(frames, per_frame(net_coarse), ls="--", lw=1, color="0.5",
+                label="coarse only (C = 0)")
+        ax.set(xlabel="t [Myr]", ylabel=r"$\sum \langle n^2\Lambda\rangle$ per frame [erg cm$^{-3}$ s$^{-1}$]",
+               title="net cooling summed over the frame")
+        ax.ticklabel_format(axis="y", style="sci", scilimits=(0, 0))
+        ax.legend(fontsize=8)
+        ax.grid(alpha=0.3)
+
+    panels = [("z_inside", z_panel((g > 0.5) & (inside > 0.5), "in the window", "rmse_in")),
+              ("z_outside", z_panel((g > 0.5) & (inside < 0.5), "outside the window", "rmse_out")),
+              ("net_cooling", net_panel), ("total_vs_time", time_panel)]
+
     fig, axes = plt.subplots(1, 4, figsize=(25, 5.8), layout="constrained")
-    for ax, sel, name, key in ((axes[0], (g > 0.5) & (inside > 0.5), "in the window", "rmse_in"),
-                               (axes[1], (g > 0.5) & (inside < 0.5), "outside the window", "rmse_out")):
-        lo, hi = np.floor(z_true[sel].min()) - 0.5, np.ceil(z_true[sel].max()) + 0.5
-        hist(ax, z_true[sel], z_pred[sel], (lo, hi), "true $z$", "predicted $z$",
-             f"$g = 1$, $T_\\mathrm{{CG}}$ {name}: {sel.sum()} cells, RMSE {s[key]:.3f}")
-
-    lt, lp = log_net(net_true, floor), log_net(net_pred, floor)
-    lo, hi = np.floor(lt.min()), np.ceil(max(lt.max(), lp.max()))
-    hist(axes[2], lt, lp, (lo, hi), r"true $\log_{10}\langle n^2\Lambda\rangle$",
-         r"predicted $\log_{10}\langle n^2\Lambda\rangle$",
-         f"net cooling, all cells: $\\sum|\\Delta|/\\sum\\langle n^2\\Lambda\\rangle$ = {s['abs_err']:.3f}\n"
-         f"{n_zero} cells with zero true cooling drawn at $10^{{{np.log10(floor):.0f}}}$")
-
-    ax = axes[3]
-    frames = np.unique(t_cells)
-    per_frame = lambda q: np.array([q[t_cells == f].sum() for f in frames])
-    ax.plot(frames, per_frame(net_true), "k-", lw=1.4, label="true")
-    ax.plot(frames, per_frame(net_pred), "o-", ms=3, lw=1, label="predicted, with C")
-    ax.plot(frames, per_frame(net_coarse), ls="--", lw=1, color="0.5",
-            label="coarse only (C = 0)")
-    ax.set(xlabel="t [Myr]", ylabel=r"$\sum \langle n^2\Lambda\rangle$ per frame [erg cm$^{-3}$ s$^{-1}$]",
-           title="net cooling summed over the frame")
-    ax.ticklabel_format(axis="y", style="sci", scilimits=(0, 0))
-    ax.legend(fontsize=8)
-    ax.grid(alpha=0.3)
-
+    for ax, (_, draw) in zip(axes, panels):
+        draw(ax)
     fig.suptitle(title)
     fig.savefig(out, dpi=150)
     plt.close(fig)
     print(f"saved {out}  (" + ", ".join(f"{k} {v:.4f}" for k, v in s.items()) + ")")
+
+    if separate:
+        for name, draw in panels:
+            fig, ax = plt.subplots(figsize=(7.5, 6.2), layout="constrained")
+            draw(ax)
+            fig.suptitle(title, fontsize=8)
+            path = Path(out).with_name(f"{Path(out).stem}_{name}.png")
+            fig.savefig(path, dpi=150)
+            plt.close(fig)
+            print(f"saved {path}")
+
+
+def plot_total(t, net_true, net_pred, net_coarse, title, out):
+    """Total cooling of each frame, predicted against true, and its relative error against
+    time.  net_* are (frames, nz, ny, nx); the total of a frame is the sum over its cells,
+    the coarse-only one (C = 0) a reference for what the correction adds."""
+    per_frame = lambda q: q.reshape(len(q), -1).sum(axis=1)
+    true, pred, coarse = per_frame(net_true), per_frame(net_pred), per_frame(net_coarse)
+    err = lambda q: q / true - 1
+    overall = lambda q: q.sum() / true.sum() - 1
+
+    fig, (ax, ax_t) = plt.subplots(1, 2, figsize=(12, 5), layout="constrained")
+    lo, hi = min(true.min(), pred.min()), max(true.max(), pred.max())
+    pad = 0.05 * (hi - lo)
+    ax.plot([lo - pad, hi + pad], [lo - pad, hi + pad], "k--", lw=0.8, label="1:1")
+    sc = ax.scatter(true, pred, s=14, c=t, cmap="viridis",
+                    label=f"predicted, with C, total {overall(pred):+.1%}")
+    ax.set_xlim(lo - pad, hi + pad)
+    ax.set_ylim(lo - pad, hi + pad)
+    ax.set(xlabel=r"true total cooling $\sum\langle n^2\Lambda\rangle$ [erg cm$^{-3}$ s$^{-1}$]",
+           ylabel=r"predicted total cooling [erg cm$^{-3}$ s$^{-1}$]", aspect="equal",
+           title="total cooling per frame")
+    ax.ticklabel_format(style="sci", scilimits=(0, 0))
+    ax.legend(fontsize=8, loc="upper left")
+    ax.grid(alpha=0.3)
+    fig.colorbar(sc, ax=ax, label="t [Myr]", shrink=0.8)
+
+    ax_t.axhline(0, color="k", lw=0.8)
+    ax_t.plot(t, err(coarse), "--", lw=1, color="0.5",
+              label=f"coarse only (C = 0), total {overall(coarse):+.0%}")
+    ax_t.plot(t, err(pred), "o-", ms=3, lw=1, label="predicted, with C")
+    ax_t.set(xlabel="t [Myr]", ylabel="(predicted $-$ true) / true",
+             title="relative error of the total cooling")
+    ax_t.yaxis.set_major_formatter(plt.FuncFormatter(lambda v, _: f"{v:.0%}"))
+    ax_t.legend(fontsize=8)
+    ax_t.grid(alpha=0.3)
+
+    fig.suptitle(title)
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+    print(f"saved {out}  (total cooling: predicted {overall(pred):+.2%}, coarse only "
+          f"{overall(coarse):+.2%} of the true; per-frame error {np.abs(err(pred)).mean():.2%} mean |.|, "
+          f"{np.abs(err(pred)).max():.2%} max)")
 
 
 def animate(y_true, y_pred, t, out, fps=8):
@@ -126,6 +194,12 @@ if __name__ == "__main__":
     parser.add_argument("--model", default="models/cooling_model.pkl")
     parser.add_argument("--split", choices=["val", "train", "all"], default="val")
     parser.add_argument("--out", default="benchmarking/true_vs_pred.png")
+    parser.add_argument("--separate", action="store_true",
+                        help="also save each panel of --out as a figure of its own: "
+                             "<out>_z_inside, _z_outside, _net_cooling, _total_vs_time (.png)")
+    parser.add_argument("--total-out", default=None,
+                        help="total cooling per frame, predicted against true (.png); "
+                             "default: --out with _total appended; empty string to skip")
     parser.add_argument("--anim-out", default="benchmarking/true_vs_pred_slice.mp4",
                         help="mid-z slice animation (.mp4 or .gif); empty string to skip")
     parser.add_argument("--fps", type=int, default=8)
@@ -148,7 +222,12 @@ if __name__ == "__main__":
     title = (f"{args.split}: {len(X)} frames, {net_true.size} cells, gate input: "
              f"{m['gate_model'] or 'true g'}, k = {m['k_cut']:g}")
     plot(z.ravel(), np.asarray(z_pred).ravel(), g.ravel(), inside.ravel(), net_true.ravel(),
-         net_pred.ravel(), coarse.ravel(), t_cells.ravel(), s, title, args.out)
+         net_pred.ravel(), coarse.ravel(), t_cells.ravel(), s, title, args.out,
+         separate=args.separate)
+    total_out = (args.total_out if args.total_out is not None
+                 else str(Path(args.out).with_name(Path(args.out).stem + "_total.png")))
+    if total_out:
+        plot_total(np.asarray(t), net_true, net_pred, coarse, title, total_out)
     if args.loss_out:
         plot_loss(m["history"], [("", "total"), ("_in", "MSE of z, in the window"),
                                  ("_out", "MSE of z, outside the window")],

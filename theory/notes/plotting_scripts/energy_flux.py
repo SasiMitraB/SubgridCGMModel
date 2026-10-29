@@ -15,6 +15,8 @@ Figures (Overleaf/images/chapter2/):
   w_distribution.pdf    distributions of B, c, |w|, w-hat and w_x, w_y, w_z, by phase
   w_vs_f.pdf            B, |w| and c against f
   w_vs_targets.pdf      w_x, w_y, w_z and c against the outputs z_0..z_5 of R
+  w_scaling.pdf         |w| against f, and the exponent alpha of |w| ~ f^alpha
+  w_targets.pdf         distributions of the outputs z_6, z_7, z_8 of w, by phase
 
 Per-cell values are cached one file per frame (cell_cache.py). Frames before
 ns.T_MIN = 2.5 Myr, the initial transient, are left out of every figure.
@@ -228,10 +230,76 @@ def plot_vs_targets(d, sh, p, out):
     ns.save(fig, out)
 
 
+# ─── 4. Scaling of |w| with f ────────────────────────────────────────────────
+
+ALPHAS = np.linspace(0, 1, 201)
+
+
+def plot_w_scaling(d, sh, p, out):
+    """Left: |w| against f, with the least-squares line. Right: the spread of
+    log|w| - alpha log f against alpha, smallest near alpha = 1/2 (sec:w-model)."""
+    has = np.isfinite(p["c"])
+    logf, logw = np.log10(d["f"][has]), np.log10(p["W"][has])
+    slope, icpt = np.polyfit(logf, logw, 1)
+    spread = np.array([np.std(logw - a * logf) for a in ALPHAS])
+    best = ALPHAS[np.argmin(spread)]
+    print(f"|w| ~ f^alpha: least-squares slope {slope:.3f}, smallest spread at {best:.3f}")
+
+    fig, (ax, bx) = plt.subplots(1, 2, figsize=ns.figsize(5.6, ns.WIDE), layout="constrained")
+    fedges = np.linspace(*LOGF_RANGE, 101)
+    _, rng, ticks, _ = QUANT["logW"]
+    *_, im = ax.hist2d(np.clip(logf, *LOGF_RANGE), np.clip(logw, *rng),
+                       bins=[fedges, np.linspace(*rng, 81)], norm=LogNorm(), cmap=ns.SEQ,
+                       rasterized=True)
+    ax.plot(LOGF_RANGE, icpt + slope * np.array(LOGF_RANGE), color=ns.OVERLAY,
+            label=rf"slope ${slope:.2f}$")
+    ax.set(xlabel=r"$\log_{10} f$", ylabel=QUANT["logW"][0], xlim=LOGF_RANGE, ylim=rng,
+           yticks=ticks)
+    ax.legend(loc="upper left")
+    ns.colorbar(fig, im, ax, "coarse cells")
+
+    bx.plot(ALPHAS, spread, color=ns.OVERLAY)
+    bx.axvline(best, color=ns.HAIRLINE, lw=0.5)
+    bx.annotate(rf"$\alpha = {best:.2f}$", (best, spread.min()), xytext=(4, -14),
+                textcoords="offset points", fontsize=ns.SMALL, color=ns.MUTED)
+    bx.set(xlabel=r"$\alpha$", ylabel="spread (dex)",
+           xlim=(0, 1), ylim=(0, None))
+    ns.save(fig, out)
+
+
+# ─── 5. The outputs z_6, z_7, z_8 of w ───────────────────────────────────────
+
+Z_W_RANGE = (-5, 5)
+
+
+def w_targets(d, p):
+    """z_6, z_7, z_8 of every cell (sec:w-model): w mapped radially,
+    z = asinh(|w|/sqrt f) w-hat, the inverse of w = sqrt f sinh|z|/|z| z."""
+    return p["n"] * np.arcsinh(p["W"] / np.sqrt(d["f"]))[:, None]
+
+
+def plot_w_targets(d, sh, p, out):
+    masks = phase_cells(d, sh, p)
+    z = w_targets(d, p)
+    edges = np.linspace(*Z_W_RANGE, 121)
+    fig, axes = plt.subplots(1, 3, figsize=ns.figsize(5.2, ns.WIDE), layout="constrained")
+    for i, ax in enumerate(axes):
+        for key, _, colour in PHASES:
+            ax.hist(np.clip(z[masks[key], i], *Z_W_RANGE), bins=edges, density=True,
+                    histtype="step", color=colour, lw=1)
+        ax.axvline(0, color=ns.HAIRLINE, lw=0.5)
+        ax.set(xlabel=rf"$z_{6 + i}$", xlim=Z_W_RANGE, xticks=[-4, -2, 0, 2, 4], ylim=(0, None))
+    axes[0].set_ylabel("density")
+    phase_legend(fig, loc="outside upper center", ncols=3)
+    ns.save(fig, out)
+
+
 def plot_all(d):
     sh = shape(d)
     p = flux_params(d)
     plot_distribution(d, sh, p, ns.image_path(2, "w_distribution.pdf"))
+    plot_w_scaling(d, sh, p, ns.image_path(2, "w_scaling.pdf"))
+    plot_w_targets(d, sh, p, ns.image_path(2, "w_targets.pdf"))
     plot_vs_f(d, sh, p, ns.image_path(2, "w_vs_f.pdf"))
     plot_vs_targets(d, sh, p, ns.image_path(2, "w_vs_targets.pdf"))
     return sh, p

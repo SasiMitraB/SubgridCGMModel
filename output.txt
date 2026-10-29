@@ -1,0 +1,110 @@
+Generated input file: /data/sasi/simulation_outputs/kh3d_128x512x128/kh3d_128x512x128.athinput
+
+========================================================================
+ Athena 3D KH Simulation Configuration
+========================================================================
+ Tag            : kh3d_128x512x128
+ Resolution     : 128 x 512 x 128
+ Meshblock Size : 64 x 128 x 64 (16 MeshBlocks)
+ Backend        : gpu
+ tlim           : from base deck Myr
+ Output Dir     : /data/sasi/simulation_outputs/kh3d_128x512x128
+ Log File       : /data/sasi/simulation_outputs/kh3d_128x512x128/kh3d_128x512x128.log
+ Executable     : /home/sasi/Projects/SubgridCGMModel/builds/hr_build_gpu/src/athena
+ Estimated time : ~3h 03m (~65,280 cycles, done around 19:38 on Oct 08)
+ Est. storage   : ~28.4GB (126 bin x 192.0MB + 11 rst x 447.1MB; 946.5GB free)
+========================================================================
+
+[2026-10-08 16:35:19] Launching Athena (gpu) ...
+
+Root grid = 2 x 4 x 2 MeshBlocks
+Total number of MeshBlocks = 16
+Number of logical  levels of refinement = 2 (3 levels total)
+Number of physical levels of refinement = 0 (1 levels total)
+Number of parallel ranks = 1
+
+Setup complete, executing task list(s)...
+
+elapsed=3.913898e+00 cycle=0 time=0.000000e+00 dt=1.725770e-04
+elapsed=1.616239e+02 cycle=1000 time=1.711472e-01 dt=1.690094e-04
+elapsed=3.151255e+02 cycle=2000 time=3.412867e-01 dt=1.706301e-04
+elapsed=4.660838e+02 cycle=3000 time=5.099648e-01 dt=1.674162e-04
+elapsed=6.151186e+02 cycle=4000 time=6.754967e-01 dt=1.634580e-04
+elapsed=7.628238e+02 cycle=5000 time=8.348993e-01 dt=1.556111e-04
+elapsed=9.096526e+02 cycle=6000 time=9.869816e-01 dt=1.426161e-04
+elapsed=1.055192e+03 cycle=7000 time=1.142958e+00 dt=1.534755e-04
+elapsed=1.199248e+03 cycle=8000 time=1.297199e+00 dt=1.514422e-04
+elapsed=1.342107e+03 cycle=9000 time=1.448514e+00 dt=1.547907e-04
+elapsed=1.484058e+03 cycle=10000 time=1.599176e+00 dt=1.554217e-04
+elapsed=1.626474e+03 cycle=11000 time=1.747682e+00 dt=1.506791e-04
+elapsed=1.769170e+03 cycle=12000 time=1.896183e+00 dt=1.497906e-04
+elapsed=1.912179e+03 cycle=13000 time=2.042896e+00 dt=1.409215e-04
+elapsed=2.055229e+03 cycle=14000 time=2.188967e+00 dt=1.503363e-04
+elapsed=2.198446e+03 cycle=15000 time=2.334065e+00 dt=1.562524e-04
+elapsed=2.341833e+03 cycle=16000 time=2.486579e+00 dt=1.482218e-04
+elapsed=2.485209e+03 cycle=17000 time=2.635100e+00 dt=1.465334e-04
+elapsed=2.628939e+03 cycle=18000 time=2.782812e+00 dt=1.441022e-04
+elapsed=2.772959e+03 cycle=19000 time=2.929355e+00 dt=1.503153e-04
+elapsed=2.917405e+03 cycle=20000 time=3.071716e+00 dt=1.330663e-04
+elapsed=3.061635e+03 cycle=21000 time=3.209405e+00 dt=1.471071e-04
+elapsed=3.205855e+03 cycle=22000 time=3.353976e+00 dt=1.418919e-04
+elapsed=3.350225e+03 cycle=23000 time=3.492516e+00 dt=1.472908e-04
+elapsed=3.494854e+03 cycle=24000 time=3.632610e+00 dt=1.345933e-04
+elapsed=3.639405e+03 cycle=25000 time=3.764721e+00 dt=1.366540e-04
+elapsed=3.783817e+03 cycle=26000 time=3.904498e+00 dt=1.404173e-04
+elapsed=3.928645e+03 cycle=27000 time=4.047749e+00 dt=1.396588e-04
+elapsed=4.073404e+03 cycle=28000 time=4.188070e+00 dt=1.343597e-04
+elapsed=4.218283e+03 cycle=29000 time=4.321554e+00 dt=1.337934e-04
+elapsed=4.363072e+03 cycle=30000 time=4.450391e+00 dt=1.180279e-04
+elapsed=4.508237e+03 cycle=31000 time=4.585743e+00 dt=1.355420e-04
+elapsed=4.653240e+03 cycle=32000 time=4.713919e+00 dt=1.257784e-04
+elapsed=4.798982e+03 cycle=33000 time=4.838945e+00 dt=1.208438e-04
+elapsed=4.946021e+03 cycle=34000 time=4.968823e+00 dt=1.285657e-04
+elapsed=5.093997e+03 cycle=35000 time=5.101738e+00 dt=1.406920e-04
+elapsed=5.241928e+03 cycle=36000 time=5.233697e+00 dt=1.352820e-04
+elapsed=5.389941e+03 cycle=37000 time=5.364555e+00 dt=1.311066e-04
+elapsed=5.535667e+03 cycle=38000 time=5.498658e+00 dt=1.304431e-04
+elapsed=5.681388e+03 cycle=39000 time=5.636100e+00 dt=1.423489e-04
+elapsed=5.829999e+03 cycle=40000 time=5.776519e+00 dt=1.372613e-04
+elapsed=5.978098e+03 cycle=41000 time=5.911238e+00 dt=1.306446e-04
+elapsed=6.125180e+03 cycle=42000 time=6.046645e+00 dt=1.358491e-04
+elapsed=6.272309e+03 cycle=43000 time=6.184346e+00 dt=1.390144e-04
+elapsed=6.417736e+03 cycle=44000 time=6.315536e+00 dt=1.345860e-04
+elapsed=6.563466e+03 cycle=45000 time=6.450684e+00 dt=1.379440e-04
+elapsed=6.709194e+03 cycle=46000 time=6.577100e+00 dt=1.290541e-04
+elapsed=6.854520e+03 cycle=47000 time=6.704400e+00 dt=1.255831e-04
+elapsed=7.000007e+03 cycle=48000 time=6.839968e+00 dt=1.387066e-04
+elapsed=7.145510e+03 cycle=49000 time=6.972071e+00 dt=1.375825e-04
+elapsed=7.290703e+03 cycle=50000 time=7.103728e+00 dt=1.429192e-04
+elapsed=7.435775e+03 cycle=51000 time=7.241353e+00 dt=1.386029e-04
+elapsed=7.582698e+03 cycle=52000 time=7.380347e+00 dt=1.396332e-04
+elapsed=7.729737e+03 cycle=53000 time=7.519368e+00 dt=1.411410e-04
+elapsed=7.878227e+03 cycle=54000 time=7.658035e+00 dt=1.320382e-04
+elapsed=8.026992e+03 cycle=55000 time=7.796063e+00 dt=1.302224e-04
+elapsed=8.176211e+03 cycle=56000 time=7.924431e+00 dt=1.300768e-04
+elapsed=8.325301e+03 cycle=57000 time=8.055025e+00 dt=1.353915e-04
+elapsed=8.472458e+03 cycle=58000 time=8.184270e+00 dt=1.333786e-04
+elapsed=8.620484e+03 cycle=59000 time=8.319679e+00 dt=1.317707e-04
+elapsed=8.769601e+03 cycle=60000 time=8.454592e+00 dt=1.397687e-04
+elapsed=8.918321e+03 cycle=61000 time=8.594223e+00 dt=1.348090e-04
+elapsed=9.067140e+03 cycle=62000 time=8.727950e+00 dt=1.328724e-04
+elapsed=9.215282e+03 cycle=63000 time=8.864908e+00 dt=1.393812e-04
+elapsed=9.491749e+03 cycle=64000 time=9.006020e+00 dt=1.446885e-04
+elapsed=9.820200e+03 cycle=65000 time=9.151508e+00 dt=1.431415e-04
+elapsed=1.014911e+04 cycle=66000 time=9.292276e+00 dt=1.330030e-04
+elapsed=1.047398e+04 cycle=67000 time=9.436470e+00 dt=1.439449e-04
+elapsed=1.080280e+04 cycle=68000 time=9.573607e+00 dt=1.368716e-04
+elapsed=1.113295e+04 cycle=69000 time=9.712226e+00 dt=1.428763e-04
+elapsed=1.146053e+04 cycle=70000 time=9.848977e+00 dt=1.305602e-04
+elapsed=1.178814e+04 cycle=71000 time=9.985052e+00 dt=1.324662e-04
+
+Terminating on time limit
+time=1.000000e+01 cycle=71116
+tlim=1.000000e+01 nlim=-1
+
+MeshBlock-cycles = 1137856
+cpu time used  = 1.182295e+04
+zone-cycles/cpu_second = 5.045816e+07
+particle-updates/cpu_second = 0.000000e+00
+[2026-10-08 19:52:26] Simulation completed!
+Outputs stored in: /data/sasi/simulation_outputs/kh3d_128x512x128
